@@ -133,7 +133,7 @@
                     shotStartTime = new Date(data.timestamp);
                     clearChart();
                 }
-                updateChart(data.timestamp, data.pressure, data.flow, data.targetPressure, data.targetFlow);
+                updateChart(data.timestamp, data.pressure, data.flow, data.targetPressure, data.targetFlow, data.groupTemperature);
                 if (state === 'espresso' && currentProfile) {
                     addProfileOverlay();
                 }
@@ -154,7 +154,6 @@
                 x: [],
                 y: [],
                 name: 'Flow',
-                yaxis: 'y2',
                 type: 'scatter',
                 line: {color: 'blue'}
             },
@@ -169,27 +168,28 @@
                 x: [],
                 y: [],
                 name: 'Target Flow',
-                yaxis: 'y2',
                 type: 'scatter',
                 line: {color: 'lightblue', dash: 'dot'}
+            },
+            groupTemperature: {
+                x: [],
+                y: [],
+                name: 'Group Temp',
+                type: 'scatter',
+                line: {color: 'red', dash: 'dot'}
             }
         };
 
         const layout = {
-            title: 'Pressure and Flow',
-            xaxis: {title: 'Time (s)'},
-            yaxis: {title: 'Pressure (bar)'},
-            yaxis2: {
-                title: 'Flow (ml/s)',
-                overlaying: 'y',
-                side: 'right'
-            }
+            title: 'Pressure, Flow and Temperature',
+            xaxis: {title: 'Time (s)', dtick: 10, range: [0, 100]},
+            yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)'}
         };
 
-        Plotly.newPlot(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow], layout);
+        Plotly.newPlot(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
         clearChart();
 
-        function updateChart(timestamp, pressure, flow, targetPressure, targetFlow) {
+        function updateChart(timestamp, pressure, flow, targetPressure, targetFlow, groupTemperature) {
             const time = (new Date(timestamp) - shotStartTime) / 1000;
 
             chartData.pressure.x.push(time);
@@ -200,21 +200,10 @@
             chartData.targetPressure.y.push(targetPressure);
             chartData.targetFlow.x.push(time);
             chartData.targetFlow.y.push(targetFlow);
+            chartData.groupTemperature.x.push(time);
+            chartData.groupTemperature.y.push(groupTemperature / 10);
 
-            // Limit the number of data points to avoid performance issues
-            const maxDataPoints = 100;
-            if (chartData.pressure.x.length > maxDataPoints) {
-                chartData.pressure.x.shift();
-                chartData.pressure.y.shift();
-                chartData.flow.x.shift();
-                chartData.flow.y.shift();
-                chartData.targetPressure.x.shift();
-                chartData.targetPressure.y.shift();
-                chartData.targetFlow.x.shift();
-                chartData.targetFlow.y.shift();
-            }
-
-            Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow], layout);
+            Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
         }
 
         function clearChart() {
@@ -226,8 +215,10 @@
             chartData.targetPressure.y = [];
             chartData.targetFlow.x = [];
             chartData.targetFlow.y = [];
+            chartData.groupTemperature.x = [];
+            chartData.groupTemperature.y = [];
             removeProfileOverlay();
-            Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow], layout);
+            Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
         }
 
         function addProfileOverlay() {
