@@ -75,6 +75,7 @@
 
         let currentProfile = null;
         let shotStartTime = null;
+        let profileOverlayExists = false;
 
         const socket = new WebSocket('ws://localhost:8080/ws/v1/de1/snapshot');
 
@@ -228,8 +229,6 @@
             removeProfileOverlay();
             Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow], layout);
         }
-
-        let profileOverlayExists = false;
 
         function addProfileOverlay() {
             if (profileOverlayExists || !currentProfile || !currentProfile.steps) return;
