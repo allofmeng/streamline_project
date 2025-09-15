@@ -52,11 +52,19 @@
 
             <div class="bg-white p-4 rounded-lg shadow col-span-2">
                 <h2 class="text-lg font-semibold mb-2">Current Profile</h2>
-                <div class="flex items-center">
+                <div class="flex items-center mb-4">
                     <div id="profile-name" class="text-gray-600">-</div>
                     <button id="refresh-profile" class="ml-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                         Refresh
                     </button>
+                </div>
+                <div>
+                    <h3 class="text-md font-semibold mb-2">Load Profile from File</h3>
+                    <input type="file" id="profile-upload" accept=".json" class="mb-2">
+                    <button id="send-profile" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        Send Profile to Machine
+                    </button>
+                    <pre id="file-content" class="mt-2 bg-gray-200 p-2 rounded"></pre>
                 </div>
             </div>
         </div>
@@ -72,10 +80,14 @@
         const chart = document.getElementById('chart');
         const profileName = document.getElementById('profile-name');
         const refreshProfile = document.getElementById('refresh-profile');
+        const profileUpload = document.getElementById('profile-upload');
+        const sendProfile = document.getElementById('send-profile');
+        const fileContent = document.getElementById('file-content');
 
         let currentProfile = null;
         let shotStartTime = null;
         let profileOverlayExists = false;
+        let uploadedProfileContent = null;
 
         const socket = new WebSocket('ws://localhost:8080/ws/v1/de1/snapshot');
 
@@ -97,6 +109,57 @@
         }
 
         refreshProfile.addEventListener('click', getProfile);
+
+        profileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                uploadedProfileContent = e.target.result;
+                fileContent.textContent = uploadedProfileContent;
+            };
+            reader.readAsText(file);
+        });
+
+        sendProfile.addEventListener('click', () => {
+            if (!uploadedProfileContent) {
+                alert('Please select a profile file first.');
+                return;
+            }
+
+            try {
+                const profileJson = JSON.parse(uploadedProfileContent);
+                const payload = { profile: profileJson };
+
+                fetch('http://localhost:8080/api/v1/workflow', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Profile sent successfully!');
+                        getProfile(); // Refresh the current profile
+                    } else {
+                        response.text().then(text => {
+                            alert(`Failed to send profile: ${text}`);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error sending profile:', error);
+                    alert('An error occurred while sending the profile.');
+                });
+            } catch (error) {
+                console.error('Error parsing profile JSON:', error);
+                alert('The selected file is not valid JSON.');
+            }
+        });
 
         socket.onopen = () => {
             connectionStatus.textContent = 'Connected';
@@ -176,7 +239,7 @@
                 y: [],
                 name: 'Group Temp',
                 type: 'scatter',
-                line: {color: 'red', dash: 'dot'}
+                line: {color: 'red'}
             }
         };
 
