@@ -1,5 +1,44 @@
-import { initChart } from './chart.js';
+import { connectWebSocket, getProfile } from './api.js';
+import * as chart from './chart.js';
+import * as ui from './ui.js';
+
+let shotStartTime = null;
+
+function handleData(data) {
+    const state = data.state.state;
+
+    // Update UI elements
+    ui.updateMachineStatus(state);
+    ui.updateTemperatures({ mix: data.mixTemperature, group: data.groupTemperature });
+
+    // Update Chart
+    if (['espresso', 'flush', 'steam', 'hotWater'].includes(state)) {
+        if (!shotStartTime) {
+            shotStartTime = new Date(data.timestamp);
+            chart.clearChart();
+        }
+        chart.updateChart(shotStartTime, data); // Pass full data object
+    } else {
+        shotStartTime = null;
+    }
+}
+
+async function loadInitialData() {
+    try {
+        const profile = await getProfile();
+        if (profile) {
+            ui.updateProfileName(profile.title);
+            // Future: Pass profile to chart module if needed for overlays
+            // chart.setProfile(profile);
+        }
+    } catch (error) {
+        console.error("Failed to load initial data:", error);
+        ui.updateProfileName("Error loading profile");
+    }
+}
 
 document.addEventListener('DOMContentLoaded', () => {
-    initChart();
+    chart.initChart();
+    loadInitialData();
+    connectWebSocket(handleData);
 });

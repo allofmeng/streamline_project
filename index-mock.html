@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streamline Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="src/modules/plotly-3.1.0.min.js"></script>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Streamline Dashboard</h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white p-4 rounded-lg shadow">
+                <h2 class="text-lg font-semibold mb-2">Connection Status</h2>
+                <div id="connection-status" class="text-gray-600">Connecting...</div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow">
+                <h2 class="text-lg font-semibold mb-2">Machine State</h2>
+                <div id="machine-state" class="text-gray-600">-</div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow col-span-2">
+                <h2 class="text-lg font-semibold mb-2">Real-time Data</h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                        <div class="text-gray-500">Pressure</div>
+                        <div id="pressure" class="text-2xl font-bold">-</div>
+                    </div>
+                    <div>
+                        <div class="text-gray-500">Flow</div>
+                        <div id="flow" class="text-2xl font-bold">-</div>
+                    </div>
+                    <div>
+                        <div class="text-gray-500">Mix Temp</div>
+                        <div id="mix-temp" class="text-2xl font-bold">-</div>
+                    </div>
+                    <div>
+                        <div class="text-gray-500">Group Temp</div>
+                        <div id="group-temp" class="text-2xl font-bold">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow col-span-2">
+                <h2 class="text-lg font-semibold mb-2">Real-time Chart</h2>
+                <div id="chart"></div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow col-span-2">
+                <h2 class="text-lg font-semibold mb-2">Current Profile</h2>
+                <div class="flex items-center mb-4">
+                    <div id="profile-name" class="text-gray-600">-</div>
+                    <button id="refresh-profile" class="ml-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        Refresh
+                    </button>
+                </div>
+                <div>
+                    <h3 class="text-md font-semibold mb-2">Load Profile from File</h3>
+                    <input type="file" id="profile-upload" accept=".json" class="mb-2">
+                    <button id="send-profile" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        Send Profile to Machine
+                    </button>
+                    <pre id="file-content" class="mt-2 bg-gray-200 p-2 rounded"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const connectionStatus = document.getElementById('connection-status');
+        const machineState = document.getElementById('machine-state');
+        const pressure = document.getElementById('pressure');
+        const flow = document.getElementById('flow');
+        const mixTemp = document.getElementById('mix-temp');
+        const groupTemp = document.getElementById('group-temp');
+        const chart = document.getElementById('chart');
+        const profileName = document.getElementById('profile-name');
+        const refreshProfile = document.getElementById('refresh-profile');
+        const profileUpload = document.getElementById('profile-upload');
+        const sendProfile = document.getElementById('send-profile');
+        const fileContent = document.getElementById('file-content');
+
+        let currentProfile = null;
+        let shotStartTime = null;
+        let profileOverlayExists = false;
+        let uploadedProfileContent = null;
+
+        const socket = new WebSocket('ws://localhost:8080/ws/v1/de1/snapshot');
+
+        function getProfile() {
+            fetch('http://localhost:8080/api/v1/workflow')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.profile) {
+                        currentProfile = data.profile;
+                        profileName.textContent = currentProfile.title;
+                    } else {
+                        profileName.textContent = 'N/A';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching profile:', error);
+                    profileName.textContent = 'Error';
+                });
+        }
+
+        refreshProfile.addEventListener('click', getProfile);
+
+        profileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                uploadedProfileContent = e.target.result;
+                fileContent.textContent = uploadedProfileContent;
+            };
+            reader.readAsText(file);
+        });
+
+        sendProfile.addEventListener('click', () => {
+            if (!uploadedProfileContent) {
+                alert('Please select a profile file first.');
+                return;
+            }
+
+            try {
+                const profileJson = JSON.parse(uploadedProfileContent);
+                const payload = { profile: profileJson };
+
+                fetch('http://localhost:8080/api/v1/workflow', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Profile sent successfully!');
+                        getProfile(); // Refresh the current profile
+                    } else {
+                        response.text().then(text => {
+                            alert(`Failed to send profile: ${text}`);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error sending profile:', error);
+                    alert('An error occurred while sending the profile.');
+                });
+            } catch (error) {
+                console.error('Error parsing profile JSON:', error);
+                alert('The selected file is not valid JSON.');
+            }
+        });
+
+        socket.onopen = () => {
+            connectionStatus.textContent = 'Connected';
+            connectionStatus.classList.remove('text-gray-600');
+            connectionStatus.classList.add('text-green-600');
+            getProfile();
+        };
+
+        socket.onclose = () => {
+            connectionStatus.textContent = 'Disconnected';
+            connectionStatus.classList.remove('text-green-600');
+            connectionStatus.classList.add('text-red-600');
+        };
+
+        socket.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+            connectionStatus.textContent = 'Error';
+            connectionStatus.classList.remove('text-green-600');
+            connectionStatus.classList.add('text-red-600');
+        };
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const state = data.state.state;
+
+            machineState.textContent = state;
+            pressure.textContent = data.pressure.toFixed(2);
+            flow.textContent = data.flow.toFixed(2);
+            mixTemp.textContent = data.mixTemperature.toFixed(2);
+            groupTemp.textContent = data.groupTemperature.toFixed(2);
+
+            if (['espresso', 'flush', 'steam', 'hotWater'].includes(state)) {
+                if (!shotStartTime) {
+                    shotStartTime = new Date(data.timestamp);
+                    clearChart();
+                }
+                updateChart(data.timestamp, data.pressure, data.flow, data.targetPressure, data.targetFlow, data.groupTemperature);
+                if (state === 'espresso' && currentProfile) {
+                    addProfileOverlay();
+                }
+            } else {
+                shotStartTime = null;
+            }
+        };
+
+        const chartData = {
+            pressure: {
+                x: [],
+                y: [],
+                name: 'Pressure',
+                type: 'scatter',
+                line: {color: 'green'}
+            },
+            flow: {
+                x: [],
+                y: [],
+                name: 'Flow',
+                type: 'scatter',
+                line: {color: 'blue'}
+            },
+            targetPressure: {
+                x: [],
+                y: [],
+                name: 'Target Pressure',
+                type: 'scatter',
+                line: {color: 'lightgreen', dash: 'dot'}
+            },
+            targetFlow: {
+                x: [],
+                y: [],
+                name: 'Target Flow',
+                type: 'scatter',
+                line: {color: 'lightblue', dash: 'dot'}
+            },
+            groupTemperature: {
+                x: [],
+                y: [],
+                name: 'Group Temp',
+                type: 'scatter',
+                line: {color: 'red'}
+            }
+        };
+
+        const layout = {
+            title: 'Pressure, Flow and Temperature',
+            xaxis: {title: 'Time (s)', dtick: 5,ticksuffix:'s'},
+            yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)'}
+        };
+
+        Plotly.newPlot(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+        clearChart();
+
+        function updateChart(timestamp, pressure, flow, targetPressure, targetFlow, groupTemperature) {
+            const time = (new Date(timestamp) - shotStartTime) / 1000;
+
+            chartData.pressure.x.push(time);
+            chartData.pressure.y.push(pressure);
+            chartData.flow.x.push(time);
+            chartData.flow.y.push(flow);
+            chartData.targetPressure.x.push(time);
+            chartData.targetPressure.y.push(targetPressure);
+            chartData.targetFlow.x.push(time);
+            chartData.targetFlow.y.push(targetFlow);
+            chartData.groupTemperature.x.push(time);
+            chartData.groupTemperature.y.push(groupTemperature / 10);
+
+            Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+        }
+
+        function clearChart() {
+            chartData.pressure.x = [];
+            chartData.pressure.y = [];
+            chartData.flow.x = [];
+            chartData.flow.y = [];
+            chartData.targetPressure.x = [];
+            chartData.targetPressure.y = [];
+            chartData.targetFlow.x = [];
+            chartData.targetFlow.y = [];
+            chartData.groupTemperature.x = [];
+            chartData.groupTemperature.y = [];
+            removeProfileOverlay();
+            Plotly.update(chart, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+        }
+
+        function addProfileOverlay() {
+            if (profileOverlayExists || !currentProfile || !currentProfile.steps) return;
+
+            const profileTrace = {
+                x: [],
+                y: [],
+                name: 'Profile',
+                type: 'scatter',
+                mode: 'lines',
+                line: {
+                    dash: 'dot'
+                }
+            };
+
+            let currentTime = 0;
+            currentProfile.steps.forEach(step => {
+                profileTrace.x.push(currentTime);
+                profileTrace.y.push(step.value);
+                currentTime += step.duration;
+                profileTrace.x.push(currentTime);
+                profileTrace.y.push(step.value);
+            });
+
+            Plotly.addTraces(chart, profileTrace);
+            profileOverlayExists = true;
+        }
+
+        function removeProfileOverlay() {
+            if (!profileOverlayExists) return;
+            let traceIndex = -1;
+            for(let i=0; i < chart.data.length; i++) {
+                if(chart.data[i].name === 'Profile') {
+                    traceIndex = i;
+                    break;
+                }
+            }
+            if (traceIndex > -1) {
+                Plotly.deleteTraces(chart, traceIndex);
+            }
+            profileOverlayExists = false;
+        }
+
+    </script>
+
+</body>
+</html>
