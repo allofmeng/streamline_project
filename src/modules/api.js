@@ -79,7 +79,10 @@ export async function getProfile() {
  */
 export async function sendProfile(profileJson) {
     try {
-        const payload = { profile: profileJson };
+        const payload = {profile: profileJson
+             ,doseData: {
+                 doseIn: 18,  doseOut: profileJson.target_weight}};
+                 
         const response = await fetch('http://localhost:8080/api/v1/workflow', {
             method: 'PUT',
             headers: {

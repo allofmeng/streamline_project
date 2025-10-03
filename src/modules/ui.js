@@ -7,7 +7,7 @@ function updateDrinkOutValue(newValue) {
             profile.target_weight = newValue.toString();
             sendProfile(profile).then(response => {
                 if (response.ok) {
-                    console.log('Profile updated successfully',newValue);
+                    console.log('Profile updated ok ,New Value : ',newValue);
                     console.log("profile",profile);
                 } else {
                     console.error('Failed to update profile');
