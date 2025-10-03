@@ -8,6 +8,7 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.11.1/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="src/modules/plotly-3.1.0.min.js"></script>
     <script src="src/modules/app.js" type="module"></script>
+    <script src="src/modules/reconnecting-websocket.js"></script>
     <style>
         /* Custom Inter font from local files */
         @font-face {
@@ -84,12 +85,12 @@
             <div class="flex justify-between items-center w-full">
                  <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Drink out</span>
                 <div class="flex items-center gap-4">
-                    <button class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
+                    <button id="drink-out-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
                     <div class="text-center w-24">
                         <span id="drink-out-value" class="text-3xl font-bold">46g</span>
                         <span id="drink-ratio-value" class="text-2xl text-gray-500 block">(1:2.3)</span>
                     </div>
-                    <button class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
+                    <button id="drink-out-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
             </div>
             <div class="divider"></div>

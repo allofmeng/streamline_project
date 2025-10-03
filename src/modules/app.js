@@ -1,4 +1,4 @@
-import { connectWebSocket, getProfile } from './api.js';
+import { connectWebSocket, getProfile, connectScaleWebSocket } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 
@@ -23,6 +23,10 @@ function handleData(data) {
     }
 }
 
+function handleScaleData(data) {
+    ui.updateWeight(data.weight);
+}
+
 async function loadInitialData() {
     try {
         const profile = await getProfile();
@@ -39,6 +43,8 @@ async function loadInitialData() {
 
 document.addEventListener('DOMContentLoaded', () => {
     chart.initChart();
+    ui.initUI(); // Initialize UI event listeners
     loadInitialData();
     connectWebSocket(handleData);
+    connectScaleWebSocket(handleScaleData);
 });

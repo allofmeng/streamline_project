@@ -5,7 +5,10 @@
  * @param {function(object): void} onDataReceived - The callback function to execute on new data.
  */
 export function connectWebSocket(onDataReceived) {
-    const socket = new WebSocket('ws://localhost:8080/ws/v1/de1/snapshot');
+    const socket = new ReconnectingWebSocket('ws://localhost:8080/ws/v1/de1/snapshot', [], {
+        debug: true,
+        reconnectInterval: 3000,
+    });
 
     socket.onopen = () => {
         console.log('WebSocket Connected');
@@ -26,6 +29,34 @@ export function connectWebSocket(onDataReceived) {
 }
 
 /**
+ * Connects to the scale's WebSocket and calls the callback with new data.
+ * @param {function(object): void} onDataReceived - The callback function to execute on new data.
+ */
+export function connectScaleWebSocket(onDataReceived) {
+    const socket = new ReconnectingWebSocket('ws://localhost:8080/ws/v1/scale/snapshot', [], {
+        debug: true,
+        reconnectInterval: 3000,
+    });
+
+    socket.onopen = () => {
+        console.log('Scale WebSocket Connected');
+    };
+
+    socket.onclose = () => {
+        console.log('Scale WebSocket Disconnected');
+    };
+
+    socket.onerror = (error) => {
+        console.error('Scale WebSocket Error:', error);
+    };
+
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        onDataReceived(data);
+    };
+}
+
+/**
  * Fetches the current profile from the reaprime API.
  * @returns {Promise<object>}
  */
@@ -33,6 +64,7 @@ export async function getProfile() {
     try {
         const response = await fetch('http://localhost:8080/api/v1/workflow');
         const data = await response.json();
+        console.log("get profile",data);
         return data.profile || null;
     } catch (error) {
         console.error('Error fetching profile:', error);
@@ -55,6 +87,7 @@ export async function sendProfile(profileJson) {
             },
             body: JSON.stringify(payload),
         });
+        console.log("send profile response",response);
         return response;
     } catch (error) {
         console.error('Error sending profile:', error);
