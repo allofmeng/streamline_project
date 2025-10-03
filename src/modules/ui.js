@@ -77,3 +77,10 @@ export function updateProfileName(name) {
         profileNameEl.firstChild.textContent = name;
     }
 }
+
+export function updateDrinkOut(doseOut) {
+    const drinkOutValueEl = document.getElementById('drink-out-value');
+    if (drinkOutValueEl) {
+        drinkOutValueEl.textContent = `${doseOut}g`;
+    }
+}

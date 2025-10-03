@@ -32,6 +32,7 @@ async function loadInitialData() {
         const profile = await getProfile();
         if (profile) {
             ui.updateProfileName(profile.title);
+            ui.updateDrinkOut(profile.target_weight);
             // Future: Pass profile to chart module if needed for overlays
             // chart.setProfile(profile);
         }
