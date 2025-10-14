@@ -46,21 +46,33 @@ export function initUI() {
 }
 
 export function updateMachineStatus(status) {
+    console.log(`DEBUG: Updating machine status to: ${status}`);
     const machineStatusEl = document.getElementById('machine-status');
     if (machineStatusEl) {
         machineStatusEl.textContent = status;
+        if (status === "Disconnected") {
+            machineStatusEl.classList.remove('text-[var(--green)]');
+            machineStatusEl.classList.add('text-red-500');
+        } else {
+            machineStatusEl.classList.remove('text-red-500');
+            machineStatusEl.classList.add('text-[var(--green)]');
+        }
     }
 }
 
-export function updateTemperatures({ mix, group }) {
+export function updateTemperatures({ mix, group, steam }) {
     const mixTempEl = document.getElementById('data-mix-temp');
     const groupTempEl = document.getElementById('data-group-temp');
+    const steamTempEl = document.getElementById('data-steam-temp');
 
     if (mixTempEl) {
         mixTempEl.textContent = `${mix.toFixed(1)}°c`;
     }
     if (groupTempEl) {
         groupTempEl.textContent = `${group.toFixed(1)}°c`;
+    }
+    if (steamTempEl) {
+        steamTempEl.textContent = `${steam.toFixed(0)}°c`;
     }
 }
 
@@ -72,6 +84,7 @@ export function updateWeight(weight) {
 }
 
 export function updateProfileName(name) {
+    console.log(`DEBUG: Updating profile name to: ${name}`);
     const profileNameEl = document.getElementById('profile-name');
     if (profileNameEl) {
         profileNameEl.firstChild.textContent = name;
@@ -79,6 +92,7 @@ export function updateProfileName(name) {
 }
 
 export function updateDrinkOut(doseOut) {
+    console.log(`DEBUG: Updating drink out to: ${doseOut}g`);
     const drinkOutValueEl = document.getElementById('drink-out-value');
     if (drinkOutValueEl) {
         drinkOutValueEl.textContent = `${doseOut}g`;

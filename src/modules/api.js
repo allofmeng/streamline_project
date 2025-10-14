@@ -1,25 +1,38 @@
 // streamline_project/src/modules/api.js
-
+import * as ui from './ui.js';
 /**
  * Connects to the machine's WebSocket and calls the callback with new data.
  * @param {function(object): void} onDataReceived - The callback function to execute on new data.
+ * @param {function(): void} onReconnect - The callback function to execute on reconnection.
  */
-export function connectWebSocket(onDataReceived) {
+export function connectWebSocket(onDataReceived, onReconnect, onClose) {
     const socket = new ReconnectingWebSocket('ws://localhost:8080/ws/v1/de1/snapshot', [], {
         debug: true,
         reconnectInterval: 3000,
     });
 
-    socket.onopen = () => {
+    socket.onopen = (event) => {
         console.log('WebSocket Connected');
+        ui.updateMachineStatus("Connected"); // Update status to Connected on open
+        if (event.isReconnect) {
+            console.log('WebSocket reconnected, refreshing data...');
+            if (onReconnect) {
+                onReconnect();
+            }
+        }
     };
 
     socket.onclose = () => {
         console.log('WebSocket Disconnected');
+        ui.updateMachineStatus("Disconnected");
+        if (onClose) {
+            onClose();
+        }
     };
 
     socket.onerror = (error) => {
         console.error('WebSocket Error:', error);
+        ui.updateMachineStatus("Disconnected");
     };
 
     socket.onmessage = (event) => {
@@ -95,5 +108,43 @@ export async function sendProfile(profileJson) {
     } catch (error) {
         console.error('Error sending profile:', error);
         throw error;
+    }
+}
+
+
+export async function ensureGatewayModeTracking() {
+    const settingsUrl = 'http://localhost:8080/api/v1/settings';
+
+    try {
+        // 1. Get current settings
+        const response = await fetch(settingsUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to get settings: ${response.statusText}`);
+        }
+        const settings = await response.json();
+        console.log('Current Rea settings:', settings);
+
+        // 2. Check if gatewayMode is 'tracking'
+        if (settings.gatewayMode !== 'tracking') {
+            console.log("Gateway mode is not 'tracking'. Setting it now...");
+
+            // 3. If not, set it
+            const postResponse = await fetch(settingsUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gatewayMode: 'tracking' }),
+            });
+
+            if (!postResponse.ok) {
+                throw new Error(`Failed to set gateway mode: ${postResponse.statusText}`);
+            }
+
+            const newSettings = await postResponse.json();
+            console.log('Successfully set gateway mode to tracking:', newSettings);
+        } else {
+            console.log('Gateway mode is already set to tracking.');
+        }
+    } catch (error) {
+        console.error('Error ensuring gateway mode:', error);
     }
 }

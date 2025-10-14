@@ -48,7 +48,7 @@ const layout = {
 
 export function updateChart(shotStartTime, data) {
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
-
+    console.log("updatechart functio called");
     chartData.pressure.x.push(time);
     chartData.pressure.y.push(data.pressure);
     chartData.flow.x.push(time);
@@ -60,7 +60,7 @@ export function updateChart(shotStartTime, data) {
     chartData.groupTemperature.x.push(time);
     chartData.groupTemperature.y.push(data.groupTemperature / 10);
 
-    Plotly.update(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+    Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
 
 export function clearChart() {
