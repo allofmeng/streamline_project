@@ -1,5 +1,6 @@
 // streamline_project/src/modules/api.js
 import * as ui from './ui.js';
+import { logger, setDebug } from './logger.js';
 /**
  * Connects to the machine's WebSocket and calls the callback with new data.
  * @param {function(object): void} onDataReceived - The callback function to execute on new data.
@@ -12,7 +13,7 @@ export function connectWebSocket(onDataReceived, onReconnect, onClose) {
     });
 
     socket.onopen = (event) => {
-        console.log('WebSocket Connected');
+        logger.info('WebSocket Connected');
         ui.updateMachineStatus("Connected"); // Update status to Connected on open
         if (event.isReconnect) {
             console.log('WebSocket reconnected, refreshing data...');

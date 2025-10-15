@@ -2,6 +2,7 @@ import { connectWebSocket, getProfile, connectScaleWebSocket, ensureGatewayModeT
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import { initWaterTankSocket } from './waterTank.js';
+import { logger, setDebug } from './logger.js';
 
 let shotStartTime = null;
 let dataTimeout;
@@ -10,14 +11,14 @@ let dataTimeout;
 function resetDataTimeout() {
     clearTimeout(dataTimeout);
     dataTimeout = setTimeout(() => {
-        console.log('No WebSocket data received for 5 seconds. Assuming disconnection,,reload now.');
+        logger.warn('No WebSocket data received for 5 seconds. Assuming disconnection, reloading now.');
         ui.updateMachineStatus("Disconnected");
         location.reload();
     }, 5000); // 5-second timeout
 }
 
 function handleData(data) {
-    console.log("DEBUG: handleData received new snapshot.");
+    logger.debug("handleData received new snapshot.");
     resetDataTimeout(); // Reset the timer every time data is received.
 
     const state = data.state.state;
@@ -67,28 +68,32 @@ function handleScaleData(data) {
 }
 
 async function loadInitialData() {
-    console.log("DEBUG: loadInitialData triggered.");
+    logger.debug("loadInitialData triggered.");
     try {
         const profile = await getProfile();
-        console.log("DEBUG: Profile data received:", profile);
+        logger.debug("Profile data received:", profile);
         if (profile) {
             ui.updateProfileName(profile.title);
             ui.updateDrinkOut(profile.target_weight);
+            if (profile.steps && profile.steps.length > 0) {
+                ui.updateTemperatureDisplay(profile.steps[0].temperature);
+            }
             // Future: Pass profile to chart module if needed for overlays
             // chart.setProfile(profile);
         }
     } catch (error) {
-        console.error("Failed to load initial data:", error);
+        logger.error("Failed to load initial data:", error);
         ui.updateProfileName("Error loading profile");
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // setDebug(true); // Uncomment to enable debug logs
     chart.initChart();
     ui.initUI(); // Initialize UI event listeners
     loadInitialData();
     connectWebSocket(handleData, () => {
-        console.log('WebSocket reconnected. Reloading page...');
+        logger.info('WebSocket reconnected. Reloading page...');
         location.reload();
     });
     connectScaleWebSocket(handleScaleData);

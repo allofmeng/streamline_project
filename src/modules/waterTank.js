@@ -34,5 +34,6 @@ export function initWaterTankSocket() {
 
     socket.onerror = function(err) {
         console.error('Water tank WebSocket error. See library logs for details.');
+        location.reload();
     };
 }

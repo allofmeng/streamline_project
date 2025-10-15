@@ -76,9 +76,9 @@
             <div class="flex justify-between items-center w-full">
                 <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Dose in</span>
                 <div class="flex items-center gap-4">
-                    <button class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
+                    <button id="dose-in-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
                     <span id="dose-in-value" class="text-3xl font-bold text-center w-24">20g</span>
-                    <button class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
+                    <button id="dose-in-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
             </div>
             <!-- Drink out -->
@@ -98,9 +98,9 @@
              <div class="flex justify-between items-center w-full">
                 <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Temp</span>
                 <div class="flex items-center gap-4">
-                    <button class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
+                    <button id="temp-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
                     <span id="temp-value" class="text-3xl font-bold text-center w-24">92°c</span>
-                    <button class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
+                    <button id="temp-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
             </div>
              <div class="divider"></div>
@@ -150,15 +150,16 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
                     </h1>
                     <div class="flex gap-6 text-2xl mt-2">
-                        <p><span class="font-semibold">Mix</span> <span id="data-mix-temp" class="text-gray-600">90°c</span></p>
-                        <p><span class="font-semibold">Group</span> <span id="data-group-temp" class="text-gray-600">77°c</span></p>
-                        <p><span class="font-semibold">Steam</span> <span id="data-steam-temp" class="text-gray-600">40°c</span></p>
-                        <p><span class="font-semibold">Tank</span> <span id="data-tank-vol" class="text-gray-600">350ml</span></p>
-                        <p id="data-weight" class="font-semibold text-[var(--mimoja-blue-v2)]">Weight 35.6g</p>
+                        <p><span class="font-semibold">Mix</span> <span id="data-mix-temp" class="text-gray-600">°c</span></p>
+                        <p><span class="font-semibold">Group</span> <span id="data-group-temp" class="text-gray-600">°c</span></p>
+                        <p><span class="font-semibold">Steam</span> <span id="data-steam-temp" class="text-gray-600">°c</span></p>
+                        <p><span class="font-semibold">Tank</span> <span id="data-tank-vol" class="text-gray-600">ml</span></p>
+                        <p><span class="font-semibold">Weight</span> <span id="data-weight" class="text-gray-600"> g</span></p>
+
                     </div>
                 </div>
                 <div id="machine-status" class="text-4xl font-bold text-[var(--green)]">
-                    Machine Ready
+                    Connecting
                 </div>
             </div>
             
