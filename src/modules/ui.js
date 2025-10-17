@@ -1,19 +1,39 @@
-import { getProfile, sendProfile } from './api.js';
+import { getProfile, sendProfile, updateWorkflow, setMachineState } from './api.js';
 import { logger } from './logger.js';
 
 function updateDrinkOutValue(newValue) {
-    getProfile().then(profile => {
-        if (profile) {
-            profile.target_weight = newValue.toString();
-            sendProfile(profile).then(response => {
-                if (response.ok) {
-                    logger.debug('Profile updated ok, New Value:', newValue);
-                    logger.debug("profile", profile);
-                } else {
-                    logger.error('Failed to update profile');
-                }
-            });
+    const doseInEl = document.getElementById('dose-in-value');
+    const currentDoseIn = doseInEl ? parseFloat(doseInEl.textContent) : 0;
+
+    const payload = {
+        doseData: {
+            doseIn: currentDoseIn,
+            doseOut: parseFloat(newValue)
         }
+    };
+
+    updateWorkflow(payload).then(() => {
+        logger.debug('Drink out value updated via workflow:', newValue);
+    }).catch(error => {
+        logger.error('Failed to update drink out value via workflow:', error);
+    });
+}
+
+function updateDoseInValue(newValue) {
+    const drinkOutEl = document.getElementById('drink-out-value');
+    const currentDoseOut = drinkOutEl ? parseFloat(drinkOutEl.textContent) : 0;
+
+    const payload = {
+        doseData: {
+            doseIn: parseFloat(newValue),
+            doseOut: currentDoseOut
+        }
+    };
+
+    updateWorkflow(payload).then(() => {
+        logger.debug('Dose in value updated via workflow:', newValue);
+    }).catch(error => {
+        logger.error('Failed to update dose in value via workflow:', error);
     });
 }
 
@@ -23,19 +43,29 @@ function updateTemperatureValue(newValue) {
             profile.steps.forEach(step => {
                 step.temperature = newValue.toString();
             });
-            sendProfile(profile).then(response => {
-                if (response.ok) {
-                    logger.debug('Profile temperature updated successfully, New Value:', newValue);
-                    logger.debug("profile", profile);
-                } else {
-                    logger.error('Failed to update profile temperature');
-                }
+            updateWorkflow({ profile: profile }).then(() => {
+                logger.debug('Temperature updated via workflow:', newValue);
+            }).catch(error => {
+                logger.error('Failed to update temperature via workflow:', error);
             });
         }
     });
 }
 
-function updateDrinkRatio() {
+function updateGrindValue(newValue) {
+    const workflowUpdate = {
+        grinderData: {
+            setting: newValue.toString()
+        }
+    };
+    updateWorkflow(workflowUpdate).then(() => {
+        logger.debug('Grind value updated successfully:', newValue);
+    }).catch(error => {
+        logger.error('Failed to update grind value:', error);
+    });
+}
+
+export function updateDrinkRatio() {
     const doseInEl = document.getElementById('dose-in-value');
     const drinkOutEl = document.getElementById('drink-out-value');
     const ratioEl = document.getElementById('drink-ratio-value');
@@ -102,10 +132,34 @@ export function initUI() {
     const doseInValueEl = document.getElementById('dose-in-value');
     const doseInMinusBtn = document.getElementById('dose-in-minus');
     const doseInPlusBtn = document.getElementById('dose-in-plus');
+    const grindValueEl = document.getElementById('grind-value');
+    const grindMinusBtn = document.getElementById('grind-minus');
+    const grindPlusBtn = document.getElementById('grind-plus');
+    const sleepButton = document.getElementById('sleep-button');
+
+    if (sleepButton) {
+        sleepButton.addEventListener('click', () => {
+            const currentState = sleepButton.textContent.trim();
+            if (currentState === 'Sleep') {
+                setMachineState('sleeping').then(() => {
+                    logger.info('Machine state set to sleeping.');
+                }).catch(error => {
+                    logger.error('Failed to set machine state to sleeping:', error);
+                });
+            } else {
+                setMachineState('idle').then(() => {
+                    logger.info('Machine state set to idle.');
+                }).catch(error => {
+                    logger.error('Failed to set machine state to idle:', error);
+                });
+            }
+        });
+    }
 
     if (doseInValueEl) {
         makeEditable(doseInValueEl, (newValue) => {
             doseInValueEl.textContent = `${newValue}g`;
+            updateDoseInValue(newValue);
             updateDrinkRatio();
         });
     }
@@ -122,6 +176,13 @@ export function initUI() {
             drinkOutValueEl.textContent = `${newValue}g`;
             updateDrinkOutValue(newValue);
             updateDrinkRatio();
+        });
+    }
+
+    if (grindValueEl) {
+        makeEditable(grindValueEl, (newValue) => {
+            grindValueEl.textContent = newValue.toFixed(1);
+            updateGrindValue(newValue);
         });
     }
 
@@ -144,7 +205,7 @@ export function initUI() {
             currentValue += 1;
             drinkOutValueEl.textContent = `${currentValue}g`;
             logger.debug("currentvalue", currentValue);
-            updateDrinkOutValue(currentValue);
+                updateDrinkOutValue(currentValue);
             updateDrinkRatio();
         });
     }
@@ -175,6 +236,7 @@ export function initUI() {
             if (currentValue > 0) {
                 currentValue -= 1;
                 doseInValueEl.textContent = `${currentValue}g`;
+                updateDoseInValue(currentValue);
                 updateDrinkRatio();
             }
         });
@@ -185,11 +247,43 @@ export function initUI() {
             let currentValue = parseFloat(doseInValueEl.textContent);
             currentValue += 1;
             doseInValueEl.textContent = `${currentValue}g`;
+            updateDoseInValue(currentValue);
             updateDrinkRatio();
         });
     }
 
+    if (grindMinusBtn) {
+        grindMinusBtn.addEventListener('click', () => {
+            let currentValue = parseFloat(grindValueEl.textContent);
+            if (currentValue > 0) {
+                currentValue = Math.round((currentValue - 0.1) * 10) / 10;
+                grindValueEl.textContent = currentValue.toFixed(1);
+                updateGrindValue(currentValue);
+            }
+        });
+    }
+
+    if (grindPlusBtn) {
+        grindPlusBtn.addEventListener('click', () => {
+            let currentValue = parseFloat(grindValueEl.textContent);
+            currentValue = Math.round((currentValue + 0.1) * 10) / 10;
+            grindValueEl.textContent = currentValue.toFixed(1);
+            updateGrindValue(currentValue);
+        });
+    }
+
     updateDrinkRatio(); // Initial calculation
+}
+
+export function updateSleepButton(state) {
+    const sleepButton = document.getElementById('sleep-button');
+    if (sleepButton) {
+        if (state === 'sleeping') {
+            sleepButton.textContent = 'Wake Up';
+        } else {
+            sleepButton.textContent = 'Sleep';
+        }
+    }
 }
 
 export function updateMachineStatus(status) {
@@ -250,5 +344,19 @@ export function updateTemperatureDisplay(temperature) {
     const tempValueEl = document.getElementById('temp-value');
     if (tempValueEl) {
         tempValueEl.textContent = `${parseFloat(temperature).toFixed(0)}°c`;
+    }
+}
+
+export function updateGrindDisplay(grinderData) {
+    const grindValueEl = document.getElementById('grind-value');
+    if (grindValueEl && grinderData && grinderData.setting) {
+        grindValueEl.textContent = parseFloat(grinderData.setting).toFixed(1);
+    }
+}
+
+export function updateDoseInDisplay(doseInValue) {
+    const doseInValueEl = document.getElementById('dose-in-value');
+    if (doseInValueEl && doseInValue) {
+        doseInValueEl.textContent = `${doseInValue}g`;
     }
 }

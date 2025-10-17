@@ -1,6 +1,7 @@
-import { connectWebSocket, getProfile, connectScaleWebSocket, ensureGatewayModeTracking } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
+import * as history from './history.js';
 import { initWaterTankSocket } from './waterTank.js';
 import { logger, setDebug } from './logger.js';
 
@@ -33,6 +34,7 @@ function handleData(data) {
 
     // Update UI elements
     ui.updateMachineStatus(statusString);
+    ui.updateSleepButton(state);
     ui.updateTemperatures({ mix: data.mixTemperature, group: data.groupTemperature, steam: data.steamTemperature });
 
     // Update Chart
@@ -70,17 +72,31 @@ function handleScaleData(data) {
 async function loadInitialData() {
     logger.debug("loadInitialData triggered.");
     try {
-        const profile = await getProfile();
-        logger.debug("Profile data received:", profile);
+        const workflow = await getWorkflow();
+        logger.debug("Workflow data received:", workflow);
+
+        const profile = workflow?.profile;
+        const doseData = workflow?.doseData;
+        const grinderData = workflow?.grinderData;
+
         if (profile) {
-            ui.updateProfileName(profile.title);
-            ui.updateDrinkOut(profile.target_weight);
+            ui.updateProfileName(profile.title || "Untitled Profile");
             if (profile.steps && profile.steps.length > 0) {
-                ui.updateTemperatureDisplay(profile.steps[0].temperature);
+                ui.updateTemperatureDisplay(profile.steps[0].temperature || 0);
             }
-            // Future: Pass profile to chart module if needed for overlays
-            // chart.setProfile(profile);
         }
+
+        if (doseData) {
+            ui.updateDoseInDisplay(doseData.doseIn);
+            ui.updateDrinkOut(doseData.doseOut || 0);
+        }
+
+        if (grinderData) {
+            ui.updateGrindDisplay(grinderData);
+        }
+
+        ui.updateDrinkRatio();
+
     } catch (error) {
         logger.error("Failed to load initial data:", error);
         ui.updateProfileName("Error loading profile");
@@ -91,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // setDebug(true); // Uncomment to enable debug logs
     chart.initChart();
     ui.initUI(); // Initialize UI event listeners
+    history.initHistory(); // Initialize history module
     loadInitialData();
     connectWebSocket(handleData, () => {
         logger.info('WebSocket reconnected. Reloading page...');
