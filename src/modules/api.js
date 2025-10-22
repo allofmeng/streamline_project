@@ -1,23 +1,31 @@
 import * as ui from './ui.js';
-import { logger } from './logger.js';
+import { logger ,setDebug} from './logger.js';
 
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+const REA_PORT = 8080;
+const API_BASE_URL = `http://${window.location.hostname}:${REA_PORT}/api/v1`;
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-let reconnectingWebSocket = null;
+export let reconnectingWebSocket = null; // Exporting for app.js access
 let scaleWebSocket = null;
 
 export function connectWebSocket(onData, onReconnect) {
-    reconnectingWebSocket = new ReconnectingWebSocket('ws://localhost:8080/ws/v1/de1/snapshot');
+    reconnectingWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/de1/snapshot`, [], {
+        debug: true,
+        reconnectInterval: 3000,
+    }); // Enable debug logging
 
     reconnectingWebSocket.onopen = () => {
         logger.info('WebSocket connected');
         ui.updateMachineStatus("Connected");
+        logger.debug('DE1 WebSocket re-opened. Status set to Connected.'); // Added debug log
     };
 
     reconnectingWebSocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
             onData(data);
+            setDebug(true);
+            logger.debug(data)
         } catch (error) {
             logger.error('Error parsing WebSocket message:', error);
         }
@@ -30,7 +38,7 @@ export function connectWebSocket(onData, onReconnect) {
 
     reconnectingWebSocket.onerror = (error) => {
         logger.error('WebSocket error:', error);
-        ui.updateMachineStatus("Disconnected");
+        ui.updateMachineStatus("Disconnected"); // Ensure this is present
     };
 
     // Custom logic for reconnection
@@ -42,8 +50,11 @@ export function connectWebSocket(onData, onReconnect) {
     };
 }
 
-export function connectScaleWebSocket(onData) {
-    scaleWebSocket = new ReconnectingWebSocket('ws://localhost:8080/ws/v1/scale/snapshot');
+export function connectScaleWebSocket(onData, onReconnect) {
+    scaleWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/scale/snapshot`, [], {
+        debug: true,
+        reconnectInterval: 3000,
+    });
 
     scaleWebSocket.onopen = () => {
         logger.info('Scale WebSocket connected');
@@ -52,6 +63,7 @@ export function connectScaleWebSocket(onData) {
     scaleWebSocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
+            // logger.debug(data);
             onData(data);
         } catch (error) {
             logger.error('Error parsing scale WebSocket message:', error);
@@ -64,6 +76,13 @@ export function connectScaleWebSocket(onData) {
 
     scaleWebSocket.onerror = (error) => {
         logger.error('Scale WebSocket error:', error);
+    };
+
+    scaleWebSocket.onreconnect = () => {
+        logger.info('Scale WebSocket reconnected');
+        if (onReconnect) {
+            onReconnect();
+        }
     };
 }
 

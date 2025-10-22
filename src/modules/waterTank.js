@@ -1,12 +1,15 @@
 
 export function initWaterTankSocket() {
+    const REA_PORT = 8080;
+const API_BASE_URL = `http://${window.location.hostname}:${REA_PORT}/api/v1`;
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const tankVolElement = document.getElementById('data-tank-vol');
     if (!tankVolElement) {
         console.error('Element with id "tank-vol" not found.');
         return;
     }
 
-    const socket = new ReconnectingWebSocket('ws://localhost:8080/ws/v1/de1/waterLevels', [], {
+    const socket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/de1/waterLevels`, [], {
         debug: true,
         reconnectInterval: 3000,
     });
@@ -34,6 +37,6 @@ export function initWaterTankSocket() {
 
     socket.onerror = function(err) {
         console.error('Water tank WebSocket error. See library logs for details.');
-        location.reload();
+        // location.reload();
     };
 }

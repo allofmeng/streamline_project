@@ -320,7 +320,11 @@ export function updateTemperatures({ mix, group, steam }) {
 export function updateWeight(weight) {
     const weightEl = document.getElementById('data-weight');
     if (weightEl) {
-        weightEl.textContent = `Weight ${weight.toFixed(1)}g`;
+        if (typeof weight === 'number' && !isNaN(weight)) {
+            weightEl.textContent = ` ${weight.toFixed(1)}g`;
+        } else {
+            weightEl.textContent = '--g'; // Display --g if weight is not a valid number
+        }
     }
 }
 

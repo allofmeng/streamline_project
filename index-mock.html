@@ -186,6 +186,7 @@
             const state = data.state.state;
 
             machineState.textContent = state;
+            console.log("state",state);
             pressure.textContent = data.pressure.toFixed(2);
             flow.textContent = data.flow.toFixed(2);
             mixTemp.textContent = data.mixTemperature.toFixed(2);

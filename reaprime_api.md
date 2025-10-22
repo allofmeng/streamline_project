@@ -326,11 +326,25 @@ You can update only specific fields, like `doseData` or `grinderData`, or `profi
 #### **GET /api/v1/shots**
 
 *Get a list of shots stored by REA*
+*Or single shot using id *
+#### **GET /api/v1/shots?ids=**
+see example below 
+http://localhost:8080/api/v1/shots?ids=2025-09-17T11%3A48%3A55.863366
+**Responses:**
+- `200 OK`: Returns an array of `ShotRecord` objects.
+
+---
+
+
+#### **GET /api/v1/shots/ids**
+
+*Get a list of identifiers of all the shots stored by REA*
 
 **Responses:**
 - `200 OK`: Returns an array of `ShotRecord` objects.
 
 ---
+
 
 ## WebSocket API (AsyncAPI)
 
@@ -348,7 +362,31 @@ Real-time snapshot data from the DE1 machine.
 
 **Messages Received:**
 - `MachineSnapshot`: Contains the current state, pressure, flow, temperatures, etc.
-
+see exmaple below 
+{
+timestamp	string($date-time)
+state	{
+state	MachineStateMachineStatestring
+example: espresso
+Enum:
+[ idle, booting, sleeping, heating, preheating, espresso, hotWater, flush, steam, skipStep, cleaning, descaling, transportMode, needsWater, error ]
+substate	MachineSubstateMachineSubstatestring
+example: preparingForShot
+Enum:
+[ idle, preparingForShot, preinfusion, pouring, pouringDone, cleaningStart, cleaingGroup, cleanSoaking, cleaningSteam ]
+}
+flow	number
+pressure	number
+example: 6.2
+targetFlow	number
+targetPressure	number
+mixTemperature	number
+groupTemperature	number
+targetMixTemperature	number
+targetGroupTemperature	number
+profileFrame	integer
+steamTemperature	number
+}
 ---
 
 #### **ws/v1/de1/shotSettings**
