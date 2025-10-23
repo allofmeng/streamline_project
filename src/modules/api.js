@@ -24,7 +24,7 @@ export function connectWebSocket(onData, onReconnect) {
         try {
             const data = JSON.parse(event.data);
             onData(data);
-            setDebug(true);
+            // setDebug(true);
             logger.debug(data)
         } catch (error) {
             logger.error('Error parsing WebSocket message:', error);
@@ -34,6 +34,9 @@ export function connectWebSocket(onData, onReconnect) {
     reconnectingWebSocket.onclose = () => {
         logger.info('WebSocket disconnected. Attempting to reconnect...');
         ui.updateMachineStatus("Disconnected");
+        setTimeout(() => {
+            location.reload();
+        }, 6000);
     };
 
     reconnectingWebSocket.onerror = (error) => {

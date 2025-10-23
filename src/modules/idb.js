@@ -48,7 +48,7 @@ export function addShot(shot) {
         }
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const request = store.add(shot);
+        const request = store.put(shot);
 
         request.onsuccess = () => {
             logger.info('Shot added to IndexedDB');

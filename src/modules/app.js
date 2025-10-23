@@ -10,6 +10,7 @@ let dataTimeout;
 let scaleDataTimeout;
 let isDe1Connected = false; // New variable to track DE1 connection status
 let isScaleConnected = false; // New variable to track Scale connection status
+let previousMachineState = null; // Track previous machine state
 
 // Sets a timer. If no data is received within 5 seconds, it assumes a stale connection.
 function resetDataTimeout() {
@@ -57,6 +58,16 @@ function handleData(data) {
         // ui.updateMachineStatus("Disconnected"); // Removed: Let the main logic handle it
     }
 
+    // Check for shot completion (transition from 'espresso' to 'ready' or 'idle')
+    if (previousMachineState === 'espresso' && (state === 'ready' || state === 'idle')) {
+
+        logger.info('Shot finished. Refreshing history.',previousMachineState);
+        setTimeout(() => {
+            history.initHistory();
+        }, 5000);
+    }
+    previousMachineState = state; // Update previous state
+    logger.info("previousMachineState",previousMachineState)
     // New condition: If REA is running but not connected to the machine
     // Infer this if state is 'error'
     if (state === 'error') {
