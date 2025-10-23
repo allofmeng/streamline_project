@@ -1,6 +1,7 @@
 import * as chart from './chart.js';
 import { logger } from './logger.js';
 import { openDB, getAllShots, addShot, getLatestShotTimestamp } from './idb.js';
+import { API_BASE_URL } from './api.js';
 
 let shots = [];
 let currentShotIndex = -1;
@@ -9,7 +10,7 @@ async function loadShotHistory() {
     let fetchedNewShots = false;
     try {
         const latestTimestamp = await getLatestShotTimestamp();
-        let url = 'http://localhost:8080/api/v1/shots';
+        let url = `${API_BASE_URL}/shots`;
         if (latestTimestamp) {
             url += `?since=${latestTimestamp}`;
         }

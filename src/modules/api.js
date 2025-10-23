@@ -2,7 +2,7 @@ import * as ui from './ui.js';
 import { logger ,setDebug} from './logger.js';
 
 const REA_PORT = 8080;
-const API_BASE_URL = `http://${window.location.hostname}:${REA_PORT}/api/v1`;
+export const API_BASE_URL = `http://${window.location.hostname}:${REA_PORT}/api/v1`;
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
 export let reconnectingWebSocket = null; // Exporting for app.js access

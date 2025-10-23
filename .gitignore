@@ -2,6 +2,7 @@ R1_shots.zip
 .gemini/.env
 .vscode/settings.json
 .gemini/settings.json
+.github/copilot-instructions.md
 R1-logs2.txt
 R1-logs.txt
 test 5-logs.txt
