@@ -116,7 +116,17 @@ Set additional settings on the De1, each setting can be set individually.
 
 **Request Body:**
 - `application/json`: A `De1SettingsRequest` object.
-
+Example : 
+{
+  "usb": true,
+  "fan": 0,
+  "flushTemp": 0,
+  "flushFlow": 0,
+  "flushTimeout": 0,
+  "hotWaterFlow": 0,
+  "steamFlow": 0,
+  "tankTemp": 0
+}
 **Responses:**
 - `200 OK`: Settings update successful.
 
@@ -394,7 +404,17 @@ steamTemperature	number
 *ShotSettings Channel*
 
 Real-time shot settings updates.
-
+example : 
+ShotSettings{
+steamSetting	integer
+targetSteamTemp	number
+targetSteamDuration	integer
+targetHotWaterTemp	number
+targetHotWaterVolume	number
+targetHotWaterDuration	integer
+targetShotVolume	number
+groupTemp	number
+}
 **Messages Received:**
 - `ShotSettings`: Contains target temperatures, volumes, etc.
 

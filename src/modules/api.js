@@ -8,6 +8,18 @@ const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 export let reconnectingWebSocket = null; // Exporting for app.js access
 let scaleWebSocket = null;
 
+// Local cache for current shot settings, initialized with default values and correct types
+let currentShotSettings = {
+    steamSetting: 0, // integer
+    targetSteamTemp: 0.0, // number (float/double)
+    targetSteamDuration: 0, // integer
+    targetHotWaterTemp: 0.0, // number (float/double)
+    targetHotWaterVolume: 0.0, // number (float/double)
+    targetHotWaterDuration: 0, // integer
+    targetShotVolume: 0.0, // number (float/double)
+    groupTemp: 0.0, // number (float/double)
+};
+
 export function connectWebSocket(onData, onReconnect) {
     reconnectingWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/de1/snapshot`, [], {
         debug: true,
@@ -23,6 +35,7 @@ export function connectWebSocket(onData, onReconnect) {
     reconnectingWebSocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
+            // Update local shot settings cache if snapshot includes shot settings
             onData(data);
             // setDebug(true);
             logger.debug(data)
@@ -44,7 +57,6 @@ export function connectWebSocket(onData, onReconnect) {
         ui.updateMachineStatus("Disconnected"); // Ensure this is present
     };
 
-    // Custom logic for reconnection
     reconnectingWebSocket.onreconnect = () => {
         logger.info('WebSocket reconnected');
         if (onReconnect) {
@@ -75,6 +87,9 @@ export function connectScaleWebSocket(onData, onReconnect) {
 
     scaleWebSocket.onclose = () => {
         logger.info('Scale WebSocket disconnected. Attempting to reconnect...');
+        setTimeout(() => {
+            location.reload();
+        }, 6000);
     };
 
     scaleWebSocket.onerror = (error) => {
@@ -89,7 +104,6 @@ export function connectScaleWebSocket(onData, onReconnect) {
     };
 }
 
-
 export async function getProfile() {
     const response = await fetch(`${API_BASE_URL}/workflow`);
     if (!response.ok) {
@@ -100,7 +114,6 @@ export async function getProfile() {
 }
 
 export async function sendProfile(profileJson) {
-    // This function is now a simple wrapper around updateWorkflow
     return updateWorkflow({ profile: profileJson });
 }
 
@@ -136,6 +149,35 @@ export async function setMachineState(newState) {
     return response;
 }
 
+export async function setTargetHotWaterVolume(volume) {
+    // Update the local cache for targetHotWaterVolume
+    currentShotSettings.targetHotWaterVolume = parseFloat(volume);
+
+    // Construct payload ensuring correct types based on schema
+    const payload = {
+        steamSetting: Math.round(currentShotSettings.steamSetting),
+        targetSteamTemp: parseFloat(currentShotSettings.targetSteamTemp.toFixed(1)),
+        targetSteamDuration: Math.round(currentShotSettings.targetSteamDuration),
+        targetHotWaterTemp: parseFloat(currentShotSettings.targetHotWaterTemp.toFixed(1)),
+        targetHotWaterVolume: parseFloat(currentShotSettings.targetHotWaterVolume.toFixed(1)),
+        targetHotWaterDuration: Math.round(currentShotSettings.targetHotWaterDuration),
+        targetShotVolume: parseFloat(currentShotSettings.targetShotVolume.toFixed(1)),
+        groupTemp: parseFloat(currentShotSettings.groupTemp.toFixed(1)),
+    };
+
+    const response = await fetch(`${API_BASE_URL}/de1/shotSettings`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+    logger.info("setTargetHotWaterVolume = " , volume , response) 
+    if (!response.ok) {
+        throw new Error(`Failed to set target hot water volume to ${volume}`);
+    }
+    return response.json();
+}
 
 export async function getReaSettings() {
     try {

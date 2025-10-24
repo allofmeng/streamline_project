@@ -1,5 +1,7 @@
-import { getProfile, sendProfile, updateWorkflow, setMachineState } from './api.js';
+import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume } from './api.js';
 import { logger } from './logger.js';
+
+let currentHotWaterVolume = 0;
 
 function updateDrinkOutValue(newValue) {
     const doseInEl = document.getElementById('dose-in-value');
@@ -122,6 +124,35 @@ function makeEditable(element, onCommit) {
     });
 }
 
+function updateHotWaterVolumeDisplay(volume) {
+    const hotWaterVolValueEl = document.getElementById('hot-water-vol-value');
+    logger.info("updateHotWaterVolumeDisplay",volume);
+    if (hotWaterVolValueEl) {
+        hotWaterVolValueEl.textContent = `${volume}ml`;
+    }
+}
+
+function incrementHotWaterVolume() {
+    currentHotWaterVolume += 5; // Increment by 5ml
+    logger.info("incrementHotWaterVolume",currentHotWaterVolume); 
+    setTargetHotWaterVolume(currentHotWaterVolume.toFixed(1)).then(() => {
+        updateHotWaterVolumeDisplay(currentHotWaterVolume);
+    }).catch(error => {
+        logger.error('Failed to set hot water volume:', error);
+    });
+}
+
+function decrementHotWaterVolume() {
+    if (currentHotWaterVolume >= 5) {
+        currentHotWaterVolume -= 5; // Decrement by 5ml
+        setTargetHotWaterVolume(currentHotWaterVolume.toFixed(1)).then(() => {
+            updateHotWaterVolumeDisplay(currentHotWaterVolume);
+        }).catch(error => {
+            logger.error('Failed to set hot water volume:', error);
+        });
+    }
+}
+
 export function initUI() {
     const drinkOutValueEl = document.getElementById('drink-out-value');
     const drinkOutMinusBtn = document.getElementById('drink-out-minus');
@@ -136,6 +167,15 @@ export function initUI() {
     const grindMinusBtn = document.getElementById('grind-minus');
     const grindPlusBtn = document.getElementById('grind-plus');
     const sleepButton = document.getElementById('sleep-button');
+    const hotWaterVolValueEl = document.getElementById('hot-water-vol-value');
+    const hotWaterVolMinusBtn = document.getElementById('hot-water-vol-minus');
+    const hotWaterVolPlusBtn = document.getElementById('hot-water-vol-plus');
+    
+
+    // Initialize currentHotWaterVolume from the DOM
+    if (hotWaterVolValueEl) {
+        currentHotWaterVolume = parseFloat(hotWaterVolValueEl.textContent) || 0;
+    }
 
     if (sleepButton) {
         sleepButton.addEventListener('click', () => {
@@ -270,6 +310,14 @@ export function initUI() {
             grindValueEl.textContent = currentValue.toFixed(1);
             updateGrindValue(currentValue);
         });
+    }
+
+    if (hotWaterVolMinusBtn) {
+        hotWaterVolMinusBtn.addEventListener('click', decrementHotWaterVolume);
+    }
+
+    if (hotWaterVolPlusBtn) {
+        hotWaterVolPlusBtn.addEventListener('click', incrementHotWaterVolume);
     }
 
     updateDrinkRatio(); // Initial calculation
