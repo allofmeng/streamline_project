@@ -11,14 +11,27 @@ let scaleWebSocket = null;
 // Local cache for current shot settings, initialized with default values and correct types
 let currentShotSettings = {
     steamSetting: 0, // integer
-    targetSteamTemp: 0.0, // number (float/double)
+    targetSteamTemp: 0, // integer
     targetSteamDuration: 0, // integer
-    targetHotWaterTemp: 0.0, // number (float/double)
-    targetHotWaterVolume: 0.0, // number (float/double)
+    targetHotWaterTemp: 0, // integer
+    targetHotWaterVolume: 0, // integer
     targetHotWaterDuration: 0, // integer
-    targetShotVolume: 0.0, // number (float/double)
+    targetShotVolume: 0, // integer
     groupTemp: 0.0, // number (float/double)
 };
+
+export async function reconnectScale() {
+    try {
+        logger.info('Attempting to reconnect scale by scanning...');
+        const response = await fetch(`${API_BASE_URL}/devices/scan?connect=true&quick=true`);
+        if (!response.ok) {
+            throw new Error(`Failed to trigger scale scan/reconnect: ${response.statusText}`);
+        }
+        logger.info('Successfully triggered scale scan/reconnect.');
+    } catch (error) {
+        logger.error('Error during scale reconnection attempt:', error);
+    }
+}
 
 export function connectWebSocket(onData, onReconnect) {
     reconnectingWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/de1/snapshot`, [], {
@@ -65,7 +78,17 @@ export function connectWebSocket(onData, onReconnect) {
     };
 }
 
-export function connectScaleWebSocket(onData, onReconnect) {
+export function connectScaleWebSocket(onData, onReconnect, onDisconnect) {
+    let scaleDataTimeout;
+    const SCALE_TIMEOUT_DURATION = 5000; // 5 seconds
+
+    const handleScaleTimeout = () => {
+        logger.warn(`No scale data received for ${SCALE_TIMEOUT_DURATION / 1000} seconds. Assuming disconnection.`);
+        if (onDisconnect) {
+            onDisconnect();
+        }
+    };
+
     scaleWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/scale/snapshot`, [], {
         debug: true,
         reconnectInterval: 3000,
@@ -73,27 +96,34 @@ export function connectScaleWebSocket(onData, onReconnect) {
 
     scaleWebSocket.onopen = () => {
         logger.info('Scale WebSocket connected');
+        clearTimeout(scaleDataTimeout);
+        scaleDataTimeout = setTimeout(handleScaleTimeout, SCALE_TIMEOUT_DURATION);
     };
 
     scaleWebSocket.onmessage = (event) => {
+        clearTimeout(scaleDataTimeout);
+        scaleDataTimeout = setTimeout(handleScaleTimeout, SCALE_TIMEOUT_DURATION);
+
         try {
             const data = JSON.parse(event.data);
-            // logger.debug(data);
             onData(data);
+            logger.debug(data);
         } catch (error) {
             logger.error('Error parsing scale WebSocket message:', error);
         }
     };
 
     scaleWebSocket.onclose = () => {
-        logger.info('Scale WebSocket disconnected. Attempting to reconnect...');
-        setTimeout(() => {
-            location.reload();
-        }, 6000);
+        logger.info('Scale WebSocket disconnected.');
+        clearTimeout(scaleDataTimeout);
+        if (onDisconnect) {
+            onDisconnect();
+        }
     };
 
     scaleWebSocket.onerror = (error) => {
         logger.error('Scale WebSocket error:', error);
+        clearTimeout(scaleDataTimeout);
     };
 
     scaleWebSocket.onreconnect = () => {
@@ -156,12 +186,12 @@ export async function setTargetHotWaterVolume(volume) {
     // Construct payload ensuring correct types based on schema
     const payload = {
         steamSetting: Math.round(currentShotSettings.steamSetting),
-        targetSteamTemp: parseFloat(currentShotSettings.targetSteamTemp.toFixed(1)),
+        targetSteamTemp: Math.round(currentShotSettings.targetSteamTemp),
         targetSteamDuration: Math.round(currentShotSettings.targetSteamDuration),
-        targetHotWaterTemp: parseFloat(currentShotSettings.targetHotWaterTemp.toFixed(1)),
-        targetHotWaterVolume: parseFloat(currentShotSettings.targetHotWaterVolume.toFixed(1)),
+        targetHotWaterTemp: Math.round(currentShotSettings.targetHotWaterTemp),
+        targetHotWaterVolume: Math.round(currentShotSettings.targetHotWaterVolume),
         targetHotWaterDuration: Math.round(currentShotSettings.targetHotWaterDuration),
-        targetShotVolume: parseFloat(currentShotSettings.targetShotVolume.toFixed(1)),
+        targetShotVolume: Math.round(currentShotSettings.targetShotVolume),
         groupTemp: parseFloat(currentShotSettings.groupTemp.toFixed(1)),
     };
 
@@ -176,7 +206,7 @@ export async function setTargetHotWaterVolume(volume) {
     if (!response.ok) {
         throw new Error(`Failed to set target hot water volume to ${volume}`);
     }
-    return response.json();
+    return;
 }
 
 export async function getReaSettings() {

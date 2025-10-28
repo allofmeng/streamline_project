@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -7,10 +7,10 @@ import { logger, setDebug } from './logger.js';
 
 let shotStartTime = null;
 let dataTimeout;
-let scaleDataTimeout;
 let isDe1Connected = false; // New variable to track DE1 connection status
 let isScaleConnected = false; // New variable to track Scale connection status
 let previousMachineState = null; // Track previous machine state
+let scaleReconnectPoller = null;
 
 // Sets a timer. If no data is received within 5 seconds, it assumes a stale connection.
 function resetDataTimeout() {
@@ -28,15 +28,25 @@ function resetDataTimeout() {
     }, 5000); // 5-second timeout
 }
 
-// Sets a timer for scale data. If no data is received, it assumes a stale connection.
-function resetScaleDataTimeout() {
-    clearTimeout(scaleDataTimeout);
-    scaleDataTimeout = setTimeout(() => {
-        logger.warn('No scale data received for 5 seconds. Assuming scale disconnection.');
-        isScaleConnected = false; // Scale is considered disconnected if no data
-        ui.updateWeight('--g'); // Reset weight display to '--g'
-        // If a scale status element exists, update it here
-    }, 5000); // 5-second timeout
+function stopScaleReconnectPolling() {
+    if (scaleReconnectPoller) {
+        logger.info('Stopping scale reconnect polling.');
+        clearInterval(scaleReconnectPoller);
+        scaleReconnectPoller = null;
+    }
+}
+
+function startScaleReconnectPolling() {
+    stopScaleReconnectPolling(); 
+    logger.info('Starting scale reconnect polling every 5 seconds...');
+    scaleReconnectPoller = setInterval(() => {
+        if (isScaleConnected) {
+            stopScaleReconnectPolling();
+            return;
+        }
+        logger.info('Polling: attempting to reconnect scale...');
+        reconnectScale();
+    }, 5000);
 }
 
 function handleData(data) {
@@ -112,26 +122,21 @@ function throttle(func, limit) {
 const throttledUpdateWeight = ui.updateWeight; // 100ms throttle interval
 
 function handleScaleData(data) {
-    // logger.debug("handleScaleData received new snapshot.", data);
-    resetScaleDataTimeout();
-
     const currentWeight = data.weight;
-    logger.debug(`Scale: currentWeight: ${currentWeight}, isScaleConnected: ${isScaleConnected}`);
-
-    // Detect scale reconnection
+    
     if (currentWeight !== null && currentWeight !== undefined && !isScaleConnected) {
         logger.info('Scale reconnected.');
         isScaleConnected = true;
+        stopScaleReconnectPolling();
     } else if ((currentWeight === null || currentWeight === undefined) && isScaleConnected) {
         logger.warn('Scale disconnected.');
         isScaleConnected = false;
-        ui.updateWeight('--g'); // Explicitly reset weight display on disconnection
+        ui.updateWeight('--g');
     }
 
     if (currentWeight !== null && currentWeight !== undefined) {
         throttledUpdateWeight(currentWeight);
     } else {
-        // If weight is null/undefined, ensure UI reflects --g
         ui.updateWeight('--g');
     }
 }
@@ -171,7 +176,7 @@ async function loadInitialData() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // setDebug(true); // Uncomment to enable debug logs
+    setDebug(true); // Uncomment to enable debug logs
     chart.initChart();
     ui.initUI(); // Initialize UI event listeners
     history.initHistory(); // Initialize history module
@@ -180,12 +185,21 @@ document.addEventListener('DOMContentLoaded', () => {
         logger.info('WebSocket reconnected. Resetting DE1 connection status.');
         isDe1Connected = false; // Reset DE1 connection status so handleData can detect reconnection
     });
-    connectScaleWebSocket(handleScaleData, () => {
-        logger.info('Scale WebSocket reconnected. Resetting scale connection status.');
-        isScaleConnected = false; // Reset scale connection status so handleScaleData can detect reconnection
-    });
+    connectScaleWebSocket(
+        handleScaleData, 
+        () => { // onReconnect
+            logger.info('Scale WebSocket reconnected. Resetting scale connection status.');
+            isScaleConnected = false; 
+        },
+        () => { // onDisconnect
+            logger.warn('Scale has disconnected.');
+            isScaleConnected = false;
+            ui.updateWeight('--g');
+
+            startScaleReconnectPolling();
+        }
+    );
     initWaterTankSocket();
     ensureGatewayModeTracking();
     resetDataTimeout(); // Start the timeout timer initially.
-    resetScaleDataTimeout(); // Start the scale timeout timer initially.
 });

@@ -26,7 +26,21 @@ Retrieves a list of available Bluetooth devices with their connection states.
 **Responses:**
 - `200 OK`: A JSON array of device objects.
 - `500 Internal Server Error`
-
+Example responses body 
+[
+  {
+    "name": "Decent Scale",
+    "id": "C812E23B-A946-0B9B-42D9-9196B794B9EF",
+    "state": "connected",
+    "type": "scale"
+  },
+  {
+    "name": "DE1",
+    "id": "D127E7B0-1239-68FB-196E-F0B4B420653D",
+    "state": "connected",
+    "type": "machine"
+  }
+]
 ---
 
 #### **GET /api/v1/devices/scan**
@@ -34,12 +48,40 @@ Retrieves a list of available Bluetooth devices with their connection states.
 *Scan for Devices*
 
 Triggers a Bluetooth device scan.
-
-**Responses:**
-- `200 OK`: Scan started successfully.
-- `500 Internal Server Error`
+      summary: Scan for Devices
+      description: Triggers a device scan.
+      parameters:
+        - name: connect
+          description: whether REA should automatically connect to discovered devices while scanning (applies for scales). Default is 'false'
+          in: query
+          schema:
+            type: boolean
+        - name: quick
+          description: If this flag is set to true, REA will return immediately after calling this function, returning an empty array. Useful if you want to poll for new devices manually
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Scan started successfully
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+payload example : 
+/api/v1/devices/scan?connect=true&quick=true
 
 ---
+#### **GET /api/v1/devices/scan** 
+connect to specified device
+The id of the device, previously discovered with /api/v1/devices/scan request
+
+example request URL: http://localhost:8080/api/v1/devices/connect?deviceId=D127E7B0-1239-68FB-196E-F0B4B420653D
+
+
+
 
 ### DE1 Endpoints
 
@@ -91,7 +133,19 @@ Updates shot settings on the DE1 espresso machine.
 
 **Request Body:**
 - `application/json`: A `ShotSettings` object.
-
+example : 
+all field below has to be present. 
+example : 
+ShotSettings{
+steamSetting	integer
+targetSteamTemp	integer
+targetSteamDuration	integer
+targetHotWaterTemp	integer
+targetHotWaterVolume	integer
+targetHotWaterDuration	integer
+targetShotVolume	integer
+groupTemp	number
+}
 **Responses:**
 - `200 OK`: Shot settings updated successfully.
 
@@ -404,17 +458,7 @@ steamTemperature	number
 *ShotSettings Channel*
 
 Real-time shot settings updates.
-example : 
-ShotSettings{
-steamSetting	integer
-targetSteamTemp	number
-targetSteamDuration	integer
-targetHotWaterTemp	number
-targetHotWaterVolume	number
-targetHotWaterDuration	integer
-targetShotVolume	number
-groupTemp	number
-}
+
 **Messages Received:**
 - `ShotSettings`: Contains target temperatures, volumes, etc.
 
