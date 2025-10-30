@@ -22,9 +22,16 @@ let currentShotSettings = {
 
 export async function getDevices() {
     const response = await fetch(`${API_BASE_URL}/devices`);
-    logger.info('response',response);
     if (!response.ok) {
         throw new Error('Failed to get devices');
+    }
+    return response.json();
+}
+
+export async function scanForDevices() {
+    const response = await fetch(`${API_BASE_URL}/devices/scan`);
+    if (!response.ok) {
+        throw new Error('Failed to scan for devices');
     }
     return response.json();
 }
@@ -65,7 +72,7 @@ export function connectWebSocket(onData, onReconnect) {
 
     reconnectingWebSocket.onopen = () => {
         logger.info('WebSocket connected');
-        ui.updateMachineStatus("Connected");
+        ui.updateMachineStatus("Connecting");
         logger.debug('DE1 WebSocket re-opened. Status set to Connected.'); // Added debug log
     };
 
@@ -85,7 +92,9 @@ export function connectWebSocket(onData, onReconnect) {
         logger.info('WebSocket disconnected. Attempting to reconnect...');
         ui.updateMachineStatus("Disconnected");
         setTimeout(() => {
+            logger.info('reloading now');
             location.reload();
+            
         }, 6000);
     };
 
@@ -131,7 +140,7 @@ export function connectScaleWebSocket(onData, onReconnect, onDisconnect) {
         try {
             const data = JSON.parse(event.data);
             onData(data);
-            logger.debug(data);
+            //logger.debug(data);
         } catch (error) {
             logger.error('Error parsing scale WebSocket message:', error);
         }

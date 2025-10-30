@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -181,16 +181,27 @@ async function loadInitialData() {
 
 async function initializeDe1Connection() {
     try {
-        const devices = await getDevices();
-        const de1Machine = devices.find(d => d.type === 'machine');
+        logger.info('Attempting to find devices with fast method...');
+        let devices = await getDevices();
+        let de1Machine = devices.find(d => d.type === 'machine');
+
+        // If not found, try the slower, more reliable scan
+        if (!de1Machine) {
+            logger.warn('DE1 not found with fast method. Trying fallback scan...');
+            devices = await scanForDevices();
+            de1Machine = devices.find(d => d.type === 'machine');
+        }
+
         if (de1Machine) {
             de1DeviceId = de1Machine.id;
             logger.info(`DE1 machine ID found and stored: ${de1DeviceId}`);
             if (de1Machine.state !== 'connected') {
-                logger.warn('DE1 machine is not connected. Awaiting automatic reconnection or data timeout.');
+                logger.warn('DE1 machine is found but not connected. Awaiting automatic reconnection or data timeout.');
+            } else {
+                logger.info('DE1 machine is already connected.');
             }
         } else {
-            logger.error('DE1 machine not found in device list on startup.');
+            logger.error('DE1 machine not found even after fallback scan.');
         }
     } catch (error) {
         logger.error('Failed to initialize DE1 device ID:', error);

@@ -42,8 +42,8 @@ const chartData = {
 
 const layout = {
     title: 'Pressure, Flow and Temperature',
-    xaxis: {title: 'Time (s)', dtick: 1},
-    yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)'}
+    xaxis: {title: 'Time (s)', dtick: 1,showgrid: true},
+    yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)',showgrid: true}
 };
 
 export function updateChart(shotStartTime, data) {
