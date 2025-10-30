@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -7,6 +7,7 @@ import { logger, setDebug } from './logger.js';
 
 let shotStartTime = null;
 let dataTimeout;
+let de1DeviceId = null;
 let isDe1Connected = false; // New variable to track DE1 connection status
 let isScaleConnected = false; // New variable to track Scale connection status
 let previousMachineState = null; // Track previous machine state
@@ -17,11 +18,14 @@ function resetDataTimeout() {
     clearTimeout(dataTimeout);
     dataTimeout = setTimeout(() => {
         logger.warn('No WebSocket data received for 5 seconds. Assuming REA or WebSocket disconnection.');
-        ui.updateMachineStatus("Disconnected"); // Set status to disconnected
-        isDe1Connected = false; // DE1 is considered disconnected if no data from REA
-        // Do not clear chart or reset shotStartTime as per user request
+        ui.updateMachineStatus("Disconnected");
+        isDe1Connected = false;
 
-        // Explicitly close the WebSocket to force reconnection attempt
+        if (de1DeviceId) {
+            logger.info('Attempting to reconnect DE1 machine...');
+            reconnectDevice(de1DeviceId);
+        }
+
         if (reconnectingWebSocket) {
             reconnectingWebSocket.close();
         }
@@ -175,12 +179,31 @@ async function loadInitialData() {
     }
 }
 
+async function initializeDe1Connection() {
+    try {
+        const devices = await getDevices();
+        const de1Machine = devices.find(d => d.type === 'machine');
+        if (de1Machine) {
+            de1DeviceId = de1Machine.id;
+            logger.info(`DE1 machine ID found and stored: ${de1DeviceId}`);
+            if (de1Machine.state !== 'connected') {
+                logger.warn('DE1 machine is not connected. Awaiting automatic reconnection or data timeout.');
+            }
+        } else {
+            logger.error('DE1 machine not found in device list on startup.');
+        }
+    } catch (error) {
+        logger.error('Failed to initialize DE1 device ID:', error);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setDebug(true); // Uncomment to enable debug logs
     chart.initChart();
     ui.initUI(); // Initialize UI event listeners
     history.initHistory(); // Initialize history module
     loadInitialData();
+    initializeDe1Connection();
     connectWebSocket(handleData, () => {
         logger.info('WebSocket reconnected. Resetting DE1 connection status.');
         isDe1Connected = false; // Reset DE1 connection status so handleData can detect reconnection

@@ -20,6 +20,30 @@ let currentShotSettings = {
     groupTemp: 0.0, // number (float/double)
 };
 
+export async function getDevices() {
+    const response = await fetch(`${API_BASE_URL}/devices`);
+    logger.info('response',response);
+    if (!response.ok) {
+        throw new Error('Failed to get devices');
+    }
+    return response.json();
+}
+
+export async function reconnectDevice(deviceId) {
+    try {
+        logger.info(`Attempting to reconnect to device: ${deviceId}`);
+        const response = await fetch(`${API_BASE_URL}/devices/connect?deviceId=${deviceId}`, {
+            method: 'PUT',
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to send reconnect request for device ${deviceId}`);
+        }
+        logger.info(`Successfully sent reconnect request for device: ${deviceId}`);
+    } catch (error) {
+        logger.error(`Error during device reconnection attempt for ${deviceId}:`, error);
+    }
+}
+
 export async function reconnectScale() {
     try {
         logger.info('Attempting to reconnect scale by scanning...');
@@ -51,7 +75,7 @@ export function connectWebSocket(onData, onReconnect) {
             // Update local shot settings cache if snapshot includes shot settings
             onData(data);
             // setDebug(true);
-            logger.debug(data)
+            // logger.debug(data)
         } catch (error) {
             logger.error('Error parsing WebSocket message:', error);
         }

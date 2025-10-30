@@ -74,7 +74,7 @@ payload example :
 /api/v1/devices/scan?connect=true&quick=true
 
 ---
-#### **GET /api/v1/devices/scan** 
+#### **PUT /api/v1/devices/connect** 
 connect to specified device
 The id of the device, previously discovered with /api/v1/devices/scan request
 
