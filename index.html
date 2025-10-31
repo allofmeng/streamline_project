@@ -50,9 +50,9 @@
         <header class="xl:col-span-2 bg-base-200 p-4 flex justify-between items-center border-b border-base-300">
             <!-- Profile Favorites -->
             <nav class="flex gap-2">
-                <button class="btn btn-primary bg-[var(--mimoja-blue-v2)] text-white rounded-2xl h-28 w-72 text-2xl">Damian’s LRv2 Long Name</button>
-                <button class="btn btn-ghost border-2 border-gray-300 text-gray-500 rounded-2xl h-28 w-72 text-2xl">Default</button>
-                <button class="btn btn-ghost border-2 border-gray-300 text-gray-500 rounded-2xl h-28 w-72 text-2xl">Rao’s Allonge</button>
+                <button id="fav-profile-btn-0" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-28 w-72 text-2xl">Profile 1</button>
+                <button id="fav-profile-btn-1" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-28 w-72 text-2xl">Profile 2</button>
+                <button id="fav-profile-btn-2" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-28 w-72 text-2xl">Profile 3</button>
             </nav>
             <!-- Right side controls -->
             <div class="flex gap-4">
@@ -199,27 +199,27 @@
                     <tbody>
                         <tr class="text-lg">
                             <th class="font-semibold">Preinfusion</th>
-                            <td>15s</td>
-                            <td>10g</td>
-                            <td>17ml</td>
-                            <td>90°c</td>
-                            <td>0-8.1 ml/s</td>
-                            <td>0-3.3 bar</td>
+                            <td id="shot-data-pi-time">15s</td>
+                            <td id="shot-data-pi-weight">10g</td>
+                            <td id="shot-data-pi-volume">17ml</td>
+                            <td id="shot-data-pi-temp">90°c</td>
+                            <td id="shot-data-pi-flow">0-8.1 ml/s</td>
+                            <td id="shot-data-pi-pressure">0-3.3 bar</td>
                         </tr>
                          <tr class="text-lg">
                             <th class="font-semibold">Extraction</th>
-                            <td>30s</td>
-                            <td>29g</td>
-                            <td>30ml</td>
-                            <td>90°-80°c</td>
-                            <td>0.4-2.5 ml/s</td>
-                            <td>3-9 bar</td>
+                            <td id="shot-data-ex-time">30s</td>
+                            <td id="shot-data-ex-weight">29g</td>
+                            <td id="shot-data-ex-volume">30ml</td>
+                            <td id="shot-data-ex-temp">90°-80°c</td>
+                            <td id="shot-data-ex-flow">0.4-2.5 ml/s</td>
+                            <td id="shot-data-ex-pressure">3-9 bar</td>
                         </tr>
                          <tr class="text-xl font-bold">
                             <th class="font-semibold">Total</th>
-                            <td>45s</td>
-                            <td>39g (1:2.5)</td>
-                            <td>57ml</td>
+                            <td id="shot-data-total-time">45s</td>
+                            <td id="shot-data-total-weight">39g (1:2.5)</td>
+                            <td id="shot-data-total-volume">57ml</td>
                             <td></td>
                             <td></td>
                             <td></td>
@@ -230,6 +230,21 @@
         </footer>
 
     </div>
+
+    <!-- Profile Selection Modal -->
+    <dialog id="profile_modal" class="modal">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg">Choose a Profile</h3>
+            <div id="profile-list-container" class="py-4 grid grid-cols-1 gap-2">
+                <!-- Profile list will be inserted here by JavaScript -->
+            </div>
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn">Close</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
 
 </body>
 </html>

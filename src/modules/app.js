@@ -2,6 +2,8 @@ import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayMode
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
+import * as shotData from './shotData.js';
+import * as profileManager from './profileManager.js';
 import { initWaterTankSocket } from './waterTank.js';
 import { logger, setDebug } from './logger.js';
 
@@ -12,6 +14,7 @@ let isDe1Connected = false; // New variable to track DE1 connection status
 let isScaleConnected = false; // New variable to track Scale connection status
 let previousMachineState = null; // Track previous machine state
 let scaleReconnectPoller = null;
+let latestScaleWeight = 0;
 
 // Sets a timer. If no data is received within 5 seconds, it assumes a stale connection.
 function resetDataTimeout() {
@@ -97,13 +100,15 @@ function handleData(data) {
     ui.updateSleepButton(state);
     ui.updateTemperatures({ mix: data.mixTemperature, group: data.groupTemperature, steam: data.steamTemperature });
 
-    // Update Chart
+    // Update Chart and Shot Data Table
     if (['espresso', 'flush', 'steam', 'hotWater'].includes(state)) {
         if (!shotStartTime) {
             shotStartTime = new Date(data.timestamp);
-            chart.clearChart(); // Do not clear chart as per user request
+            chart.clearChart();
+            shotData.clearShotData();
         }
-        chart.updateChart(shotStartTime, data); // Pass full data object
+        chart.updateChart(shotStartTime, data);
+        shotData.updateShotData(data, latestScaleWeight);
     } else {
         shotStartTime = null;
     }
@@ -127,6 +132,7 @@ const throttledUpdateWeight = ui.updateWeight; // 100ms throttle interval
 
 function handleScaleData(data) {
     const currentWeight = data.weight;
+    latestScaleWeight = currentWeight;
     
     if (currentWeight !== null && currentWeight !== undefined && !isScaleConnected) {
         logger.info('Scale reconnected.');
@@ -213,6 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chart.initChart();
     ui.initUI(); // Initialize UI event listeners
     history.initHistory(); // Initialize history module
+    profileManager.init(); // Initialize the profile manager
     loadInitialData();
     initializeDe1Connection();
     connectWebSocket(handleData, () => {

@@ -2,6 +2,7 @@ import * as chart from './chart.js';
 import { logger } from './logger.js';
 import { openDB, getAllShots, addShot, getLatestShotTimestamp } from './idb.js';
 import { API_BASE_URL } from './api.js';
+import { renderPastShot, clearShotData } from './shotData.js';
 
 let shots = [];
 let currentShotIndex = -1;
@@ -64,9 +65,10 @@ function displayShot(index) {
         profileNameEl.textContent = shot.workflow.profile.title;
     }
 
-    // Update chart
+    // Update chart and data table
     if (shot.measurements) {
         chart.plotHistoricalShot(shot.measurements);
+        renderPastShot(shot);
     }
 
     // Update button states
@@ -104,6 +106,9 @@ export async function initHistory() {
     // Display the most recent shot on initial load
     if (shots.length > 0) {
         displayShot(0);
+    } else {
+        // If no history, clear the shot data table as well
+        clearShotData();
     }
 }
 
@@ -119,6 +124,7 @@ export async function clearShotHistory() {
         } else {
             // Clear chart and footer if no shots remain
             chart.clearChart();
+            clearShotData();
             const dateEl = document.getElementById('history-date');
             const profileNameEl = document.getElementById('history-profile-name');
             if (dateEl) dateEl.textContent = '';

@@ -51,13 +51,18 @@ export async function reconnectDevice(deviceId) {
     }
 }
 
+let reloadcount = 0;
+
 export async function reconnectScale() {
     try {
         logger.info('Attempting to reconnect scale by scanning...');
         const response = await fetch(`${API_BASE_URL}/devices/scan?connect=true&quick=true`);
         if (!response.ok) {
+            reloadcount += 1;
+            if (reloadcount >= 10) { location.reload(); }
+            logger.info("reload",reloadcount);
             throw new Error(`Failed to trigger scale scan/reconnect: ${response.statusText}`);
-        }
+        } 
         logger.info('Successfully triggered scale scan/reconnect.');
     } catch (error) {
         logger.error('Error during scale reconnection attempt:', error);
