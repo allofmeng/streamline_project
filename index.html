@@ -93,6 +93,12 @@
                     <button id="drink-out-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
             </div>
+            <div id="drink-out-presets" class="flex justify-between items-center w-full pl-52 pr-8">
+                <button id="drink-out-preset-1" class="text-2xl text-gray-400">18:36</button>
+                <button id="drink-out-preset-2" class="text-2xl text-gray-400">20:40</button>
+                <button id="drink-out-preset-3" class="text-2xl text-gray-400">22:44</button>
+                <button id="drink-out-preset-4" class="text-2xl text-gray-400">20:46</button>
+            </div>
             <div class="divider"></div>
             <!-- Temp -->
              <div class="flex justify-between items-center w-full">
@@ -102,6 +108,12 @@
                     <span id="temp-value" class="text-3xl font-bold text-center w-24">92°c</span>
                     <button id="temp-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
+            </div>
+            <div id="temp-presets" class="flex justify-between items-center w-full pl-52 pr-8">
+                <button id="temp-preset-75" class="text-2xl text-gray-400">75°c</button>
+                <button id="temp-preset-80" class="text-2xl text-gray-400">80°c</button>
+                <button id="temp-preset-85" class="text-2xl text-gray-400">85°c</button>
+                <button id="temp-preset-92" class="text-2xl text-gray-400">92°c</button>
             </div>
              <div class="divider"></div>
             <!-- Steam -->
@@ -128,7 +140,9 @@
             <div class="flex justify-between items-center w-full">
                 <div class="w-40">
                     <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)]">Hot Water</span>
-                    <span class="text-2xl text-[var(--low-contrast-white)] block">Temp | <span class="text-[var(--mimoja-blue-v2)]">Vol</span></span>
+                    <span id="hot-water-mode-toggle" class="text-2xl block cursor-pointer">
+                        <span id="hot-water-mode-temp">Temp</span> | <span id="hot-water-mode-vol">Vol</span>
+                    </span>
                 </div>
                 <div class="flex items-center gap-4">
                     <button id="hot-water-vol-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>

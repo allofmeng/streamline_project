@@ -1,6 +1,7 @@
 import { logger } from './logger.js';
-import { sendProfile } from './api.js';
-import * as ui from './ui.js';
+import { sendProfile, getWorkflow } from './api.js';
+import { updateProfileName } from './ui.js';
+
 const FAV_COUNT = 3;
 const PROFILES_PATH = 'src/profiles/';
 const STORAGE_KEY = 'streamline-favorite-profiles';
@@ -9,7 +10,6 @@ const LONG_PRESS_DURATION = 700; // ms
 let favoriteButtons = [];
 let availableProfiles = {};
 let favoriteAssignments = {};
-let pressTimer = null;
 
 // --- Helper Functions ---
 
@@ -41,15 +41,16 @@ function loadAssignments() {
         if (saved) {
             favoriteAssignments = JSON.parse(saved);
             logger.info('Loaded profile assignments from localStorage.');
-        } else {
+        }
+        else {
             const profileKeys = Object.keys(availableProfiles);
             for (let i = 0; i < FAV_COUNT; i++) {
                 favoriteAssignments[i] = profileKeys[i] || null;
-            }
-            saveAssignments();
+            }            saveAssignments();
             logger.info('Created default profile assignments.');
         }
-    } catch (error) {
+    }
+    catch (error) {
         logger.error('Failed to load profile assignments from localStorage:', error);
     }
 }
@@ -57,7 +58,8 @@ function loadAssignments() {
 function saveAssignments() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(favoriteAssignments));
-    } catch (error) {
+    }
+    catch (error) {
         logger.error('Failed to save profile assignments to localStorage:', error);
     }
 }
@@ -70,11 +72,29 @@ function updateButtonUI() {
 
         if (button && profile) {
             button.textContent = profile.title || 'Untitled';
-            button.disabled = false;
-        } else if (button) {
-            button.textContent = '[Empty]';
-            button.disabled = true;
         }
+        else if (button) {
+            button.textContent = '[Empty]';
+        }
+    }
+}
+
+async function verifyProfileChange(sentProfileTitle, retries = 5, delay = 300) {
+    if (retries <= 0) {
+        logger.error(`Profile verification failed after multiple retries. Sent '${sentProfileTitle}'.`);
+        return false;
+    }
+
+    const currentWorkflow = await getWorkflow();
+    const activeProfileTitle = currentWorkflow?.profile?.title;
+
+    if (sentProfileTitle === activeProfileTitle) {
+        logger.info('Verification successful. Active profile matches sent profile.');
+        return true;
+    } else {
+        logger.warn(`Verification attempt failed. Retrying... (${retries - 1} left). Sent: '${sentProfileTitle}', Active: '${activeProfileTitle}'`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return verifyProfileChange(sentProfileTitle, retries - 1, delay);
     }
 }
 
@@ -83,30 +103,36 @@ async function handleProfileClick(index) {
     const profile = availableProfiles[profileKey];
 
     if (!profile) {
-        logger.error(`No profile assigned to button ${index}`);
+        logger.warn(`Button ${index} has no profile assigned.`);
         return;
     }
 
     logger.info(`Sending profile '${profile.title}' to REA...`);
     try {
         await sendProfile(profile);
-        logger.info('Successfully sent profile.');
-        ui.updateProfileName(profile.title || "Untitled Profile"); 
-        favoriteButtons.forEach((btn, i) => {
-            const baseClasses = ['btn', 'rounded-2xl', 'h-28', 'w-72', 'text-2xl'];
-            const activeClasses = ['btn-primary', 'bg-[var(--mimoja-blue-v2)]', 'text-white'];
-            const inactiveClasses = ['btn-outline', 'border-[var(--mimoja-blue)]', 'text-[var(--mimoja-blue)]'];
+        logger.info('Successfully sent profile. Verifying...');
 
-            btn.className = ''; // Reset classes
+        const isVerified = await verifyProfileChange(profile.title);
 
-            if (i === index) {
-                btn.classList.add(...baseClasses, ...activeClasses);
-            } else {
-                btn.classList.add(...baseClasses, ...inactiveClasses);
-            }
-        });
-    } catch (error) {
-        logger.error('Failed to send profile:', error);
+        if (isVerified) {
+            updateProfileName(profile.title);
+            favoriteButtons.forEach((btn, i) => {
+                const baseClasses = ['btn', 'rounded-2xl', 'h-28', 'w-72', 'text-2xl'];
+                const activeClasses = ['btn-primary', 'bg-[var(--mimoja-blue-v2)]', 'text-white'];
+                const inactiveClasses = ['btn-outline', 'border-[var(--mimoja-blue)]', 'text-[var(--mimoja-blue)]'];
+
+                btn.className = ''; // Reset classes
+
+                if (i === index) {
+                    btn.classList.add(...baseClasses, ...activeClasses);
+                } else {
+                    btn.classList.add(...baseClasses, ...inactiveClasses);
+                }
+            });
+        }
+    }
+    catch (error) {
+        logger.error('Failed to send or verify profile:', error);
     }
 }
 
@@ -139,14 +165,19 @@ function openProfileSelectionModal(buttonIndex) {
     modal.showModal();
 }
 
-function handlePressStart(index) {
-    pressTimer = setTimeout(() => {
-        openProfileSelectionModal(index);
-    }, LONG_PRESS_DURATION);
-}
+function handleLongPress(index) {
+    const isAssigned = favoriteAssignments[index];
 
-function handlePressEnd() {
-    clearTimeout(pressTimer);
+    if (isAssigned) {
+        logger.info(`Clearing assignment for favorite button ${index}`);
+        favoriteAssignments[index] = null;
+        saveAssignments();
+        updateButtonUI();
+    }
+    else {
+        logger.info(`Opening profile selection for empty button ${index}`);
+        openProfileSelectionModal(index);
+    }
 }
 
 // --- Initialization ---
@@ -162,16 +193,30 @@ export async function init() {
     updateButtonUI();
 
     favoriteButtons.forEach((button, index) => {
+        let pressTimer = null;
+
+        const startPress = () => {
+            // Make sure we clear any previous timer
+            clearTimeout(pressTimer);
+            pressTimer = setTimeout(() => {
+                handleLongPress(index);
+                pressTimer = null;
+            }, LONG_PRESS_DURATION);
+        };
+
+        const cancelPress = () => {
+            clearTimeout(pressTimer);
+        };
+
         button.addEventListener('click', () => handleProfileClick(index));
-        
-        // Long press listeners
-        button.addEventListener('mousedown', () => handlePressStart(index));
-        button.addEventListener('mouseup', handlePressEnd);
-        button.addEventListener('mouseleave', handlePressEnd);
-        button.addEventListener('touchstart', () => handlePressStart(index), { passive: true });
-        button.addEventListener('touchend', handlePressEnd);
+        button.addEventListener('mousedown', startPress);
+        button.addEventListener('mouseup', cancelPress);
+        button.addEventListener('mouseleave', cancelPress);
+        button.addEventListener('touchstart', startPress, { passive: true });
+        button.addEventListener('touchend', cancelPress);
     });
 
     logger.info('Profile Manager initialized.');
 }
+
 

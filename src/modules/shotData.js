@@ -41,6 +41,24 @@ function formatRange(values, precision) {
     return `${min}-${max}`;
 }
 
+function formatRangeWithPeak(values, precision) {
+    if (!values || values.length < 3) {
+        return formatRange(values, precision);
+    }
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const maxIndex = values.indexOf(max);
+    const endValue = values[values.length - 1];
+
+    // Check if the peak (max value) is not at the beginning or the end of the phase
+    if (maxIndex > 0 && maxIndex < values.length - 1) {
+        return `${min.toFixed(precision)}-${max.toFixed(precision)}-${endValue.toFixed(precision)}`;
+    } else {
+        return `${min.toFixed(precision)}-${max.toFixed(precision)}`;
+    }
+}
+
 function getPhaseData(dataArray, startIndex, endIndex) {
     return dataArray.slice(startIndex, endIndex + 1);
 }
@@ -69,7 +87,7 @@ export function clearShotData() {
 
 function calculateAndRender(shotData) {
     if (!shotData || !shotData.timestamps || shotData.timestamps.length === 0) {
-        logger.warn('calculateAndRender called with invalid shotData.');
+        logger.warn('calculateAndRender called with invalid or empty shotData. Aborting render.');
         return;
     }
 
@@ -90,42 +108,16 @@ function calculateAndRender(shotData) {
     const exFlows = exStartIndex !== -1 ? getPhaseData(shotData.flows, exStartIndex, lastIndex) : [];
     const exTemps = exStartIndex !== -1 ? getPhaseData(shotData.temperatures, exStartIndex, lastIndex) : [];
 
-    const totalWeight = shotData.weights[lastIndex] || 0;
+    const totalWeight = shotData.weights[lastIndex];
     const totalVolume = shotData.volumes[lastIndex] || 0;
-    const piWeight = shotData.weights[piEndIndex] || 0;
+    const piWeight = shotData.weights[piEndIndex];
     const piVolume = shotData.volumes[piEndIndex] || 0;
-    const exWeight = totalWeight - piWeight;
+    const exWeight = (totalWeight !== null && piWeight !== null) ? totalWeight - piWeight : null;
     const exVolume = totalVolume - piVolume;
-
-    const logOutput = {
-        pi: {
-            time: piTime,
-            weight: piWeight,
-            volume: piVolume,
-            pressureRange: formatRange(piPressures, 1),
-            flowRange: formatRange(piFlows, 1),
-            tempRange: formatRange(piTemps, 0)
-        },
-        ex: {
-            time: exTime,
-            weight: exWeight,
-            volume: exVolume,
-            pressureRange: formatRange(exPressures, 1),
-            flowRange: formatRange(exFlows, 1),
-            tempRange: formatRange(exTemps, 0)
-        },
-        total: {
-            time: totalTime,
-            weight: totalWeight,
-            volume: totalVolume
-        }
-    };
-
-    logger.debug('Calculated Shot Data:', logOutput);
 
     // --- Rendering ---
     updateText(elements.pi.time, `${piTime.toFixed(1)}s`);
-    updateText(elements.pi.weight, `${piWeight.toFixed(1)}g`);
+    updateText(elements.pi.weight, piWeight !== null ? `${piWeight.toFixed(1)}g` : 'N/A');
     updateText(elements.pi.volume, `${piVolume.toFixed(0)}ml`);
     updateText(elements.pi.temp, `${formatRange(piTemps, 0)}°c`);
     updateText(elements.pi.flow, `${formatRange(piFlows, 1)} ml/s`);
@@ -133,15 +125,15 @@ function calculateAndRender(shotData) {
 
     if (exTime > 0) {
         updateText(elements.ex.time, `${exTime.toFixed(1)}s`);
-        updateText(elements.ex.weight, `${exWeight.toFixed(1)}g`);
+        updateText(elements.ex.weight, exWeight !== null ? `${exWeight.toFixed(1)}g` : 'N/A');
         updateText(elements.ex.volume, `${exVolume.toFixed(0)}ml`);
         updateText(elements.ex.temp, `${formatRange(exTemps, 0)}°c`);
-        updateText(elements.ex.flow, `${formatRange(exFlows, 1)} ml/s`);
-        updateText(elements.ex.pressure, `${formatRange(exPressures, 1)} bar`);
+        updateText(elements.ex.flow, `${formatRangeWithPeak(exFlows, 1)} ml/s`);
+        updateText(elements.ex.pressure, `${formatRangeWithPeak(exPressures, 1)} bar`);
     }
 
     updateText(elements.total.time, `${totalTime.toFixed(1)}s`);
-    updateText(elements.total.weight, `${totalWeight.toFixed(1)}g`);
+    updateText(elements.total.weight, totalWeight !== null ? `${totalWeight.toFixed(1)}g` : 'N/A');
     updateText(elements.total.volume, `${totalVolume.toFixed(0)}ml`);
 }
 
@@ -167,13 +159,13 @@ export function renderPastShot(shotRecord) {
     let accumulatedVolume = 0;
     for (let i = 0; i < shotRecord.measurements.length; i++) {
         const m = shotRecord.measurements[i];
-        if (!m.machine || !m.scale) continue; // Skip if data is incomplete
+        if (!m.machine) continue; // Only require machine data to proceed
 
         const timestamp = new Date(m.machine.timestamp).getTime();
         pastShotData.timestamps.push(timestamp);
         pastShotData.pressures.push(m.machine.pressure);
         pastShotData.flows.push(m.machine.flow);
-        pastShotData.weights.push(m.scale.weight || 0);
+        pastShotData.weights.push(m.scale?.weight ?? null); // Safely access weight, default to null
         pastShotData.temperatures.push(m.machine.mixTemperature);
         pastShotData.substates.push(m.machine.state.substate);
 
@@ -189,6 +181,10 @@ export function renderPastShot(shotRecord) {
         }
     }
 
+    if (pastShotData.timestamps.length === 0 && shotRecord.measurements.length > 0) {
+        logger.warn(`Shot record ${shotRecord.id} contains measurements, but none had valid machine data to process.`);
+    }
+
     calculateAndRender(pastShotData);
 }
 
@@ -199,7 +195,7 @@ export function updateShotData(de1Data, scaleWeight) {
     currentShot.timestamps.push(now);
     currentShot.pressures.push(de1Data.pressure);
     currentShot.flows.push(de1Data.flow);
-    currentShot.weights.push(scaleWeight || 0);
+    currentShot.weights.push(scaleWeight ?? null); // Use null if scaleWeight is undefined
     currentShot.temperatures.push(de1Data.mixTemperature);
     currentShot.substates.push(de1Data.state.substate);
 

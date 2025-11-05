@@ -172,6 +172,35 @@ export function connectScaleWebSocket(onData, onReconnect, onDisconnect) {
     };
 }
 
+export function connectShotSettingsWebSocket(onData) {
+    const shotSettingsWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${window.location.hostname}:${REA_PORT}/ws/v1/de1/shotSettings`, [], {
+        debug: true,
+        reconnectInterval: 3000,
+    });
+
+    shotSettingsWebSocket.onopen = () => {
+        logger.info('Shot Settings WebSocket connected');
+    };
+
+    shotSettingsWebSocket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            onData(data);
+            logger.info('shotsettings data',data);
+        } catch (error) {
+            logger.error('Error parsing Shot Settings WebSocket message:', error);
+        }
+    };
+
+    shotSettingsWebSocket.onclose = () => {
+        logger.info('Shot Settings WebSocket disconnected. Attempting to reconnect...');
+    };
+
+    shotSettingsWebSocket.onerror = (error) => {
+        logger.error('Shot Settings WebSocket error:', error);
+    };
+}
+
 export async function getProfile() {
     const response = await fetch(`${API_BASE_URL}/workflow`);
     if (!response.ok) {
@@ -217,11 +246,7 @@ export async function setMachineState(newState) {
     return response;
 }
 
-export async function setTargetHotWaterVolume(volume) {
-    // Update the local cache for targetHotWaterVolume
-    currentShotSettings.targetHotWaterVolume = parseFloat(volume);
-
-    // Construct payload ensuring correct types based on schema
+async function sendShotSettings() {
     const payload = {
         steamSetting: Math.round(currentShotSettings.steamSetting),
         targetSteamTemp: Math.round(currentShotSettings.targetSteamTemp),
@@ -240,11 +265,23 @@ export async function setTargetHotWaterVolume(volume) {
         },
         body: JSON.stringify(payload),
     });
-    logger.info("setTargetHotWaterVolume = " , volume , response) 
+
     if (!response.ok) {
-        throw new Error(`Failed to set target hot water volume to ${volume}`);
+        // The body might contain a useful error message
+        const errorBody = await response.text();
+        throw new Error(`Failed to set shot settings. Status: ${response.status}, Body: ${errorBody}`);
     }
     return;
+}
+
+export async function setTargetHotWaterVolume(volume) {
+    currentShotSettings.targetHotWaterVolume = parseFloat(volume);
+    return sendShotSettings();
+}
+
+export async function setTargetHotWaterTemp(temp) {
+    currentShotSettings.targetHotWaterTemp = parseFloat(temp);
+    return sendShotSettings();
 }
 
 export async function getReaSettings() {

@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -57,7 +57,7 @@ function startScaleReconnectPolling() {
 }
 
 function handleData(data) {
-    logger.debug("handleData received new snapshot.");
+    //logger.debug("handleData received new snapshot.");
     resetDataTimeout(); // Reset the timer every time data is received.
 
     const state = data.state.state;
@@ -84,7 +84,7 @@ function handleData(data) {
         }, 5000);
     }
     previousMachineState = state; // Update previous state
-    logger.info("previousMachineState",previousMachineState)
+    //logger.info("previousMachineState",previousMachineState)
     // New condition: If REA is running but not connected to the machine
     // Infer this if state is 'error'
     if (state === 'error') {
@@ -243,4 +243,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initWaterTankSocket();
     ensureGatewayModeTracking();
     resetDataTimeout(); // Start the timeout timer initially.
+    connectShotSettingsWebSocket(ui.updateHotWaterDisplay);
 });

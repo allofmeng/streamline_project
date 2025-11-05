@@ -1,42 +1,65 @@
-import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume } from './api.js';
+import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp } from './api.js';
 import { logger } from './logger.js';
 
 let currentHotWaterVolume = 0;
+let currentHotWaterTemp = 0;
+let hotWaterMode = 'volume'; // 'volume' or 'temperature'
 
-function updateDrinkOutValue(newValue) {
+function updateDoseValue(type, newValue) {
     const doseInEl = document.getElementById('dose-in-value');
-    const currentDoseIn = doseInEl ? parseFloat(doseInEl.textContent) : 0;
-
-    const payload = {
-        doseData: {
-            doseIn: currentDoseIn,
-            doseOut: parseFloat(newValue)
-        }
-    };
-
-    updateWorkflow(payload).then(() => {
-        logger.debug('Drink out value updated via workflow:', newValue);
-    }).catch(error => {
-        logger.error('Failed to update drink out value via workflow:', error);
-    });
-}
-
-function updateDoseInValue(newValue) {
     const drinkOutEl = document.getElementById('drink-out-value');
+    const currentDoseIn = doseInEl ? parseFloat(doseInEl.textContent) : 0;
     const currentDoseOut = drinkOutEl ? parseFloat(drinkOutEl.textContent) : 0;
 
     const payload = {
         doseData: {
-            doseIn: parseFloat(newValue),
-            doseOut: currentDoseOut
+            doseIn: type === 'in' ? parseFloat(newValue) : currentDoseIn,
+            doseOut: type === 'out' ? parseFloat(newValue) : currentDoseOut
         }
     };
 
     updateWorkflow(payload).then(() => {
-        logger.debug('Dose in value updated via workflow:', newValue);
+        logger.debug(`Dose ${type} value updated via workflow:`, newValue);
     }).catch(error => {
-        logger.error('Failed to update dose in value via workflow:', error);
+        logger.error(`Failed to update dose ${type} value via workflow:`, error);
     });
+}
+
+function updateDoseAndDrinkOutValue(newDoseIn, newDrinkOut) {
+    const payload = {
+        doseData: {
+            doseIn: newDoseIn,
+            doseOut: newDrinkOut
+        }
+    };
+
+    updateWorkflow(payload).then(() => {
+        logger.debug(`Dose In and Drink Out values updated via workflow: ${newDoseIn}g : ${newDrinkOut}g`);
+    }).catch(error => {
+        logger.error(`Failed to update dose in and drink out values via workflow:`, error);
+    });
+}
+
+export function updateDrinkOutPresetsDisplay(doseIn, drinkOut) {
+    const doseInEl = document.getElementById('dose-in-value');
+    const drinkOutEl = document.getElementById('drink-out-value');
+    const ratioEl = document.getElementById('drink-ratio-value');
+
+    if (doseInEl) {
+        doseInEl.textContent = `${doseIn}`;
+    }
+    if (drinkOutEl) {
+        drinkOutEl.textContent = `${drinkOut}`;
+    }
+
+    if (doseInEl && drinkOutEl && ratioEl) {
+        if (!isNaN(doseIn) && !isNaN(drinkOut) && doseIn > 0) {
+            const ratio = drinkOut / doseIn;
+            ratioEl.textContent = `(1:${ratio.toFixed(1)})`;
+        } else {
+            ratioEl.textContent = '(1:--)';
+        }
+    }
 }
 
 function updateTemperatureValue(newValue) {
@@ -124,57 +147,176 @@ function makeEditable(element, onCommit) {
     });
 }
 
-function updateHotWaterVolumeDisplay(volume) {
-    const hotWaterVolValueEl = document.getElementById('hot-water-vol-value');
-    logger.info("updateHotWaterVolumeDisplay",volume);
-    if (hotWaterVolValueEl) {
-        hotWaterVolValueEl.textContent = `${volume}ml`;
+export function updateHotWaterDisplay(data) {
+    const volEl = document.getElementById('hot-water-vol-value');
+    const tempEl = document.getElementById('hot-water-temp-value');
+    const modeTempEl = document.getElementById('hot-water-mode-temp');
+    const modeVolEl = document.getElementById('hot-water-mode-vol');
+    if (!volEl || !tempEl || !modeTempEl || !modeVolEl) return;
+    if (data.targetHotWaterVolume !== undefined) {
+        currentHotWaterVolume = data.targetHotWaterVolume;
+    }
+    if (data.targetHotWaterTemp !== undefined) {
+        currentHotWaterTemp = data.targetHotWaterTemp;
+    }
+
+    volEl.textContent = `${currentHotWaterVolume}ml`;
+    tempEl.textContent = `${currentHotWaterTemp}°C`;
+
+    if (hotWaterMode === 'volume') {
+        volEl.classList.remove('text-2xl', 'text-gray-500');
+        volEl.classList.add('text-3xl', 'font-bold');
+        tempEl.classList.remove('text-3xl', 'font-bold');
+        tempEl.classList.add('text-2xl', 'text-gray-500');
+        modeVolEl.className = 'text-[var(--mimoja-blue-v2)]';
+        modeTempEl.className = 'text-[var(--low-contrast-white)]';
+    } else { // temperature mode
+        tempEl.classList.remove('text-2xl', 'text-gray-500');
+        tempEl.classList.add('text-3xl', 'font-bold');
+        volEl.classList.remove('text-3xl', 'font-bold');
+        volEl.classList.add('text-2xl', 'text-gray-500');
+        modeTempEl.className = 'text-[var(--mimoja-blue-v2)]';
+        modeVolEl.className = 'text-[var(--low-contrast-white)]';
     }
 }
 
-function incrementHotWaterVolume() {
-    currentHotWaterVolume += 5; // Increment by 5ml
-    logger.info("incrementHotWaterVolume",currentHotWaterVolume); 
-    setTargetHotWaterVolume(currentHotWaterVolume.toFixed(1)).then(() => {
-        updateHotWaterVolumeDisplay(currentHotWaterVolume);
-    }).catch(error => {
-        logger.error('Failed to set hot water volume:', error);
+function incrementHotWater() {
+    if (hotWaterMode === 'volume') {
+        currentHotWaterVolume += 5;
+        setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
+    } else {
+        currentHotWaterTemp += 1;
+        setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
+    }
+}
+
+function decrementHotWater() {
+    if (hotWaterMode === 'volume') {
+        if (currentHotWaterVolume >= 5) {
+            currentHotWaterVolume -= 5;
+            setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
+        }
+    }
+    else {
+        if (currentHotWaterTemp > 0) {
+            currentHotWaterTemp -= 1;
+            setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
+        }
+    }
+}
+
+function toggleHotWaterMode() {
+    hotWaterMode = hotWaterMode === 'volume' ? 'temperature' : 'volume';
+    logger.info(`Hot water mode switched to: ${hotWaterMode}`);
+    updateHotWaterDisplay({ targetHotWaterVolume: currentHotWaterVolume, targetHotWaterTemp: currentHotWaterTemp });
+}
+
+function setupValueAdjuster(minusBtnId, plusBtnId, valueElId, step, min, formatter, onUpdate) {
+    const minusBtn = document.getElementById(minusBtnId);
+    const plusBtn = document.getElementById(plusBtnId);
+    const valueEl = document.getElementById(valueElId);
+
+    if (!minusBtn || !plusBtn || !valueEl) return;
+
+    minusBtn.addEventListener('click', () => {
+        let currentValue = parseFloat(valueEl.textContent);
+        if (currentValue > min) {
+            currentValue -= step;
+            valueEl.textContent = formatter(currentValue);
+            onUpdate(currentValue);
+        }
+    });
+
+    plusBtn.addEventListener('click', () => {
+        let currentValue = parseFloat(valueEl.textContent);
+        currentValue += step;
+        valueEl.textContent = formatter(currentValue);
+        onUpdate(currentValue);
     });
 }
 
-function decrementHotWaterVolume() {
-    if (currentHotWaterVolume >= 5) {
-        currentHotWaterVolume -= 5; // Decrement by 5ml
-        setTargetHotWaterVolume(currentHotWaterVolume.toFixed(1)).then(() => {
-            updateHotWaterVolumeDisplay(currentHotWaterVolume);
-        }).catch(error => {
-            logger.error('Failed to set hot water volume:', error);
-        });
-    }
+function onLongPress(element, callback) {
+    let timer;
+
+    element.addEventListener('mousedown', () => {
+        timer = setTimeout(() => {
+            callback();
+        }, 1000); // 1 second
+    });
+
+    element.addEventListener('mouseup', () => {
+        clearTimeout(timer);
+    });
+
+    element.addEventListener('mouseleave', () => {
+        clearTimeout(timer);
+    });
 }
 
 export function initUI() {
     const drinkOutValueEl = document.getElementById('drink-out-value');
-    const drinkOutMinusBtn = document.getElementById('drink-out-minus');
-    const drinkOutPlusBtn = document.getElementById('drink-out-plus');
     const tempValueEl = document.getElementById('temp-value');
-    const tempMinusBtn = document.getElementById('temp-minus');
-    const tempPlusBtn = document.getElementById('temp-plus');
     const doseInValueEl = document.getElementById('dose-in-value');
-    const doseInMinusBtn = document.getElementById('dose-in-minus');
-    const doseInPlusBtn = document.getElementById('dose-in-plus');
     const grindValueEl = document.getElementById('grind-value');
-    const grindMinusBtn = document.getElementById('grind-minus');
-    const grindPlusBtn = document.getElementById('grind-plus');
     const sleepButton = document.getElementById('sleep-button');
+    const hotWaterMinusBtn = document.getElementById('hot-water-vol-minus');
+    const hotWaterPlusBtn = document.getElementById('hot-water-vol-plus');
+    const hotWaterModeToggle = document.getElementById('hot-water-mode-toggle');
     const hotWaterVolValueEl = document.getElementById('hot-water-vol-value');
-    const hotWaterVolMinusBtn = document.getElementById('hot-water-vol-minus');
-    const hotWaterVolPlusBtn = document.getElementById('hot-water-vol-plus');
-    
+    const hotWaterTempValueEl = document.getElementById('hot-water-temp-value');
+    const tempPresets = document.getElementById('temp-presets');
+    const drinkOutPresets = document.getElementById('drink-out-presets');
 
-    // Initialize currentHotWaterVolume from the DOM
-    if (hotWaterVolValueEl) {
-        currentHotWaterVolume = parseFloat(hotWaterVolValueEl.textContent) || 0;
+    if (tempPresets) {
+        for (const button of tempPresets.children) {
+            onLongPress(button, () => {
+                const tempValue = document.getElementById('temp-value').textContent;
+                button.textContent = tempValue;
+            });
+
+            button.addEventListener('click', (e) => {
+                const newValue = parseFloat(e.target.textContent);
+                updateTemperatureValue(newValue);
+                updateTemperatureDisplay(newValue);
+
+                // Update preset styles
+                for (const btn of tempPresets.children) {
+                    btn.classList.remove('text-black');
+                    btn.classList.add('text-gray-400');
+                }
+                e.target.classList.remove('text-gray-400');
+                e.target.classList.add('text-black');
+            });
+        }
+    }
+
+    if (drinkOutPresets) {
+        for (const button of drinkOutPresets.children) {
+            onLongPress(button, () => {
+                const doseInValue = parseFloat(document.getElementById('dose-in-value').textContent);
+                const drinkOutValue = parseFloat(document.getElementById('drink-out-value').textContent);
+                button.textContent = `${doseInValue}:${drinkOutValue}`;
+            });
+
+            button.addEventListener('click', (e) => {
+                const [doseInStr, drinkOutStr] = e.target.textContent.split(':');
+                const newDoseIn = parseFloat(doseInStr);
+                const newDrinkOut = parseFloat(drinkOutStr);
+
+                if (!isNaN(newDoseIn) && !isNaN(newDrinkOut)) {
+                    updateDoseAndDrinkOutValue(newDoseIn, newDrinkOut);
+                    updateDrinkOutPresetsDisplay(newDoseIn, newDrinkOut);
+
+                    // Update preset styles
+                    for (const btn of drinkOutPresets.children) {
+                        btn.classList.remove('text-black');
+                        btn.classList.add('text-gray-400');
+                    }
+                    e.target.classList.remove('text-gray-400');
+                    e.target.classList.add('text-black');
+                }
+            });
+        }
     }
 
     if (sleepButton) {
@@ -199,7 +341,7 @@ export function initUI() {
     if (doseInValueEl) {
         makeEditable(doseInValueEl, (newValue) => {
             doseInValueEl.textContent = `${newValue}g`;
-            updateDoseInValue(newValue);
+            updateDoseValue('in', newValue);
             updateDrinkRatio();
         });
     }
@@ -214,7 +356,7 @@ export function initUI() {
     if (drinkOutValueEl) {
         makeEditable(drinkOutValueEl, (newValue) => {
             drinkOutValueEl.textContent = `${newValue}g`;
-            updateDrinkOutValue(newValue);
+            updateDoseValue('out', newValue);
             updateDrinkRatio();
         });
     }
@@ -226,98 +368,35 @@ export function initUI() {
         });
     }
 
-    if (drinkOutMinusBtn) {
-        drinkOutMinusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(drinkOutValueEl.textContent);
-            if (currentValue > 0) {
-                currentValue -= 1;
-                drinkOutValueEl.textContent = `${currentValue}g`;
-                logger.debug("currentvalue", currentValue);
-                updateDrinkOutValue(currentValue);
-                updateDrinkRatio();
-            }
+    if (hotWaterVolValueEl) {
+        makeEditable(hotWaterVolValueEl, (newValue) => {
+            currentHotWaterVolume = newValue;
+            setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
         });
     }
 
-    if (drinkOutPlusBtn) {
-        drinkOutPlusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(drinkOutValueEl.textContent);
-            currentValue += 1;
-            drinkOutValueEl.textContent = `${currentValue}g`;
-            logger.debug("currentvalue", currentValue);
-                updateDrinkOutValue(currentValue);
-            updateDrinkRatio();
+    if (hotWaterTempValueEl) {
+        makeEditable(hotWaterTempValueEl, (newValue) => {
+            currentHotWaterTemp = newValue;
+            setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
         });
     }
 
-    if (tempMinusBtn) {
-        tempMinusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(tempValueEl.textContent);
-            if (currentValue > 0) {
-                currentValue -= 1;
-                tempValueEl.textContent = `${currentValue}°c`;
-                updateTemperatureValue(currentValue);
-            }
-        });
+    setupValueAdjuster('drink-out-minus', 'drink-out-plus', 'drink-out-value', 1, 0, (val) => `${val}g`, (val) => { updateDoseValue('out', val); updateDrinkRatio(); });
+    setupValueAdjuster('temp-minus', 'temp-plus', 'temp-value', 1, 0, (val) => `${val}°c`, updateTemperatureValue);
+    setupValueAdjuster('dose-in-minus', 'dose-in-plus', 'dose-in-value', 1, 0, (val) => `${val}g`, (val) => { updateDoseValue('in', val); updateDrinkRatio(); });
+    setupValueAdjuster('grind-minus', 'grind-plus', 'grind-value', 0.1, 0, (val) => val.toFixed(1), updateGrindValue);
+
+    if (hotWaterMinusBtn) {
+        hotWaterMinusBtn.addEventListener('click', decrementHotWater);
     }
 
-    if (tempPlusBtn) {
-        tempPlusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(tempValueEl.textContent);
-            currentValue += 1;
-            tempValueEl.textContent = `${currentValue}°c`;
-            updateTemperatureValue(currentValue);
-        });
+    if (hotWaterPlusBtn) {
+        hotWaterPlusBtn.addEventListener('click', incrementHotWater);
     }
 
-    if (doseInMinusBtn) {
-        doseInMinusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(doseInValueEl.textContent);
-            if (currentValue > 0) {
-                currentValue -= 1;
-                doseInValueEl.textContent = `${currentValue}g`;
-                updateDoseInValue(currentValue);
-                updateDrinkRatio();
-            }
-        });
-    }
-
-    if (doseInPlusBtn) {
-        doseInPlusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(doseInValueEl.textContent);
-            currentValue += 1;
-            doseInValueEl.textContent = `${currentValue}g`;
-            updateDoseInValue(currentValue);
-            updateDrinkRatio();
-        });
-    }
-
-    if (grindMinusBtn) {
-        grindMinusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(grindValueEl.textContent);
-            if (currentValue > 0) {
-                currentValue = Math.round((currentValue - 0.1) * 10) / 10;
-                grindValueEl.textContent = currentValue.toFixed(1);
-                updateGrindValue(currentValue);
-            }
-        });
-    }
-
-    if (grindPlusBtn) {
-        grindPlusBtn.addEventListener('click', () => {
-            let currentValue = parseFloat(grindValueEl.textContent);
-            currentValue = Math.round((currentValue + 0.1) * 10) / 10;
-            grindValueEl.textContent = currentValue.toFixed(1);
-            updateGrindValue(currentValue);
-        });
-    }
-
-    if (hotWaterVolMinusBtn) {
-        hotWaterVolMinusBtn.addEventListener('click', decrementHotWaterVolume);
-    }
-
-    if (hotWaterVolPlusBtn) {
-        hotWaterVolPlusBtn.addEventListener('click', incrementHotWaterVolume);
+    if (hotWaterModeToggle) {
+        hotWaterModeToggle.addEventListener('click', toggleHotWaterMode);
     }
 
     updateDrinkRatio(); // Initial calculation
@@ -370,9 +449,9 @@ export function updateWeight(weight) {
     if (weightEl) {
         if (typeof weight === 'number' && !isNaN(weight)) {
             weightEl.textContent = ` ${weight.toFixed(1)}g`;
-        } else {
-            weightEl.textContent = '--g'; // Display --g if weight is not a valid number
         }
+    } else {
+        weightEl.textContent = '--g'; // Display --g if weight is not a valid number
     }
 }
 
