@@ -43,7 +43,12 @@ const chartData = {
 const layout = {
     title: 'Pressure, Flow and Temperature',
     xaxis: {title: 'Time (s)', dtick: 1,showgrid: true},
-    yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)',showgrid: true}
+    yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)',showgrid: true},
+    autosize: true,
+    margin: {
+        
+        pad: 4
+    }
 };
 
 export function updateChart(shotStartTime, data) {
@@ -122,4 +127,7 @@ export function plotHistoricalShot(measurements) {
 
 export function initChart() {
     Plotly.newPlot(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+    window.addEventListener('resize', () => {
+        Plotly.Plots.resize(chartElement);
+    });
 }

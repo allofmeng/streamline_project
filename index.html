@@ -7,10 +7,11 @@
     <link rel="icon" type="image/png" href="//fast.decentespresso.com/favicon-32x32.png" sizes="32x32">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.11.1/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script src="src/modules/plotly-3.1.0.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-3.2.0.min.js" charset="utf-8"></script>
     <script src="src/modules/app.js" type="module"></script>
     <script src="src/modules/reconnecting-websocket.js"></script>
     <style>
+        
         /* Custom Inter font from local files */
         @font-face {
             font-family: 'Inter';
@@ -40,19 +41,28 @@
             --green: #0CA581;
             --button-grey: #EDEDED;
         }
+
+        .flash {
+            background-color: var(--mimoja-blue) !important;
+            color: white !important;
+            border-radius: 0.5rem;
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        }
     </style>
 </head>
-<body class="bg-base-100 text-base-content">
+<body class="bg-base-100 text-base-content h-screen w-screen overflow-hidden">
 
-    <div class="h-screen w-screen grid xl:grid-cols-[640px_1fr]">
+    <div class="grid grid-cols-[40rem_1fr] grid-rows-[auto_1fr] h-full">
 
         <!-- Header -->
-        <header class="xl:col-span-2 bg-base-200 p-4 flex justify-between items-center border-b border-base-300">
+        <header class="col-span-2 bg-base-200 p-4 flex justify-between items-center border-b border-base-300">
             <!-- Profile Favorites -->
-            <nav class="flex gap-2">
-                <button id="fav-profile-btn-0" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-28 w-72 text-2xl">Profile 1</button>
-                <button id="fav-profile-btn-1" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-28 w-72 text-2xl">Profile 2</button>
-                <button id="fav-profile-btn-2" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-28 w-72 text-2xl">Profile 3</button>
+            <nav class="flex gap-2 flex-wrap">
+                <button id="fav-profile-btn-0" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-20 text-2xl">Profile 1</button>
+                <button id="fav-profile-btn-1" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-20 text-2xl">Profile 2</button>
+                <button id="fav-profile-btn-2" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-20 text-2xl">Profile 3</button>
+                <button id="fav-profile-btn-3" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-20 text-2xl">Adaptive v2</button>
+                <button id="fav-profile-btn-4" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-2xl h-20 text-2xl">Flow Profile for Milk Drinks</button>
             </nav>
             <!-- Right side controls -->
             <div class="flex gap-4">
@@ -62,7 +72,7 @@
         </header>
 
         <!-- Left Sidebar: Shot Settings -->
-        <aside class="xl:row-span-2 bg-base-200 p-6 flex flex-col gap-4 border-r border-base-300">
+        <aside class="bg-base-200 p-6 flex flex-col gap-2 border-r border-base-300 min-h-0">
             <!-- Grind -->
             <div class="flex justify-between items-center w-full">
                 <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Grind</span>
@@ -72,32 +82,32 @@
                     <button id="grind-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
             </div>
-            <!-- Dose In -->
-            <div class="flex justify-between items-center w-full">
-                <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Dose in</span>
-                <div class="flex items-center gap-4">
-                    <button id="dose-in-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
-                    <span id="dose-in-value" class="text-3xl font-bold text-center w-24">20g</span>
-                    <button id="dose-in-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
-                </div>
-            </div>
+                        <!-- Dose In -->
+                        <div class="flex justify-between items-center w-full">
+                            <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Dose in</span>
+                            <div class="flex items-center gap-4">
+                                <button id="dose-in-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
+                                <span id="dose-in-value" class="text-3xl font-bold text-center w-24 inline-block">20g</span>
+                                <button id="dose-in-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
+                            </div>
+                        </div>
             <!-- Drink out -->
             <div class="flex justify-between items-center w-full">
                  <span class="text-3xl font-bold text-[var(--mimoja-blue-v2)] w-40">Drink out</span>
                 <div class="flex items-center gap-4">
                     <button id="drink-out-minus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">-</button>
-                    <div class="text-center w-24">
-                        <span id="drink-out-value" class="text-3xl font-bold">46g</span>
+                    <div class="text-center">
+                        <span id="drink-out-value" class="text-3xl font-bold text-center w-24 inline-block">46g</span>
                         <span id="drink-ratio-value" class="text-2xl text-gray-500 block">(1:2.3)</span>
                     </div>
                     <button id="drink-out-plus" class="btn btn-lg bg-[var(--button-grey)] rounded-2xl text-4xl">+</button>
                 </div>
             </div>
             <div id="drink-out-presets" class="flex justify-between items-center w-full pl-52 pr-8">
-                <button id="drink-out-preset-1" class="text-2xl text-gray-400">18:36</button>
-                <button id="drink-out-preset-2" class="text-2xl text-gray-400">20:40</button>
-                <button id="drink-out-preset-3" class="text-2xl text-gray-400">22:44</button>
-                <button id="drink-out-preset-4" class="text-2xl text-gray-400">20:46</button>
+                <button id="drink-out-preset-1" class=" text-2xl text-gray-400">18:36</button>
+                <button id="drink-out-preset-2" class=" text-2xl text-gray-400">20:40</button>
+                <button id="drink-out-preset-3" class=" text-2xl text-gray-400">22:44</button>
+                <button id="drink-out-preset-4" class=" text-2xl text-gray-400">20:46</button>
             </div>
             <div class="divider"></div>
             <!-- Temp -->
@@ -156,8 +166,8 @@
         </aside>
 
         <!-- Main Content: Graph and Status -->
-        <main class="p-6 flex flex-col">
-            <div class="flex justify-between items-start mb-4">
+        <main class="flex flex-col min-h-0">
+            <div class="p-6 flex justify-between items-start">
                 <div>
                     <h1 id="profile-name" class="text-4xl font-bold text-[var(--mimoja-blue-v2)] flex items-center gap-2">
                         Damian’s LRv2 Long Name Profile
@@ -178,70 +188,70 @@
             </div>
             
             <!-- Plotly Chart Container -->
-            <div id="plotly-chart" class="flex-grow w-full h-full min-h-[400px] border rounded-lg"></div>
-        </main>
-
-        <!-- Footer: Shot History and Data -->
-        <footer class="xl:col-start-2 bg-base-100 p-6 border-t-2 flex gap-6">
-            <!-- Shot History -->
-            <div class="flex-none w-1/3">
-                <h2 class="text-2xl font-semibold text-center mb-4">SHOT HISTORY</h2>
-                <div class="flex items-center justify-between">
-                    <button id="history-prev-btn" class="btn btn-ghost">◀</button>
-                    <div class="text-center">
-                        <p id="history-date" class="text-3xl font-bold">Tue, 14 Sept, 18:45</p>
-                        <p id="history-profile-name" class="text-2xl">Londinium</p>
+            <div id="plotly-chart" class="w-full flex-grow"></div>
+            
+            <!-- Footer: Shot History and Data -->
+            <footer class="bg-base-100 p-6 border-t-2 flex gap-6">
+                <!-- Shot History -->
+                <div class="flex-none w-1/3">
+                    <h2 class="text-2xl font-semibold text-center mb-4">SHOT HISTORY</h2>
+                    <div class="flex items-center justify-between">
+                        <button id="history-prev-btn" class="btn btn-ghost">◀</button>
+                        <div class="text-center">
+                            <p id="history-date" class="text-3xl font-bold">Tue, 14 Sept, 18:45</p>
+                            <p id="history-profile-name" class="text-2xl">Londinium</p>
+                        </div>
+                        <button id="history-next-btn" class="btn btn-ghost">▶</button>
                     </div>
-                    <button id="history-next-btn" class="btn btn-ghost">▶</button>
                 </div>
-            </div>
-            <!-- Shot Data -->
-            <div class="flex-grow">
-                 <h2 class="text-2xl font-semibold mb-4">SHOT DATA</h2>
-                 <table class="table table-sm">
-                    <thead>
-                        <tr class="text-xl">
-                            <th></th>
-                            <th>Time</th>
-                            <th>Weight</th>
-                            <th>Volume</th>
-                            <th>Temp</th>
-                            <th>Flow</th>
-                            <th>Pressure</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr class="text-lg">
-                            <th class="font-semibold">Preinfusion</th>
-                            <td id="shot-data-pi-time">15s</td>
-                            <td id="shot-data-pi-weight">10g</td>
-                            <td id="shot-data-pi-volume">17ml</td>
-                            <td id="shot-data-pi-temp">90°c</td>
-                            <td id="shot-data-pi-flow">0-8.1 ml/s</td>
-                            <td id="shot-data-pi-pressure">0-3.3 bar</td>
-                        </tr>
-                         <tr class="text-lg">
-                            <th class="font-semibold">Extraction</th>
-                            <td id="shot-data-ex-time">30s</td>
-                            <td id="shot-data-ex-weight">29g</td>
-                            <td id="shot-data-ex-volume">30ml</td>
-                            <td id="shot-data-ex-temp">90°-80°c</td>
-                            <td id="shot-data-ex-flow">0.4-2.5 ml/s</td>
-                            <td id="shot-data-ex-pressure">3-9 bar</td>
-                        </tr>
-                         <tr class="text-xl font-bold">
-                            <th class="font-semibold">Total</th>
-                            <td id="shot-data-total-time">45s</td>
-                            <td id="shot-data-total-weight">39g (1:2.5)</td>
-                            <td id="shot-data-total-volume">57ml</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                        </tr>
-                    </tbody>
-                 </table>
-            </div>
-        </footer>
+                <!-- Shot Data -->
+                <div class="flex-grow">
+                     <h2 class="text-2xl font-semibold mb-4">SHOT DATA</h2>
+                     <table class="table table-sm">
+                        <thead>
+                            <tr class="text-xl">
+                                <th></th>
+                                <th>Time</th>
+                                <th>Weight</th>
+                                <th>Volume</th>
+                                <th>Temp</th>
+                                <th>Flow</th>
+                                <th>Pressure</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="text-lg">
+                                <th class="font-semibold">Preinfusion</th>
+                                <td id="shot-data-pi-time">15s</td>
+                                <td id="shot-data-pi-weight">10g</td>
+                                <td id="shot-data-pi-volume">17ml</td>
+                                <td id="shot-data-pi-temp">90°c</td>
+                                <td id="shot-data-pi-flow">0-8.1 ml/s</td>
+                                <td id="shot-data-pi-pressure">0-3.3 bar</td>
+                            </tr>
+                             <tr class="text-lg">
+                                <th class="font-semibold">Extraction</th>
+                                <td id="shot-data-ex-time">30s</td>
+                                <td id="shot-data-ex-weight">29g</td>
+                                <td id="shot-data-ex-volume">30ml</td>
+                                <td id="shot-data-ex-temp">90°-80°c</td>
+                                <td id="shot-data-ex-flow">0.4-2.5 ml/s</td>
+                                <td id="shot-data-ex-pressure">3-9 bar</td>
+                            </tr>
+                             <tr class="text-xl font-bold">
+                                <th class="font-semibold">Total</th>
+                                <td id="shot-data-total-time">45s</td>
+                                <td id="shot-data-total-weight">39g (1:2.5)</td>
+                                <td id="shot-data-total-volume">57ml</td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                        </tbody>
+                     </table>
+                </div>
+            </footer>
+        </main>
 
     </div>
 

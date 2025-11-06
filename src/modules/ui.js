@@ -46,10 +46,10 @@ export function updateDrinkOutPresetsDisplay(doseIn, drinkOut) {
     const ratioEl = document.getElementById('drink-ratio-value');
 
     if (doseInEl) {
-        doseInEl.textContent = `${doseIn}`;
+        doseInEl.textContent = `${doseIn}g`;
     }
     if (drinkOutEl) {
-        drinkOutEl.textContent = `${drinkOut}`;
+        drinkOutEl.textContent = `${drinkOut}g`;
     }
 
     if (doseInEl && drinkOutEl && ratioEl) {
@@ -235,22 +235,37 @@ function setupValueAdjuster(minusBtnId, plusBtnId, valueElId, step, min, formatt
     });
 }
 
-function onLongPress(element, callback) {
+function setupPressAndHold(element, clickCallback, longPressCallback) {
     let timer;
+    let longPressOccurred = false;
 
     element.addEventListener('mousedown', () => {
+        longPressOccurred = false;
         timer = setTimeout(() => {
-            callback();
-        }, 1000); // 1 second
+            longPressOccurred = true;
+            longPressCallback();
+        }, 1000); // 1 second for long press
     });
 
     element.addEventListener('mouseup', () => {
         clearTimeout(timer);
+        if (!longPressOccurred) {
+            clickCallback();
+        }
     });
 
     element.addEventListener('mouseleave', () => {
         clearTimeout(timer);
     });
+}
+
+function flashElement(element) {
+    if (element) {
+        element.classList.add('flash');
+        setTimeout(() => {
+            element.classList.remove('flash');
+        }, 300); // 300ms flash duration
+    }
 }
 
 export function initUI() {
@@ -269,13 +284,10 @@ export function initUI() {
 
     if (tempPresets) {
         for (const button of tempPresets.children) {
-            onLongPress(button, () => {
-                const tempValue = document.getElementById('temp-value').textContent;
-                button.textContent = tempValue;
-            });
+            const clickCallback = () => {
+                const newValue = parseFloat(button.textContent);
+                if (isNaN(newValue)) return;
 
-            button.addEventListener('click', (e) => {
-                const newValue = parseFloat(e.target.textContent);
                 updateTemperatureValue(newValue);
                 updateTemperatureDisplay(newValue);
 
@@ -284,38 +296,56 @@ export function initUI() {
                     btn.classList.remove('text-black');
                     btn.classList.add('text-gray-400');
                 }
-                e.target.classList.remove('text-gray-400');
-                e.target.classList.add('text-black');
-            });
+                button.classList.remove('text-gray-400');
+                button.classList.add('text-black');
+                flashElement(button);
+            };
+
+            const longPressCallback = () => {
+                const tempValueEl = document.getElementById('temp-value');
+                button.textContent = tempValueEl.textContent;
+                flashElement(button);
+                flashElement(tempValueEl);
+            };
+
+            setupPressAndHold(button, clickCallback, longPressCallback);
         }
     }
 
     if (drinkOutPresets) {
         for (const button of drinkOutPresets.children) {
-            onLongPress(button, () => {
-                const doseInValue = parseFloat(document.getElementById('dose-in-value').textContent);
-                const drinkOutValue = parseFloat(document.getElementById('drink-out-value').textContent);
-                button.textContent = `${doseInValue}:${drinkOutValue}`;
-            });
-
-            button.addEventListener('click', (e) => {
-                const [doseInStr, drinkOutStr] = e.target.textContent.split(':');
+            const clickCallback = () => {
+                const [doseInStr, drinkOutStr] = button.textContent.split(':');
                 const newDoseIn = parseFloat(doseInStr);
                 const newDrinkOut = parseFloat(drinkOutStr);
 
                 if (!isNaN(newDoseIn) && !isNaN(newDrinkOut)) {
                     updateDoseAndDrinkOutValue(newDoseIn, newDrinkOut);
                     updateDrinkOutPresetsDisplay(newDoseIn, newDrinkOut);
+                    flashElement(document.getElementById('dose-in-value'));
+                    flashElement(document.getElementById('drink-out-value'));
 
                     // Update preset styles
                     for (const btn of drinkOutPresets.children) {
                         btn.classList.remove('text-black');
                         btn.classList.add('text-gray-400');
                     }
-                    e.target.classList.remove('text-gray-400');
-                    e.target.classList.add('text-black');
+                    button.classList.remove('text-gray-400');
+                    button.classList.add('text-black');
                 }
-            });
+            };
+
+            const longPressCallback = () => {
+                const doseInValue = parseFloat(document.getElementById('dose-in-value').textContent);
+                const drinkOutValue = parseFloat(document.getElementById('drink-out-value').textContent);
+                button.textContent = `${doseInValue}:${drinkOutValue}`;
+
+                flashElement(button);
+                flashElement(document.getElementById('dose-in-value'));
+                flashElement(document.getElementById('drink-out-value'));
+            };
+
+            setupPressAndHold(button, clickCallback, longPressCallback);
         }
     }
 
