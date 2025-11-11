@@ -70,8 +70,8 @@ function handleData(data) {
         loadInitialData(); // Refresh all configuration data
         // Do not clear chart or reset shotStartTime as per user request
     } else if (state === 'error' && isDe1Connected) {
-        logger.warn('DE1 machine disconnected.');
-        isDe1Connected = false;
+        logger.warn('DE1 machine connected with error status.');
+        // isDe1Connected = false;
         // ui.updateMachineStatus("Disconnected"); // Removed: Let the main logic handle it
     }
 
@@ -88,7 +88,7 @@ function handleData(data) {
     // New condition: If REA is running but not connected to the machine
     // Infer this if state is 'error'
     if (state === 'error') {
-        statusString = "Disconnected";
+        statusString = "Error";
     } else if (state === 'heating') {
         const currentGroupTemp = data.groupTemperature;
         const targetGroupTemp = data.targetGroupTemperature;

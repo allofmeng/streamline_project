@@ -118,9 +118,9 @@ function calculateAndRender(shotData) {
     // --- Rendering ---
     updateText(elements.pi.time, `${piTime.toFixed(1)}s`);
     updateText(elements.pi.weight, piWeight !== null ? `${piWeight.toFixed(1)}g` : 'N/A');
-    updateText(elements.pi.volume, `${piVolume.toFixed(0)}ml`);
+    updateText(elements.pi.volume, `${piVolume.toFixed(0)}`);
     updateText(elements.pi.temp, `${formatRange(piTemps, 0)}°c`);
-    updateText(elements.pi.flow, `${formatRange(piFlows, 1)} ml/s`);
+    updateText(elements.pi.flow, `${formatRange(piFlows, 1)} `);
     updateText(elements.pi.pressure, `${formatRange(piPressures, 1)} bar`);
 
     if (exTime > 0) {
@@ -128,7 +128,7 @@ function calculateAndRender(shotData) {
         updateText(elements.ex.weight, exWeight !== null ? `${exWeight.toFixed(1)}g` : 'N/A');
         updateText(elements.ex.volume, `${exVolume.toFixed(0)}ml`);
         updateText(elements.ex.temp, `${formatRange(exTemps, 0)}°c`);
-        updateText(elements.ex.flow, `${formatRangeWithPeak(exFlows, 1)} ml/s`);
+        updateText(elements.ex.flow, `${formatRangeWithPeak(exFlows, 1)} `);
         updateText(elements.ex.pressure, `${formatRangeWithPeak(exPressures, 1)} bar`);
     }
 

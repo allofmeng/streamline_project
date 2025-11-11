@@ -164,17 +164,17 @@ export function updateHotWaterDisplay(data) {
     tempEl.textContent = `${currentHotWaterTemp}°C`;
 
     if (hotWaterMode === 'volume') {
-        volEl.classList.remove('text-2xl', 'text-gray-500');
-        volEl.classList.add('text-3xl', 'font-bold');
-        tempEl.classList.remove('text-3xl', 'font-bold');
-        tempEl.classList.add('text-2xl', 'text-gray-500');
+        volEl.classList.remove('text-xs', 'text-gray-500');
+        volEl.classList.add('text-lg', 'font-bold');
+        tempEl.classList.remove('text-lg', 'font-bold');
+        tempEl.classList.add('text-xs', 'text-gray-500');
         modeVolEl.className = 'text-[var(--mimoja-blue-v2)]';
         modeTempEl.className = 'text-[var(--low-contrast-white)]';
     } else { // temperature mode
-        tempEl.classList.remove('text-2xl', 'text-gray-500');
-        tempEl.classList.add('text-3xl', 'font-bold');
-        volEl.classList.remove('text-3xl', 'font-bold');
-        volEl.classList.add('text-2xl', 'text-gray-500');
+        tempEl.classList.remove('text-xs', 'text-gray-500');
+        tempEl.classList.add('text-lg', 'font-bold');
+        volEl.classList.remove('text-lg', 'font-bold');
+        volEl.classList.add('text-xs', 'text-gray-500');
         modeTempEl.className = 'text-[var(--mimoja-blue-v2)]';
         modeVolEl.className = 'text-[var(--low-contrast-white)]';
     }
@@ -451,6 +451,10 @@ export function updateMachineStatus(status) {
         if (status === "Disconnected") {
             machineStatusEl.classList.remove('text-[var(--green)]');
             machineStatusEl.classList.add('text-red-500');
+         if (status === '"Error"') {
+            machineStatusEl.classList.remove('text-[var(--green)]');
+            machineStatusEl.classList.add('text-red-500');
+        }
         } else {
             machineStatusEl.classList.remove('text-red-500');
             machineStatusEl.classList.add('text-[var(--green)]');

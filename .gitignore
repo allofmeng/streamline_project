@@ -12,7 +12,7 @@ test 4 -logs.txt
 output-logs.txt
 28102025-logs.txt
 30102025-logs.txt
-skin.tcl
+# skin.tcl
 .DS_Store
 shots/.DS_Store
 shots/shots/2025-09-12T16:04:38.049213.json
@@ -76,3 +76,7 @@ shots/shots/2025-10-31T15:28:47.249341.json
 shots/shots/2025-10-31T17:24:57.835971.json
 shots/shots/2025-10-31T17:32:36.887310.json
 shots/shots/2025-11-03T15:08:52.874477.json
+
+index-figma.html
+index-scaling.html
+skin.tcl

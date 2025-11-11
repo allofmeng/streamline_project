@@ -117,16 +117,20 @@ async function handleProfileClick(index) {
         if (isVerified) {
             updateProfileName(profile.title);
             favoriteButtons.forEach((btn, i) => {
-                const baseClasses = ['btn', 'rounded-2xl', 'h-28', 'w-72', 'text-2xl'];
-                const activeClasses = ['btn-primary', 'bg-[var(--mimoja-blue-v2)]', 'text-white'];
-                const inactiveClasses = ['btn-outline', 'border-[var(--mimoja-blue)]', 'text-[var(--mimoja-blue)]'];
-
-                btn.className = ''; // Reset classes
+                // Classes that define the active state
+                const activeBgClass = 'bg-[var(--mimoja-blue-v2)]';
+                const activeTextClass = 'text-white';
+                // Class for inactive text color
+                const inactiveTextClass = 'text-[var(--mimoja-blue)]';
 
                 if (i === index) {
-                    btn.classList.add(...baseClasses, ...activeClasses);
+                    // This is the clicked (active) button
+                    btn.classList.add(activeBgClass, activeTextClass);
+                    btn.classList.remove(inactiveTextClass); // Ensure inactive text color is removed
                 } else {
-                    btn.classList.add(...baseClasses, ...inactiveClasses);
+                    // This is an inactive button
+                    btn.classList.remove(activeBgClass, activeTextClass);
+                    btn.classList.add(inactiveTextClass); // Ensure inactive text color is applied
                 }
             });
         }

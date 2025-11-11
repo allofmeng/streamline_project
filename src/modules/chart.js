@@ -46,8 +46,20 @@ const layout = {
     yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)',showgrid: true},
     autosize: true,
     margin: {
-        
-        pad: 4
+        autoexpand: true,
+        l: 50,
+        r: 25,
+        t: 20,
+        b: 40,
+        pad: 0
+    },
+    showlegend: true,
+    legend: {
+        x: 0.01,
+        xanchor: 'left',
+        y: 0.9,
+        yanchor: 'top',
+        bgcolor: 'transparent'
     }
 };
 
