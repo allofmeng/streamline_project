@@ -2,7 +2,7 @@ import { logger } from './logger.js';
 import { sendProfile, getWorkflow } from './api.js';
 import { updateProfileName } from './ui.js';
 
-const FAV_COUNT = 3;
+const FAV_COUNT = 5;
 const PROFILES_PATH = 'src/profiles/';
 const STORAGE_KEY = 'streamline-favorite-profiles';
 const LONG_PRESS_DURATION = 700; // ms
@@ -74,7 +74,7 @@ function updateButtonUI() {
             button.textContent = profile.title || 'Untitled';
         }
         else if (button) {
-            button.textContent = '[Empty]';
+            button.textContent = '';
         }
     }
 }
