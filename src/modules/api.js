@@ -20,6 +20,13 @@ let currentShotSettings = {
     groupTemp: 0.0, // number (float/double)
 };
 
+export function updateShotSettingsCache(newSettings) {
+    if (newSettings) {
+        currentShotSettings = { ...currentShotSettings, ...newSettings };
+        logger.debug('Shot settings cache updated:', currentShotSettings);
+    }
+}
+
 export async function getDevices() {
     const response = await fetch(`${API_BASE_URL}/devices`);
     if (!response.ok) {
@@ -284,6 +291,11 @@ export async function setTargetHotWaterTemp(temp) {
     return sendShotSettings();
 }
 
+export async function setTargetHotWaterDuration(duration) {
+    currentShotSettings.targetHotWaterDuration = parseFloat(duration);
+    return sendShotSettings();
+}
+
 export async function getReaSettings() {
     try {
         const response = await fetch(`${API_BASE_URL}/settings`);
@@ -294,6 +306,27 @@ export async function getReaSettings() {
     } catch (error) {
         logger.error("Error in getReaSettings:", error);
         return null; // Return null or a default settings object
+    }
+}
+
+export async function setDe1Settings(settings) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/de1/settings`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(settings),
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            throw new Error(`Failed to set DE1 settings. Status: ${response.status}, Body: ${errorBody}`);
+        }
+        logger.info('DE1 settings updated successfully:', settings);
+    } catch (error) {
+        logger.error('Error setting DE1 settings:', error);
+        throw error; // Re-throw to allow calling code to handle
     }
 }
 

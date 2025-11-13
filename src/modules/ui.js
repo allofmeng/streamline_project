@@ -1,4 +1,4 @@
-import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp } from './api.js';
+import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp, setTargetHotWaterDuration, setDe1Settings } from './api.js';
 import { logger } from './logger.js';
 
 let currentHotWaterVolume = 0;
@@ -239,7 +239,8 @@ function setupPressAndHold(element, clickCallback, longPressCallback) {
     let timer;
     let longPressOccurred = false;
 
-    element.addEventListener('mousedown', () => {
+    element.addEventListener('mousedown', (e) => {
+        e.preventDefault();
         longPressOccurred = false;
         timer = setTimeout(() => {
             longPressOccurred = true;
@@ -281,6 +282,8 @@ export function initUI() {
     const hotWaterTempValueEl = document.getElementById('hot-water-temp-value');
     const tempPresets = document.getElementById('temp-presets');
     const drinkOutPresets = document.getElementById('drink-out-presets');
+    const flushPresets = document.getElementById('flush-presets');
+    const flushValueEl = document.getElementById('flush-value');
 
     if (tempPresets) {
         for (const button of tempPresets.children) {
@@ -349,6 +352,36 @@ export function initUI() {
         }
     }
 
+    if (flushPresets) {
+        for (const button of flushPresets.children) {
+            const clickCallback = () => {
+                const newValue = parseFloat(button.textContent);
+                if (isNaN(newValue)) return;
+
+                setDe1Settings({ flushTimeout: newValue }).catch(e => logger.error(e));
+                updateFlushDisplay(newValue);
+
+                // Update preset styles
+                for (const btn of flushPresets.children) {
+                    btn.classList.remove('text-black');
+                    btn.classList.add('text-gray-400');
+                }
+                button.classList.remove('text-gray-400');
+                button.classList.add('text-black');
+                flashElement(button);
+            };
+
+            const longPressCallback = () => {
+                const flushValueEl = document.getElementById('flush-value');
+                button.textContent = flushValueEl.textContent;
+                flashElement(button);
+                flashElement(flushValueEl);
+            };
+
+            setupPressAndHold(button, clickCallback, longPressCallback);
+        }
+    }
+
     if (sleepButton) {
         sleepButton.addEventListener('click', () => {
             const currentState = sleepButton.textContent.trim();
@@ -409,6 +442,14 @@ export function initUI() {
         makeEditable(hotWaterTempValueEl, (newValue) => {
             currentHotWaterTemp = newValue;
             setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
+        });
+    }
+
+    if (flushValueEl) {
+        makeEditable(flushValueEl, (newValue) => {
+            flushValueEl.textContent = `${newValue}s`;
+            setDe1Settings({ flushTimeout: newValue }).catch(e => logger.error(e));
+            updateFlushDisplay(newValue);
         });
     }
 
@@ -509,6 +550,13 @@ export function updateTemperatureDisplay(temperature) {
     const tempValueEl = document.getElementById('temp-value');
     if (tempValueEl) {
         tempValueEl.textContent = `${parseFloat(temperature).toFixed(0)}°c`;
+    }
+}
+
+export function updateFlushDisplay(duration) {
+    const flushValueEl = document.getElementById('flush-value');
+    if (flushValueEl) {
+        flushValueEl.textContent = `${parseFloat(duration).toFixed(0)}s`;
     }
 }
 

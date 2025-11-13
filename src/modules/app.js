@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, setDe1Settings, updateShotSettingsCache } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -151,6 +151,14 @@ function handleScaleData(data) {
     }
 }
 
+function handleShotSettingsData(data) {
+    updateShotSettingsCache(data);
+    ui.updateHotWaterDisplay(data);
+    if (data.targetHotWaterDuration !== undefined) {
+        ui.updateFlushDisplay(data.targetHotWaterDuration);
+    }
+}
+
 async function loadInitialData() {
     logger.debug("loadInitialData triggered.");
     try {
@@ -243,5 +251,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initWaterTankSocket();
     ensureGatewayModeTracking();
     resetDataTimeout(); // Start the timeout timer initially.
-    connectShotSettingsWebSocket(ui.updateHotWaterDisplay);
+    connectShotSettingsWebSocket(handleShotSettingsData);
 });
