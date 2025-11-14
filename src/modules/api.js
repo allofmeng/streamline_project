@@ -217,7 +217,45 @@ export async function getProfile() {
     return data.profile || null;
 }
 
+function isValidProfile(profile) {
+    const requiredKeys = [
+        'title',
+        'author',
+        'notes',
+        'beverage_type',
+        'steps',
+        'version',
+        'target_volume',
+        'target_weight',
+        'target_volume_count_start',
+        'tank_temperature'
+    ];
+
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+        logger.error('Validation failed: Profile is not a valid object.');
+        return false;
+    }
+
+    for (const key of requiredKeys) {
+        if (!Object.prototype.hasOwnProperty.call(profile, key)) {
+            logger.error(`Validation failed: Profile is missing required key: '${key}'.`);
+            return false;
+        }
+    }
+
+    if (!Array.isArray(profile.steps)) {
+        logger.error(`Validation failed: 'steps' property is not an array.`);
+        return false;
+    }
+
+    logger.info('Profile validation successful.');
+    return true;
+}
+
 export async function sendProfile(profileJson) {
+    if (!isValidProfile(profileJson)) {
+        throw new Error('Profile validation failed. Not sending to REA.');
+    }
     return updateWorkflow({ profile: profileJson });
 }
 

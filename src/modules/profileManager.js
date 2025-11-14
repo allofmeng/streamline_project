@@ -14,12 +14,34 @@ let favoriteAssignments = {};
 // --- Helper Functions ---
 
 async function loadAvailableProfiles() {
-    const profileFiles = [
-        '80s_Espresso.json',
-        'D-Flow____default.json',
-        'Rao_Allongé_DA_Earthworld_obourbon.json',
-        'test.json'
-    ];
+    let profileFiles = [];
+    try {
+        const response = await fetch(PROFILES_PATH);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch profile directory listing. Status: ${response.status}`);
+        }
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const links = Array.from(doc.querySelectorAll('a'));
+
+        profileFiles = links
+            .map(link => link.getAttribute('href'))
+            .filter(href => href && href.endsWith('.json'))
+            .map(href => href.split('/').pop()); // Get just the filename
+
+        if (profileFiles.length === 0) {
+            logger.warn('Could not find any .json files in the profile directory listing. The server might not have directory listing enabled, or the folder is empty.');
+        }
+
+    } catch (error) {
+        logger.error('Failed to dynamically load profiles from directory listing.', error);
+        logger.warn('Falling back to an empty profile list.');
+        profileFiles = [];
+    }
+
+    // Deduplicate in case of weird directory listing
+    profileFiles = [...new Set(profileFiles)];
 
     for (const fileName of profileFiles) {
         try {
