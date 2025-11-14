@@ -232,19 +232,25 @@ function isValidProfile(profile) {
     ];
 
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
-        logger.error('Validation failed: Profile is not a valid object.');
+        const errorMessage = 'Profile validation failed: Profile is not a valid object.';
+        logger.error(errorMessage);
+        alert(errorMessage); // Pop-up message
         return false;
     }
 
     for (const key of requiredKeys) {
         if (!Object.prototype.hasOwnProperty.call(profile, key)) {
-            logger.error(`Validation failed: Profile is missing required key: '${key}'.`);
+            const errorMessage = `Profile validation failed: Profile is missing required key: '${key}'.`;
+            logger.error(errorMessage);
+            alert(errorMessage); // Pop-up message
             return false;
         }
     }
 
     if (!Array.isArray(profile.steps)) {
-        logger.error(`Validation failed: 'steps' property is not an array.`);
+        const errorMessage = `Profile validation failed: 'steps' property is not an array.`;
+        logger.error(errorMessage);
+        alert(errorMessage); // Pop-up message
         return false;
     }
 
