@@ -127,12 +127,32 @@
              <div class="divider"></div>
             <!-- Steam -->
             <div class="flex justify-between items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Steam</span>
-                <div class="flex items-center gap-2 md:gap-4">
-                    <button class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
-                    <span id="steam-value" class="text-xl md:text-lg font-bold text-center">31s</span>
-                    <button class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                <div>
+                    <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Steam</span>
+                    <span id="steam-mode-toggle" class="text-base text-xs text-nowrap block cursor-pointer">
+                        <span id="steam-mode-time">Time</span> | <span id="steam-mode-flow">Flow</span>
+                    </span>
                 </div>
+                <div class="flex items-center gap-2 md:gap-4">
+                    <button id="steam-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] text-xl md:text-lg">-</button>
+                    <div class="text-center">
+                        <span id="steam-duration-value" class="text-lg  font-bold">31s</span>
+                        <span id="steam-flow-value" class="text-xs text-gray-500 block">1.5ml/s</span>
+                    </div>
+                    <button id="steam-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] text-xl md:text-lg">+</button>
+                </div>
+            </div>
+            <div id="steam-presets" class="flex justify-start justify-between items-center w-full">
+                <button id="steam-preset-1" class="text-sm md:text-xs text-gray-400">15s</button>
+                <button id="steam-preset-2" class="text-sm md:text-xs text-gray-400">30s</button>
+                <button id="steam-preset-3" class="text-sm md:text-xs text-gray-400">45s</button>
+                <button id="steam-preset-4" class="text-sm md:text-xs text-gray-400">60s</button>
+            </div>
+            <div id="steam-flow-presets" class="flex hidden justify-start justify-between items-center w-full">
+                <button id="steam-flow-preset-1" class="text-sm md:text-xs text-gray-400">0.5ml/s</button>
+                <button id="steam-flow-preset-2" class="text-sm md:text-xs text-gray-400">1.0ml/s</button>
+                <button id="steam-flow-preset-3" class="text-sm md:text-xs text-gray-400">1.5ml/s</button>
+                <button id="steam-flow-preset-4" class="text-sm md:text-xs text-gray-400">2.0ml/s</button>
             </div>
             <div class="divider"></div>
             <!-- Flush -->

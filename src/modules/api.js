@@ -340,6 +340,22 @@ export async function setTargetHotWaterDuration(duration) {
     return sendShotSettings();
 }
 
+export async function setTargetSteamTemp(temp) {
+    currentShotSettings.targetSteamTemp = parseFloat(temp);
+    return sendShotSettings();
+}
+
+export async function setTargetSteamDuration(duration) {
+    currentShotSettings.targetSteamDuration = parseFloat(duration);
+    return sendShotSettings();
+}
+
+
+export async function setTargetSteamFlow(flow) {
+    const settings = { steamFlow: parseFloat(flow) };
+    return setDe1Settings(settings);
+}
+
 export async function getReaSettings() {
     try {
         const response = await fetch(`${API_BASE_URL}/settings`);
@@ -350,6 +366,20 @@ export async function getReaSettings() {
     } catch (error) {
         logger.error("Error in getReaSettings:", error);
         return null; // Return null or a default settings object
+    }
+}
+
+
+export async function getDe1Settings() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/de1/settings`);
+        if (!response.ok) {
+            throw new Error(`Failed to get DE1 settings: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        logger.error("Error in getDe1Settings:", error);
+        return null;
     }
 }
 

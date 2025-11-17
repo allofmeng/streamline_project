@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, setDe1Settings, updateShotSettingsCache } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, setDe1Settings, updateShotSettingsCache, getDe1Settings } from './api.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -151,11 +151,21 @@ function handleScaleData(data) {
     }
 }
 
-function handleShotSettingsData(data) {
+async function handleShotSettingsData(data) {
     updateShotSettingsCache(data);
     ui.updateHotWaterDisplay(data);
-    if (data.targetHotWaterDuration !== undefined) {
-        ui.updateFlushDisplay(data.targetHotWaterDuration);
+
+    try {
+        const de1Settings = await getDe1Settings();
+        const combinedData = { ...data, targetSteamFlow: de1Settings.steamFlow };
+        ui.updateSteamDisplay(combinedData);
+    } catch (error) {
+        logger.error('Failed to get DE1 settings for steam display:', error);
+        ui.updateSteamDisplay(data); // Fallback to original data
+    }
+
+    if (data.flushTimeout !== undefined) {
+        ui.updateFlushDisplay(data.flushTimeout);
     }
 }
 
