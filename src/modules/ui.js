@@ -5,6 +5,9 @@ let currentHotWaterVolume = 0;
 let currentHotWaterTemp = 0;
 let hotWaterMode = 'volume'; // 'volume' or 'temperature'
 
+let hotWaterTempPresets = [75, 80, 85, 92];
+let hotWaterVolPresets = [50, 100, 150, 200];
+
 function updateDoseValue(type, newValue) {
     const doseInEl = document.getElementById('dose-in-value');
     const drinkOutEl = document.getElementById('drink-out-value');
@@ -205,10 +208,25 @@ function decrementHotWater() {
     }
 }
 
+function updateHotWaterPresetDisplay() {
+    const presetContainer = document.getElementById('hotwater-presets');
+    if (!presetContainer) return;
+
+    const presets = hotWaterMode === 'temperature' ? hotWaterTempPresets : hotWaterVolPresets;
+    const unit = hotWaterMode === 'temperature' ? '°c' : 'ml';
+
+    Array.from(presetContainer.children).forEach((button, index) => {
+        if (presets[index] !== undefined) {
+            button.textContent = `${presets[index]}${unit}`;
+        }
+    });
+}
+
 function toggleHotWaterMode() {
     hotWaterMode = hotWaterMode === 'volume' ? 'temperature' : 'volume';
     logger.info(`Hot water mode switched to: ${hotWaterMode}`);
     updateHotWaterDisplay({ targetHotWaterVolume: currentHotWaterVolume, targetHotWaterTemp: currentHotWaterTemp });
+    updateHotWaterPresetDisplay();
 }
 
 function setupValueAdjuster(minusBtnId, plusBtnId, valueElId, step, min, formatter, onUpdate) {
@@ -284,6 +302,7 @@ export function initUI() {
     const drinkOutPresets = document.getElementById('drink-out-presets');
     const flushPresets = document.getElementById('flush-presets');
     const flushValueEl = document.getElementById('flush-value');
+    const hotwaterPresets = document.getElementById('hotwater-presets');
 
     if (tempPresets) {
         for (const button of tempPresets.children) {
@@ -382,6 +401,57 @@ export function initUI() {
         }
     }
 
+    if (hotwaterPresets) {
+        // Initial display update
+        updateHotWaterPresetDisplay();
+
+        Array.from(hotwaterPresets.children).forEach((button, index) => {
+            const clickCallback = () => {
+                const isTempMode = hotWaterMode === 'temperature';
+                const presets = isTempMode ? hotWaterTempPresets : hotWaterVolPresets;
+                const newValue = presets[index];
+
+                if (newValue === undefined) return;
+
+                if (isTempMode) {
+                    setTargetHotWaterTemp(newValue).catch(e => logger.error(e));
+                    updateHotWaterDisplay({ targetHotWaterTemp: newValue });
+                } else {
+                    setTargetHotWaterVolume(newValue).catch(e => logger.error(e));
+                    updateHotWaterDisplay({ targetHotWaterVolume: newValue });
+                }
+
+                // Update preset styles
+                for (const btn of hotwaterPresets.children) {
+                    btn.classList.remove('text-black');
+                    btn.classList.add('text-gray-400');
+                }
+                button.classList.remove('text-gray-400');
+                button.classList.add('text-black');
+                flashElement(button);
+            };
+
+            const longPressCallback = () => {
+                const isTempMode = hotWaterMode === 'temperature';
+                const valueEl = document.getElementById(isTempMode ? 'hot-water-temp-value' : 'hot-water-vol-value');
+                const currentValue = parseFloat(valueEl.textContent);
+
+                if (!isNaN(currentValue)) {
+                    if (isTempMode) {
+                        hotWaterTempPresets[index] = currentValue;
+                    } else {
+                        hotWaterVolPresets[index] = currentValue;
+                    }
+                    updateHotWaterPresetDisplay(); // Refresh button text
+                    flashElement(button);
+                    flashElement(valueEl);
+                }
+            };
+
+            setupPressAndHold(button, clickCallback, longPressCallback);
+        });
+    }
+
     if (sleepButton) {
         sleepButton.addEventListener('click', () => {
             const currentState = sleepButton.textContent.trim();
@@ -457,6 +527,7 @@ export function initUI() {
     setupValueAdjuster('temp-minus', 'temp-plus', 'temp-value', 1, 0, (val) => `${val}°c`, updateTemperatureValue);
     setupValueAdjuster('dose-in-minus', 'dose-in-plus', 'dose-in-value', 1, 0, (val) => `${val}g`, (val) => { updateDoseValue('in', val); updateDrinkRatio(); });
     setupValueAdjuster('grind-minus', 'grind-plus', 'grind-value', 0.1, 0, (val) => val.toFixed(1), updateGrindValue);
+    setupValueAdjuster('flush-minus', 'flush-plus', 'flush-value', 1, 0, (val) => `${val}s`, (val) => { setDe1Settings({ flushTimeout: val }).catch(e => logger.error(e)); updateFlushDisplay(val); });
 
     if (hotWaterMinusBtn) {
         hotWaterMinusBtn.addEventListener('click', decrementHotWater);

@@ -59,8 +59,8 @@
             <button id="fav-profile-btn-0" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg min-w-20 max-w-40 h-12 md:h-12 lg:h-12 text-sm md:text-xs ">Profile 1</button>
             <button id="fav-profile-btn-1" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg min-w-20 max-w-40 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Profile 2</button>
             <button id="fav-profile-btn-2" class="btn min-h-0 py-1 px-1 text-balance btn-outline flex justify-center items-center text-center max-w-40 h-12 min-w-20 md:text-xs border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg text-sm">Profile 3</button> 
-            <button id="fav-profile-btn-3" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg max-w-30 min-w-20 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Adaptive v2</button>
-            <button id="fav-profile-btn-4" class="btn min-h-0 py-1 px-1 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg max-w-30 min-w-20 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Flow Profile for Milk Drinks</button>
+            <button id="fav-profile-btn-3" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg max-w-40 min-w-20 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Adaptive v2</button>
+            <button id="fav-profile-btn-4" class="btn min-h-0 py-1 px-1 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg max-w-40 min-w-20 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Flow Profile for Milk Drinks</button>
         </nav>
         <!-- Right side controls -->
         <div class="flex gap-2 items-center md:gap-2">
@@ -111,7 +111,7 @@
             <div class="divider"></div>
             <!-- Temp -->
              <div class="flex justify-center-safe items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Temp</span>
+                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Brew</span>
                 <div class="flex items-center gap-2 md:gap-4">
                     <button id="temp-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <span id="temp-value" class="text-xl md:text-lg font-bold text-center">92°c</span>
@@ -139,9 +139,9 @@
             <div class="flex justify-center-safe gap-2 items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Flush</span>
                 <div class="flex items-center gap-2 md:gap-4">
-                    <button class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
+                    <button id="flush-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <span id="flush-value" class="text-xl md:text-lg font-bold text-center">5s</span>
-                    <button class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                    <button id="flush-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
                 </div>
             </div>
                 <div id="flush-presets" class="flex  justify-start justify-between items-center w-full">
@@ -168,6 +168,12 @@
                     </div>
                     <button id="hot-water-vol-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-xl">+</button>
                 </div>
+                </div>
+                <div id="hotwater-presets" class="flex  justify-start justify-between items-center w-full">
+                <button id="hotwater-temp-preset0" class="text-sm md:text-xs text-gray-400">75°c</button>
+                <button id="hotwater-temp-preset1" class="text-sm md:text-xs text-gray-400">80°c</button>
+                <button id="hotwater-temp-preset2" class="text-sm md:text-xs text-gray-400">85°c</button>
+                <button id="hotwater-temp-preset3" class="text-sm md:text-xs text-gray-400">92°c</button>
             </div>
         </aside>
 
