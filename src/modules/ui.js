@@ -1,5 +1,6 @@
 import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp, setTargetHotWaterDuration, setDe1Settings, setTargetSteamFlow, setTargetSteamDuration } from './api.js';
 import { logger } from './logger.js';
+import * as chart from './chart.js';
 
 let currentHotWaterVolume = 0;
 let currentHotWaterTemp = 0;
@@ -399,8 +400,24 @@ function toggleSteamMode() {
     updateSteamPresetDisplay();
 }
 
+export function initThemeToggle() {
+    const themeToggle = document.getElementById('theme-toggle');
+    if (!themeToggle) return;
+
+    const currentTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    themeToggle.checked = currentTheme === 'dark';
+
+    themeToggle.addEventListener('change', function() {
+        const theme = this.checked ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        chart.setTheme(theme);
+    });
+}
 
 export function initUI() {
+    initThemeToggle();
     const drinkOutValueEl = document.getElementById('drink-out-value');
     const tempValueEl = document.getElementById('temp-value');
     const doseInValueEl = document.getElementById('dose-in-value');

@@ -1,0 +1,52 @@
+[data-theme="dark"] {
+    --mimoja-blue-v2: #415996;
+    --mimoja-blue: #292c38;
+    --low-contrast-white: #959595;
+    --dark-gray: #101217;
+    --green: #0CA581;
+    --button-grey: #101115;
+}
+
+[data-theme="dark"] body {
+    background-color: #101217;
+    color: #E8E8E8;
+}
+
+[data-theme="dark"] header {
+    background-color: #17191e;
+    border-bottom-color: black;
+}
+
+[data-theme="dark"] aside {
+    background-color: #17191e;
+    border-right-color: black;
+}
+
+[data-theme="dark"] footer {
+    background-color: #101117;
+    border-top-color: black;
+}
+
+[data-theme="dark"] .btn-outline {
+    border-color: var(--mimoja-blue-v2);
+    color: var(--mimoja-blue-v2);
+}
+
+[data-theme="dark"] #fav-profile-btn-0 {
+    background-color: #415996;
+    color: white;
+}
+
+[data-theme="dark"] .btn {
+    background-color: #292c38;
+    color: white;
+}
+
+[data-theme="dark"] .btn:hover {
+    background-color: #415996;
+}
+
+[data-theme="dark"] #sleep-button, [data-theme="dark"] .settings-button {
+    background-color: #101117;
+    color: white;
+}

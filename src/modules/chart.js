@@ -40,10 +40,61 @@ const chartData = {
     }
 };
 
-const layout = {
-    title: 'Pressure, Flow and Temperature',
-    xaxis: {title: 'Time (s)', dtick: 1,showgrid: true},
-    yaxis: {title: 'Pressure (bar) / Flow (ml/s) / Temp (°C/10)',showgrid: true},
+const lightLayout = {
+    plot_bgcolor: 'white',
+    paper_bgcolor: 'white',
+    font: { color: 'black' },
+    xaxis: { 
+        gridcolor: '#e0e0e0',
+        title: { text: 'Time (s)' }
+    },
+    yaxis: { 
+        gridcolor: '#e0e0e0',
+        title: { text: 'Pressure (bar)' }
+    },
+    yaxis2: {
+        title: 'Flow (ml/s)',
+        overlaying: 'y',
+        side: 'right'
+    },
+    autosize: true,
+    margin: {
+        autoexpand: true,
+        l: 50,
+        r: 25,
+        t: 20,
+        b: 40,
+        pad: 0
+    },
+    showlegend: true,
+    legend: {
+        x: 0.01,
+        xanchor: 'left',
+        y: 0.9,
+        yanchor: 'top',
+        bgcolor: 'transparent'
+    }
+};
+
+const darkLayout = {
+    plot_bgcolor: '#101217',
+    paper_bgcolor: '#101217',
+    font: { color: '#e8e8e8' },
+    xaxis: { 
+        gridcolor: '#444',
+        title: { text: 'Time (s)' }
+    },
+    yaxis: { 
+        gridcolor: '#444',
+        title: { text: 'Pressure (bar)' }
+    },
+    yaxis2: {
+        title: 'Flow (ml/s)',
+        overlaying: 'y',
+        side: 'right',
+        font: { color: '#e8e8e8' },
+        gridcolor: '#444'
+    },
     autosize: true,
     margin: {
         autoexpand: true,
@@ -77,6 +128,8 @@ export function updateChart(shotStartTime, data) {
     chartData.groupTemperature.x.push(time);
     chartData.groupTemperature.y.push(data.groupTemperature / 10);
 
+    const theme = localStorage.getItem('theme') || 'light';
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
     Plotly.update(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
 
@@ -85,6 +138,8 @@ export function clearChart() {
         chartData[trace].x = [];
         chartData[trace].y = [];
     }
+    const theme = localStorage.getItem('theme') || 'light';
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
     // removeProfileOverlay(); // This should be handled in app.js
     Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
@@ -134,12 +189,28 @@ export function plotHistoricalShot(measurements) {
     chartData.groupTemperature.x = tempChartData.groupTemperature.x;
     chartData.groupTemperature.y = tempChartData.groupTemperature.y;
 
+    const theme = localStorage.getItem('theme') || 'light';
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
     Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
 
 export function initChart() {
+    const theme = localStorage.getItem('theme') || 'light';
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
     Plotly.newPlot(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
     window.addEventListener('resize', () => {
         Plotly.Plots.resize(chartElement);
     });
+}
+
+export function setTheme(theme) {
+    const layoutUpdate = theme === 'dark' ? darkLayout : lightLayout;
+    const data = [
+        chartData.pressure,
+        chartData.flow,
+        chartData.targetPressure,
+        chartData.targetFlow,
+        chartData.groupTemperature
+    ];
+    Plotly.react(chartElement, data, layoutUpdate);
 }

@@ -7,6 +7,7 @@
     <link rel="icon" type="image/png" href="//fast.decentespresso.com/favicon-32x32.png" sizes="32x32">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.11.1/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <link href="src/css/dark-mode.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.plot.ly/plotly-3.2.0.min.js" charset="utf-8"></script>
     <script src="src/modules/app.js" type="module"></script>
     <script src="src/modules/reconnecting-websocket.js"></script>
@@ -64,7 +65,9 @@
         </nav>
         <!-- Right side controls -->
         <div class="flex gap-2 items-center md:gap-2">
-            <button class="btn btn-outline min-h-0 border-solid  border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-xl  h-6 md:h-6 lg:h-6 text-lg md:text-xs lg:text-xs">Settings</button>
+            <input type="checkbox" id="theme-toggle" class="toggle toggle-sm" />
+            <button class="btn btn-outline min-h-0 border-solid  border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-xl  h-6 md:h-6 lg:h-6 text-lg md:text-xs lg:text-xs settings-button">Settings</button>
+            
             <button id="sleep-button" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] min-h-0 rounded-xl h-6 md:h-6 lg:h-6 text-lg md:text-xs lg:text-xs">Sleep</button>
         </div>
     </header>

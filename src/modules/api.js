@@ -105,7 +105,7 @@ export function connectWebSocket(onData, onReconnect) {
         ui.updateMachineStatus("Disconnected");
         setTimeout(() => {
             logger.info('reloading now');
-            location.reload();
+            // location.reload();
             
         }, 6000);
     };
