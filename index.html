@@ -75,7 +75,7 @@
             <!-- Grind -->
             <div class="flex justify-between items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Grind</span>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="grind-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <span id="grind-value" class="text-xl md:text-lg font-bold text-center">1.4</span>
                     <button id="grind-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
@@ -84,7 +84,7 @@
             <!-- Dose In -->
             <div class="flex justify-between items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Dose in</span>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="dose-in-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <span id="dose-in-value" class="text-xl md:text-lg font-bold text-center">20g</span>
                     <button id="dose-in-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
@@ -93,7 +93,7 @@
             <!-- Drink out -->
             <div class="flex justify-between items-center w-full">
                  <span class="w-24 text-nowrap text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Drink out</span>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="drink-out-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <div class="text-center">
                         <span id="drink-out-value" class="text-xl md:text-lg font-bold text-center inline-block">46g</span>
@@ -110,9 +110,9 @@
             </div>
             <div class="divider"></div>
             <!-- Temp -->
-             <div class="flex justify-center-safe items-center w-full">
+             <div class="flex justify-between items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Brew</span>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="temp-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <span id="temp-value" class="text-xl md:text-lg font-bold text-center">92°c</span>
                     <button id="temp-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
@@ -133,11 +133,11 @@
                         <span id="steam-mode-time">Time</span> | <span id="steam-mode-flow">Flow</span>
                     </span>
                 </div>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="steam-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] text-xl md:text-lg">-</button>
                     <div class="text-center">
-                        <span id="steam-duration-value" class="text-lg  font-bold">31s</span>
-                        <span id="steam-flow-value" class="text-xs text-gray-500 block">1.5ml/s</span>
+                        <span id="steam-duration-value" class="text-lg  font-bold">30s</span>
+                        <span id="steam-flow-value" class="text-xs text-gray-500 block">1.0ml/s</span>
                     </div>
                     <button id="steam-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] text-xl md:text-lg">+</button>
                 </div>
@@ -156,9 +156,9 @@
             </div>
             <div class="divider"></div>
             <!-- Flush -->
-            <div class="flex justify-center-safe gap-2 items-center w-full">
+            <div class="flex justify-between gap-2 items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Flush</span>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="flush-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
                     <span id="flush-value" class="text-xl md:text-lg font-bold text-center">5s</span>
                     <button id="flush-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
@@ -173,14 +173,14 @@
             
             <div class="divider"></div>
             <!-- Hot Water -->
-            <div class="flex  justify-center-safe gap-2 items-center w-full">
+            <div class="flex  justify-between gap-2 items-center w-full">
                 <div>
                     <span class="max-w-24 text-nowrap text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Hot Water</span>
                     <span id="hot-water-mode-toggle" class="text-base text-xs text-nowrap block cursor-pointer">
                         <span id="hot-water-mode-temp">Temp</span> | <span id="hot-water-mode-vol">Vol</span>
                     </span>
                 </div>
-                <div class="flex items-center gap-2 md:gap-4">
+                <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="hot-water-vol-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-lg md:text-xs">-</button>
                     <div class="text-center">
                         <span id="hot-water-vol-value" class="text-lg    font-bold">75ml</span>

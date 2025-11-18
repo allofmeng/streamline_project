@@ -127,6 +127,7 @@ function makeEditable(element, onCommit) {
         input.type = 'number';
         input.value = currentValue;
         input.className = 'text-3xl font-bold text-center w-24 bg-transparent';
+        input.name = element.id; // Recommended for accessibility and autofill
 
         element.style.display = 'none';
         element.parentNode.insertBefore(input, element);
@@ -191,18 +192,25 @@ export function updateHotWaterDisplay(data) {
 
 function incrementHotWater() {
     if (hotWaterMode === 'volume') {
-        currentHotWaterVolume += 5;
-        setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
+        if (currentHotWaterVolume < 255) {
+            currentHotWaterVolume += 5;
+            if (currentHotWaterVolume > 255) currentHotWaterVolume = 255; // cap at max
+            setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
+        }
     } else {
-        currentHotWaterTemp += 1;
-        setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
+        if (currentHotWaterTemp < 100) {
+            currentHotWaterTemp += 1;
+            setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
+        }
     }
+    updateHotWaterDisplay({ targetHotWaterVolume: currentHotWaterVolume, targetHotWaterTemp: currentHotWaterTemp });
 }
 
 function decrementHotWater() {
     if (hotWaterMode === 'volume') {
-        if (currentHotWaterVolume >= 5) {
+        if (currentHotWaterVolume > 3) {
             currentHotWaterVolume -= 5;
+            if (currentHotWaterVolume < 3) currentHotWaterVolume = 3; // cap at min
             setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
         }
     }
@@ -212,6 +220,7 @@ function decrementHotWater() {
             setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
         }
     }
+    updateHotWaterDisplay({ targetHotWaterVolume: currentHotWaterVolume, targetHotWaterTemp: currentHotWaterTemp });
 }
 
 function updateHotWaterPresetDisplay() {
@@ -338,6 +347,7 @@ function incrementSteam() {
             setTargetSteamFlow(currentSteamFlow).catch(e => logger.error(e));
         }
     }
+    updateSteamDisplay({ targetSteamDuration: currentSteamDuration, targetSteamFlow: currentSteamFlow });
 }
 
 function decrementSteam() {
@@ -352,6 +362,7 @@ function decrementSteam() {
             setTargetSteamFlow(currentSteamFlow).catch(e => logger.error(e));
         }
     }
+    updateSteamDisplay({ targetSteamDuration: currentSteamDuration, targetSteamFlow: currentSteamFlow });
 }
 
 function updateSteamPresetDisplay() {
@@ -680,15 +691,35 @@ export function initUI() {
 
     if (hotWaterVolValueEl) {
         makeEditable(hotWaterVolValueEl, (newValue) => {
-            currentHotWaterVolume = newValue;
+            let value = newValue;
+            if (value > 255) {
+                alert('Hot water volume is limited to 255 ml.');
+                value = 255;
+            }
+            if (value < 3) {
+                alert('Hot water volume must be at least 3 ml.');
+                value = 3;
+            }
+            currentHotWaterVolume = value;
             setTargetHotWaterVolume(currentHotWaterVolume).catch(e => logger.error(e));
+            updateHotWaterDisplay({ targetHotWaterVolume: currentHotWaterVolume });
         });
     }
 
     if (hotWaterTempValueEl) {
         makeEditable(hotWaterTempValueEl, (newValue) => {
-            currentHotWaterTemp = newValue;
+            let value = newValue;
+            if (value > 100) {
+                alert('Hot water temperature is limited to 100°C.');
+                value = 100;
+            }
+            if (value < 0) {
+                alert('Hot water temperature must be at least 0°C.');
+                value = 0;
+            }
+            currentHotWaterTemp = value;
             setTargetHotWaterTemp(currentHotWaterTemp).catch(e => logger.error(e));
+            updateHotWaterDisplay({ targetHotWaterTemp: currentHotWaterTemp });
         });
     }
 
@@ -711,8 +742,18 @@ export function initUI() {
     const steamFlowValueEl = document.getElementById('steam-flow-value');
     if (steamFlowValueEl) {
         makeEditable(steamFlowValueEl, (newValue) => {
-            currentSteamFlow = newValue;
+            let value = newValue;
+            if (value > 2.5) {
+                alert('Steam flow is limited to 2.5 ml/s.');
+                value = 2.5;
+            }
+            if (value < 0.4) {
+                alert('Steam flow must be at least 0.4 ml/s.');
+                value = 0.4;
+            }
+            currentSteamFlow = value;
             setTargetSteamFlow(currentSteamFlow).catch(e => logger.error(e));
+            updateSteamDisplay({ targetSteamFlow: currentSteamFlow });
         });
     }
 
