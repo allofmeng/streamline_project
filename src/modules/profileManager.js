@@ -10,32 +10,21 @@ const LONG_PRESS_DURATION = 700; // ms
 let favoriteButtons = [];
 let availableProfiles = {};
 let favoriteAssignments = {};
+let currentButtonIndex = null;
 
 // --- Helper Functions ---
 
 async function loadAvailableProfiles() {
     let profileFiles = [];
     try {
-        const response = await fetch(PROFILES_PATH);
+        const response = await fetch(`${PROFILES_PATH}profile-manifest.json`);
         if (!response.ok) {
-            throw new Error(`Failed to fetch profile directory listing. Status: ${response.status}`);
+            throw new Error(`Failed to fetch profile manifest. Status: ${response.status}`);
         }
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const links = Array.from(doc.querySelectorAll('a'));
-
-        profileFiles = links
-            .map(link => link.getAttribute('href'))
-            .filter(href => href && href.endsWith('.json'))
-            .map(href => href.split('/').pop()); // Get just the filename
-
-        if (profileFiles.length === 0) {
-            logger.warn('Could not find any .json files in the profile directory listing. The server might not have directory listing enabled, or the folder is empty.');
-        }
+        profileFiles = await response.json();
 
     } catch (error) {
-        logger.error('Failed to dynamically load profiles from directory listing.', error);
+        logger.error('Failed to load profiles from manifest.', error);
         logger.warn('Falling back to an empty profile list.');
         profileFiles = [];
     }
@@ -171,6 +160,7 @@ function assignProfile(buttonIndex, profileKey) {
 }
 
 function openProfileSelectionModal(buttonIndex) {
+    currentButtonIndex = buttonIndex;
     const modal = document.getElementById('profile_modal');
     const container = document.getElementById('profile-list-container');
     if (!modal || !container) return;
@@ -205,6 +195,38 @@ function handleLongPress(index) {
         openProfileSelectionModal(index);
     }
 }
+
+function handleProfileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) {
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const profile = JSON.parse(e.target.result);
+            const fileName = file.name;
+            
+            if (profile.title && profile.steps) {
+                availableProfiles[fileName] = profile;
+                logger.info(`Successfully loaded uploaded profile: ${profile.title}`);
+                // Re-open the modal to show the new profile
+                if (currentButtonIndex !== null) {
+                    openProfileSelectionModal(currentButtonIndex);
+                }
+            } else {
+                logger.error('Uploaded file is not a valid profile format.');
+                alert('Error: Uploaded file is not a valid profile.');
+            }
+        } catch (error) {
+            logger.error('Failed to parse uploaded profile:', error);
+            alert('Error: Could not parse the uploaded JSON file.');
+        }
+    };
+    reader.readAsText(file);
+}
+
 
 // --- Initialization ---
 
@@ -242,7 +264,18 @@ export async function init() {
         button.addEventListener('touchend', cancelPress);
     });
 
+    const uploadButton = document.getElementById('upload-profile-btn');
+    const fileInput = document.getElementById('profile-upload-input');
+
+    if (uploadButton && fileInput) {
+        uploadButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            logger.info('Upload button clicked, attempting to trigger file input.');
+            fileInput.click();
+        });
+        fileInput.addEventListener('change', handleProfileUpload);
+    }
+
     logger.info('Profile Manager initialized.');
 }
-
-
