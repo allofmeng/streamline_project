@@ -121,3 +121,85 @@ To recreate this application using plain HTML, CSS, and JavaScript without a UI 
     *   **Data from Server**: The WebSocket `onmessage` handler will update `appState` with new data and then **immediately call `render()`**.
 
 This "State Object + Manual Render" pattern provides a clear and manageable structure for building a reactive UI without the overhead of a framework. The key is to be disciplined about calling the main `render()` function after every single change to the `appState` object.
+
+
+### 6. Font Assignments
+
+The `skin.tcl` file uses `load_font` to create font aliases. This section maps those aliases to the font files and the UI elements they style. This is crucial for recreating the UI with correct typography in CSS.
+
+| UI Element                             | Tcl Font Alias        | Font File                    | Weight in CSS  | Notes                                  |
+| ------------------------------------ | --------------------- | ---------------------------- | -------------- | -------------------------------------- |
+| Left Sidebar Labels (Grind, Dose)    | `Inter-Bold16`        | `Inter-SemiBold.ttf`         | `600`          | Font size is 14.                       |
+| Left Sidebar Values (1.4, 20g)       | `Inter-Bold16`        | `Inter-SemiBold.ttf`         | `600`          | Font size is 16.                       |
+| Profile Buttons (Top Favorites)      | `Inter-Bold13`        | `Inter-Bold.ttf`             | `700`          | Font size is 13.                       |
+| Profile Name (Main Content)          | `Inter-HeavyBold24`   | `Inter-SemiBold.ttf`         | `600`          | Font size is 17.                       |
+| Status Message (Top Right)           | `Inter-HeavyBold24`   | `Inter-SemiBold.ttf`         | `600`          | Font size is 17. Also uses `mono18`.     |
+| **+/- Buttons**                      | **`Inter-Bold24`**    | **`Inter-ExtraLight.ttf`**   | **`200`**      | Font size is **29**. This is a key style. |
+| Data Line Labels (Mix, Group)        | `Inter-Bold18`        | `Inter-SemiBold.ttf`         | `600`          | Font size is 13.                       |
+| Data Line Values (Temperatures)      | `mono12`, `mono8`     | `NotoSansMono-SemiBold.ttf`  | `600`          | Font sizes 13 and 10 respectively.     |
+| Shot Data Table (Headers & Data)     | `Inter-Bold17`, `mono10`| `Inter-SemiBold.ttf`, `NotoSansMono-SemiBold.ttf` | `600`, `600` |                                        |
+
+### 7. Color Assignments
+
+The `skin.tcl` file defines all colors as variables. Below is a summary of these colors for both Light and Dark modes. These should be translated into CSS Custom Properties for the rewrite.
+
+#### Light Mode
+
+| UI Element / Purpose                 | Tcl Variable Name                          | Color Code |
+| ------------------------------------ | ------------------------------------------ | ---------- |
+| **General & Text**                   |                                            |            |
+| Main Background                      | `::background_color`                       | `#FFFFFF`  |
+| Primary Text (Data)                  | `::data_card_text_color`                   | `#121212`  |
+| Secondary Text (Labels)              | `::data_card_title_text_color`             | `#707485`  |
+| Profile Title & Left Labels          | `::profile_title_color`, `::left_label_color2` | `#385a92`  |
+| Disabled Text                        | `::left_label_color2_disabled`             | `#d0d8e5`  |
+| Preset Value Text                    | `::preset_value_color`                     | `#AAAAAA`  |
+| Selected Preset Text                 | `::preset_label_selected_color`            | `#777777`  |
+| **UI Components**                    |                                            |            |
+| Panel/Box Background                 | `::box_color`                              | `#f6f8fa`  |
+| Line / Divider                       | `::box_line_color`                         | `#e8e8e8`  |
+| +/- Button Background                | `::plus_minus_flash_off_color`             | `#ededed`  |
+| Selected Profile Button BG           | `::profile_button_background_selected_color` | `#385992`  |
+| +/- Button Flash (first color)       | `::plus_minus_flash_on_color`              | `#b8b8b8`  |
+| +/- Button Flash (second color)      | `::plus_minus_flash_on_color2`             | `#cfcfcf`  |
+| Blink Button Color                   | `::blink_button_color`                     | `#395ab9`  |
+| +/- Outline Color                    | `::plus_minus_outline_color`               | `#f6f8fa`  |
+| GHC Button Outline                   | `::ghc_button_outline`                     | `#f6f8fa`  |
+| **Chart Colors**                     |                                            |            |
+| Pressure Line                        | `::pressurelinecolor`                      | `#17c29a`  |
+| Flow Line                            | `::flow_line_color`                        | `#0358cf`  |
+| Temperature Line                     | `::temperature_line_color`                 | `#ff97a1`  |
+| Weight Line                          | `::weightlinecolor`                        | `#e9d3c3`  |
+| Grid Lines                           | `::grid_color`                             | `#E0E0E0`  |
+| Chart Background                     | `::chart_background`                       | `#FFFFFF`  |
+
+#### Dark Mode
+
+| UI Element / Purpose                 | Tcl Variable Name                  | Color Code |
+| ------------------------------------ | ---------------------------------- | ---------- |
+| **General & Text**                   |                                    |            |
+| Main Background                      | `::background_color`               | `#0d0e14`  |
+| Primary Text (Data)                  | `::data_card_text_color`           | `#e8e8e8`  |
+| Secondary Text (Labels)              | `::data_card_title_text_color`     | `#707485`  |
+| Profile Title & Left Labels          | `::profile_title_color`, `::left_label_color2` | `#e8e8e8`, `#415996` |
+| Disabled Text                        | `::left_label_color2_disabled`     | `#202c4c`  |
+| Preset Value Text                    | `::preset_value_color`             | `#4e5559`  |
+| Selected Preset Text                 | `::preset_label_selected_color`    | `#999999`  |
+| **UI Components**                    |                                    |            |
+| Panel/Box Background                 | `::box_color`                      | `#17191e`  |
+| Line / Divider                       | `::box_line_color`                 | `#000000`  |
+| +/- Button Background                | `::plus_minus_flash_off_color`     | `#101115`  |
+| Selected Profile Button BG           | `::profile_button_background_selected_color` | `#415996`  |
+| +/- Button Flash (first color)       | `::plus_minus_flash_on_color`      | `#272A34`  |
+| +/- Button Flash (second color)      | `::plus_minus_flash_on_color2`     | `#1a1d25`  |
+| +/- Outline Color                    | `::plus_minus_outline_color`       | `#17191e`  |
+| GHC Button Outline                   | `::ghc_button_outline`             | `#17191e`  |
+| GHC Disabled Button Outline          | `::ghc_disabled_button_outline`    | `#17191e`  |
+| GHC Enabled Stop Button Outline      | `::ghc_enabled_stop_button_outline`| `#17191e`  |
+| Chart Background                     | `::chart_background`               | `#0d0e14`  |
+| **Chart Colors**                     |                                    |            |
+| Pressure Line                        | `::pressurelinecolor`              | `#17c29a`  |
+| Flow Line                            | `::flow_line_color`                | `#0358cf`  |
+| Temperature Line                     | `::temperature_line_color`         | `#AE6D73`  |
+| Weight Line                          | `::weightlinecolor`                | `#695f57`  |
+| Grid Lines                           | `::grid_color`                     | `#212227`  |

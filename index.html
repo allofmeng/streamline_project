@@ -14,21 +14,15 @@
     <style>
         
         /* Custom Inter font from local files */
-        @font-face {
-            font-family: 'Inter';
-            src: url('src/ui/Inter-Regular.ttf') format('truetype');
-            font-weight: 400; /* normal */
-        }
-        @font-face {
-            font-family: 'Inter';
-            src: url('src/ui/Inter-SemiBold.ttf') format('truetype');
-            font-weight: 600; /* semibold */
-        }
-        @font-face {
-            font-family: 'Inter';
-            src: url('src/ui/Inter-Bold.ttf') format('truetype');
-            font-weight: 700; /* bold */
-        }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Thin.ttf') format('truetype'); font-weight: 100; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-ExtraLight.ttf') format('truetype'); font-weight: 200; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Light.ttf') format('truetype'); font-weight: 300; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Regular.ttf') format('truetype'); font-weight: 400; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Medium.ttf') format('truetype'); font-weight: 500; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-SemiBold.ttf') format('truetype'); font-weight: 600; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Bold.ttf') format('truetype'); font-weight: 700; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-ExtraBold.ttf') format('truetype'); font-weight: 800; }
+        @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Black.ttf') format('truetype'); font-weight: 900; }
 
         body {
             font-family: 'Inter', sans-serif;
@@ -42,6 +36,18 @@
             --dark-gray: #121212;
             --green: #0CA581;
             --button-grey: #EDEDED;
+            
+            /* Plus Minus Flash Colors (Light Mode) */
+            --plus-minus-flash-on-color: #b8b8b8;
+            --plus-minus-flash-on-color2: #cfcfcf;
+            --plus-minus-flash-off-color: #ededed;
+        }
+
+        [data-theme='dark'] {
+            /* Plus Minus Flash Colors (Dark Mode) */
+            --plus-minus-flash-on-color: #272A34;
+            --plus-minus-flash-on-color2: #1a1d25;
+            --plus-minus-flash-off-color: #101115;
         }
 
         .flash {
@@ -80,30 +86,30 @@
             <div class="flex justify-between items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Grind</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="grind-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
+                    <button id="grind-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="grind-value" class="text-xl md:text-lg font-bold text-center">1.4</span>
-                    <button id="grind-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                    <button id="grind-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
             <!-- Dose In -->
             <div class="flex justify-between items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Dose in</span>
+                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Dose</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="dose-in-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
+                    <button id="dose-in-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="dose-in-value" class="text-xl md:text-lg font-bold text-center">20g</span>
-                    <button id="dose-in-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                    <button id="dose-in-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
             <!-- Drink out -->
-            <div class="flex justify-between items-center w-full">
-                 <span class="w-24 text-nowrap text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Drink out</span>
+            <div class="flex justify-between items-center  w-full">
+                 <span class="w-24 text-nowrap text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Drink</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="drink-out-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
-                    <div class="text-center">
-                        <span id="drink-out-value" class="text-xl md:text-lg font-bold text-center inline-block">46g</span>
+                    <button id="drink-out-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
+                    <div class="text-center w-full">
+                        <span id="drink-out-value" class="text-xl md:text-lg font-bold w-full block">46g</span>
                         <span id="drink-ratio-value" class="text-sm md:text-xs text-gray-500 block">(1:2.3)</span>
                     </div>
-                    <button id="drink-out-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                    <button id="drink-out-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
             <div id="drink-out-presets" class="flex  justify-start justify-between items-center w-full">
@@ -117,9 +123,9 @@
              <div class="flex justify-between items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Brew</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="temp-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
+                    <button id="temp-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="temp-value" class="text-xl md:text-lg font-bold text-center">92°c</span>
-                    <button id="temp-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                    <button id="temp-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
             <div id="temp-presets" class="flex  justify-start justify-between items-center w-full">
@@ -138,12 +144,12 @@
                     </span>
                 </div>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="steam-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] text-xl md:text-lg">-</button>
-                    <div class="text-center">
-                        <span id="steam-duration-value" class="text-lg  font-bold">30s</span>
-                        <span id="steam-flow-value" class="text-xs text-gray-500 block">1.0ml/s</span>
+                    <button id="steam-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
+                    <div class="text-center w-full">
+                        <span id="steam-duration-value" class="text-lg block font-bold w-full">30s</span>
+                        <span id="steam-flow-value" class="text-xs text-gray-500 block w-full">1.0ml/s</span>
                     </div>
-                    <button id="steam-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] text-xl md:text-lg">+</button>
+                    <button id="steam-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
             <div id="steam-presets" class="flex justify-start justify-between items-center w-full">
@@ -163,9 +169,9 @@
             <div class="flex justify-between gap-2 items-center w-full">
                 <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Flush</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="flush-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">-</button>
+                    <button id="flush-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="flush-value" class="text-xl md:text-lg font-bold text-center">5s</span>
-                    <button id="flush-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-lg">+</button>
+                    <button id="flush-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
                 <div id="flush-presets" class="flex  justify-start justify-between items-center w-full">
@@ -185,12 +191,12 @@
                     </span>
                 </div>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
-                    <button id="hot-water-vol-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-lg md:text-xs">-</button>
-                    <div class="text-center">
-                        <span id="hot-water-vol-value" class="text-lg    font-bold">75ml</span>
+                    <button id="hot-water-vol-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
+                    <div class="text-center w-full">
+                        <span id="hot-water-vol-value" class="text-lg  w-full block  font-bold">75ml</span>
                         <span id="hot-water-temp-value" class="text-xs  text-gray-500 block">45°C</span>
                     </div>
-                    <button id="hot-water-vol-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)]  text-xl md:text-xl">+</button>
+                    <button id="hot-water-vol-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
                 </div>
                 <div id="hotwater-presets" class="flex  justify-start justify-between items-center w-full">

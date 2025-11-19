@@ -14,6 +14,19 @@ let steamMode = 'time'; // 'time' or 'flow'
 let steamTimePresets = [15, 30, 45, 60];
 let steamFlowPresets = [0.5, 1.0, 1.5, 2.0];
 
+export function flashPlusMinusButton(button) {
+    const offColor = getComputedStyle(document.documentElement).getPropertyValue('--plus-minus-flash-off-color');
+    button.style.backgroundColor = 'var(--plus-minus-flash-on-color2)';
+    setTimeout(() => {
+        button.style.backgroundColor = 'var(--plus-minus-flash-on-color)';
+    }, 40);
+    setTimeout(() => {
+        button.style.backgroundColor = 'var(--plus-minus-flash-on-color2)';
+    }, 200);
+    setTimeout(() => {
+        button.style.backgroundColor = offColor;
+    }, 280);
+}
 
 function updateDoseValue(type, newValue) {
     const doseInEl = document.getElementById('dose-in-value');
@@ -252,7 +265,8 @@ function setupValueAdjuster(minusBtnId, plusBtnId, valueElId, step, min, formatt
 
     if (!minusBtn || !plusBtn || !valueEl) return;
 
-    minusBtn.addEventListener('click', () => {
+    minusBtn.addEventListener('click', (e) => {
+        flashPlusMinusButton(e.currentTarget);
         let currentValue = parseFloat(valueEl.textContent);
         if (currentValue > min) {
             currentValue -= step;
@@ -261,7 +275,8 @@ function setupValueAdjuster(minusBtnId, plusBtnId, valueElId, step, min, formatt
         }
     });
 
-    plusBtn.addEventListener('click', () => {
+    plusBtn.addEventListener('click', (e) => {
+        flashPlusMinusButton(e.currentTarget);
         let currentValue = parseFloat(valueEl.textContent);
         currentValue += step;
         valueEl.textContent = formatter(currentValue);
@@ -455,7 +470,8 @@ export function initUI() {
                 }
                 button.classList.remove('text-gray-400');
                 button.classList.add('text-black');
-                flashElement(button);
+                
+                flashElement(document.getElementById('temp-value'));
             };
 
             const longPressCallback = () => {
@@ -522,7 +538,8 @@ export function initUI() {
                 }
                 button.classList.remove('text-gray-400');
                 button.classList.add('text-black');
-                flashElement(button);
+                flashElement(document.getElementById('flush-value'));
+
             };
 
             const longPressCallback = () => {
@@ -551,9 +568,13 @@ export function initUI() {
                 if (isTempMode) {
                     setTargetHotWaterTemp(newValue).catch(e => logger.error(e));
                     updateHotWaterDisplay({ targetHotWaterTemp: newValue });
+                   
+                    flashElement(document.getElementById('hot-water-temp-value'));
+
                 } else {
                     setTargetHotWaterVolume(newValue).catch(e => logger.error(e));
                     updateHotWaterDisplay({ targetHotWaterVolume: newValue });
+                    flashElement(document.getElementById("hot-water-vol-value"));
                 }
 
                 // Update preset styles
@@ -563,7 +584,7 @@ export function initUI() {
                 }
                 button.classList.remove('text-gray-400');
                 button.classList.add('text-black');
-                flashElement(button);
+                
             };
 
             const longPressCallback = () => {
@@ -604,7 +625,8 @@ export function initUI() {
                 }
                 button.classList.remove('text-gray-400');
                 button.classList.add('text-black');
-                flashElement(button);
+                flashElement(document.getElementById('steam-duration-value'));
+
             };
 
             const longPressCallback = () => {
@@ -639,7 +661,8 @@ export function initUI() {
                 }
                 button.classList.remove('text-gray-400');
                 button.classList.add('text-black');
-                flashElement(button);
+                flashElement(document.getElementById('steam-flow-value'));
+
             };
 
             const longPressCallback = () => {
