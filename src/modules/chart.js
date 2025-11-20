@@ -8,35 +8,40 @@ const chartData = {
         y: [],
         name: 'Pressure',
         type: 'scatter',
-        line: { color: '#17C29A' }
+        line: { color: '#17c29a' },
+        hoverinfo: 'name'
     },
     flow: {
         x: [],
         y: [],
         name: 'Flow',
         type: 'scatter',
-        line: { color: '#385A92' }
+        line: { color: '#0358cf' },
+        hoverinfo: 'name'
     },
     targetPressure: {
         x: [],
         y: [],
         name: 'Target Pressure',
         type: 'scatter',
-        line: { color: '#17C29A', dash: 'dot' }
+        line: { color: '#17c29a', dash: 'dot' },
+        hoverinfo: 'name'
     },
     targetFlow: {
         x: [],
         y: [],
         name: 'Target Flow',
         type: 'scatter',
-        line: { color: '#385A92', dash: 'dot' }
+        line: { color: '#0358cf', dash: 'dot' },
+        hoverinfo: 'name'
     },
     groupTemperature: {
         x: [],
         y: [],
         name: 'Group Temp',
         type: 'scatter',
-        line: {color: 'red'}
+        line: {color: '#ff97a1'},
+        hoverinfo: 'name'
     }
 };
 
@@ -45,74 +50,84 @@ const lightLayout = {
     paper_bgcolor: 'white',
     font: { color: 'black' },
     xaxis: { 
-        gridcolor: '#e0e0e0',
-        title: { text: 'Time (s)' }
+        gridcolor: '#E0E0E0',
+        
+        
+        dtick: 1
     },
     yaxis: { 
-        gridcolor: '#e0e0e0',
-        title: { text: 'Pressure (bar)' }
-    },
-    yaxis2: {
-        title: 'Flow (ml/s)',
-        overlaying: 'y',
-        side: 'right'
+        gridcolor: '#E0E0E0',
+        
+        range: [0, 10],
+        dtick: 1
     },
     autosize: true,
     margin: {
         autoexpand: true,
         l: 50,
-        r: 25,
+        r: 20,
         t: 20,
         b: 40,
         pad: 0
     },
-    showlegend: true,
-    legend: {
-        x: 0.01,
-        xanchor: 'left',
-        y: 0.9,
-        yanchor: 'top',
-        bgcolor: 'transparent'
-    }
+    showlegend: false,
 };
 
 const darkLayout = {
-    plot_bgcolor: '#101217',
-    paper_bgcolor: '#101217',
+    plot_bgcolor: '#0d0e14',
+    paper_bgcolor: '#0d0e14',
     font: { color: '#e8e8e8' },
     xaxis: { 
-        gridcolor: '#444',
-        title: { text: 'Time (s)' }
+        gridcolor: '#212227',
+        
+        
+        dtick: 1
     },
     yaxis: { 
-        gridcolor: '#444',
-        title: { text: 'Pressure (bar)' }
-    },
-    yaxis2: {
-        title: 'Flow (ml/s)',
-        overlaying: 'y',
-        side: 'right',
-        font: { color: '#e8e8e8' },
-        gridcolor: '#444'
+        gridcolor: '#212227',
+        
+        range: [0, 10],
+        dtick: 1
     },
     autosize: true,
     margin: {
         autoexpand: true,
         l: 50,
-        r: 25,
+        r: 20,
         t: 20,
         b: 40,
         pad: 0
     },
-    showlegend: true,
-    legend: {
-        x: 0.01,
-        xanchor: 'left',
-        y: 0.9,
-        yanchor: 'top',
-        bgcolor: 'transparent'
-    }
+    showlegend: false,
 };
+
+function getAnnotations() {
+    const annotations = [];
+    for (const traceName in chartData) {
+        if (traceName === 'targetPressure' || traceName === 'targetFlow') {
+            continue;
+        }
+        const trace = chartData[traceName];
+        if (trace.x.length > 0) {
+            annotations.push({
+                x: trace.x[trace.x.length - 1],
+                y: trace.y[trace.y.length - 1],
+                xref: 'x',
+                yref: trace.yaxis || 'y',
+                text: trace.name,
+                showarrow: false,
+                xanchor: 'left',
+                yanchor: 'top',
+                xshift: 5,
+                yshift: 5,
+                font: {
+                    color: trace.line.color
+                }
+            });
+        }
+    }
+    return annotations;
+}
 
 export function updateChart(shotStartTime, data) {
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
@@ -129,8 +144,18 @@ export function updateChart(shotStartTime, data) {
     chartData.groupTemperature.y.push(data.groupTemperature / 10);
 
     const theme = localStorage.getItem('theme') || 'light';
-    const layout = theme === 'dark' ? darkLayout : lightLayout;
-    Plotly.update(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+    const layout = JSON.parse(JSON.stringify(theme === 'dark' ? darkLayout : lightLayout));
+
+    const currentXRange = chartElement.layout.xaxis.range;
+    if (time > currentXRange[1]) {
+        layout.xaxis.range = [currentXRange[0], time + 2];
+    } else {
+        layout.xaxis.range = currentXRange;
+    }
+    layout.yaxis.range = chartElement.layout.yaxis.range;
+
+    layout.annotations = getAnnotations();
+    Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
 
 export function clearChart() {
@@ -140,6 +165,8 @@ export function clearChart() {
     }
     const theme = localStorage.getItem('theme') || 'light';
     const layout = theme === 'dark' ? darkLayout : lightLayout;
+    layout.annotations = [];
+    layout.xaxis.range = [0, 10];
     // removeProfileOverlay(); // This should be handled in app.js
     Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
@@ -191,12 +218,14 @@ export function plotHistoricalShot(measurements) {
 
     const theme = localStorage.getItem('theme') || 'light';
     const layout = theme === 'dark' ? darkLayout : lightLayout;
+    layout.annotations = getAnnotations();
     Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
 
 export function initChart() {
     const theme = localStorage.getItem('theme') || 'light';
     const layout = theme === 'dark' ? darkLayout : lightLayout;
+    layout.annotations = [];
     Plotly.newPlot(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
     window.addEventListener('resize', () => {
         Plotly.Plots.resize(chartElement);
@@ -205,6 +234,7 @@ export function initChart() {
 
 export function setTheme(theme) {
     const layoutUpdate = theme === 'dark' ? darkLayout : lightLayout;
+    layoutUpdate.annotations = getAnnotations();
     const data = [
         chartData.pressure,
         chartData.flow,
