@@ -434,7 +434,7 @@ state	MachineStateMachineStatestring
 example: espresso
 Enum:
 [ idle, booting, sleeping, heating, preheating, espresso, hotWater, flush, steam, skipStep, cleaning, descaling, transportMode, needsWater, error ]
-substate	MachineSubstateMachineSubstatestring
+substate	MachineSubstate string
 example: preparingForShot
 Enum:
 [ idle, preparingForShot, preinfusion, pouring, pouringDone, cleaningStart, cleaingGroup, cleanSoaking, cleaningSteam ]

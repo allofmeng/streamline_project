@@ -881,9 +881,9 @@ export function updateWeight(weight) {
     if (weightEl) {
         if (typeof weight === 'number' && !isNaN(weight)) {
             weightEl.textContent = ` ${weight.toFixed(1)}g`;
+        } else {
+            weightEl.textContent = '--g';
         }
-    } else {
-        weightEl.textContent = '--g'; // Display --g if weight is not a valid number
     }
 }
 

@@ -16,6 +16,10 @@ let previousMachineState = null; // Track previous machine state
 let scaleReconnectPoller = null;
 let latestScaleWeight = 0;
 
+// To filter the chart to only show data from the 'pouring' state,
+// set this variable to true in your browser's developer console.
+let filterGraphToPouringState = true;
+
 // Sets a timer. If no data is received within 5 seconds, it assumes a stale connection.
 function resetDataTimeout() {
     clearTimeout(dataTimeout);
@@ -128,26 +132,33 @@ function throttle(func, limit) {
     };
 }
 
-const throttledUpdateWeight = ui.updateWeight; // 100ms throttle interval
+const throttledUpdateWeight = throttle(ui.updateWeight, 100); // 100ms throttle interval
 
 function handleScaleData(data) {
     const currentWeight = data.weight;
     latestScaleWeight = currentWeight;
-    
-    if (currentWeight !== null && currentWeight !== undefined && !isScaleConnected) {
-        logger.info('Scale reconnected.');
-        isScaleConnected = true;
-        stopScaleReconnectPolling();
-    } else if ((currentWeight === null || currentWeight === undefined) && isScaleConnected) {
-        logger.warn('Scale disconnected.');
-        isScaleConnected = false;
-        ui.updateWeight('--g');
-    }
+
+    // Receiving any message means the websocket and BLE link are up.
+    // We can stop polling for a reconnect.
+    // The timeout in api.js will trigger a disconnect if data stops flowing.
+    stopScaleReconnectPolling();
 
     if (currentWeight !== null && currentWeight !== undefined) {
+        // We have a weight, so we are fully connected.
+        if (!isScaleConnected) {
+            logger.info('Scale reconnected.');
+            isScaleConnected = true;
+        }
+        // Update the UI with the new weight.
         throttledUpdateWeight(currentWeight);
     } else {
-        ui.updateWeight('--g');
+        // We received a message without a weight.
+        // If we were already connected, we just keep the last weight on screen.
+        // If we were not connected, we show '--g'.
+        if (!isScaleConnected) {
+            ui.updateWeight('--g');
+        }
+        logger.warn('Scale message received without weight data.');
     }
 }
 

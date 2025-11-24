@@ -165,7 +165,8 @@ The `skin.tcl` file defines all colors as variables. Below is a summary of these
 | Blink Button Color                   | `::blink_button_color`                     | `#395ab9`  |
 | +/- Outline Color                    | `::plus_minus_outline_color`               | `#f6f8fa`  |
 | GHC Button Outline                   | `::ghc_button_outline`                     | `#f6f8fa`  |
-| **Chart Colors**                     |                                            |            |
+| **Chart Colors**                     |                                            |            
+|
 | Pressure Line                        | `::pressurelinecolor`                      | `#17c29a`  |
 | Flow Line                            | `::flow_line_color`                        | `#0358cf`  |
 | Temperature Line                     | `::temperature_line_color`                 | `#ff97a1`  |

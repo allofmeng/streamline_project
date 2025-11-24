@@ -129,9 +129,16 @@ function getAnnotations() {
     return annotations;
 }
 
-export function updateChart(shotStartTime, data) {
+export function updateChart(shotStartTime, data, filterToPouring) {
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
     console.log("updatechart functio called");
+
+    if (filterToPouring) {
+        if (data.state.substate !== 'pouring' && data.state.substate !== 'pouringDone') {
+            return;
+        }
+    }
+
     chartData.pressure.x.push(time);
     chartData.pressure.y.push(data.pressure);
     chartData.flow.x.push(time);
@@ -155,7 +162,7 @@ export function updateChart(shotStartTime, data) {
     layout.yaxis.range = chartElement.layout.yaxis.range;
 
     layout.annotations = getAnnotations();
-    Plotly.react(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
+    Plotly.update(chartElement, [chartData.pressure, chartData.flow, chartData.targetPressure, chartData.targetFlow, chartData.groupTemperature], layout);
 }
 
 export function clearChart() {

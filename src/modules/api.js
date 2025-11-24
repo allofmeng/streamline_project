@@ -173,6 +173,8 @@ export function connectScaleWebSocket(onData, onReconnect, onDisconnect) {
 
     scaleWebSocket.onreconnect = () => {
         logger.info('Scale WebSocket reconnected');
+        clearTimeout(scaleDataTimeout);
+        scaleDataTimeout = setTimeout(handleScaleTimeout, SCALE_TIMEOUT_DURATION);
         if (onReconnect) {
             onReconnect();
         }
