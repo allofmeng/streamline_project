@@ -110,6 +110,10 @@ function handleData(data) {
             shotStartTime = new Date(data.timestamp);
             chart.clearChart();
             shotData.clearShotData();
+            const historyLabelEl = document.getElementById('shot-history-label');
+            if (historyLabelEl) {
+                historyLabelEl.textContent = 'CURRENT';
+            }
         }
         chart.updateChart(shotStartTime, data);
         shotData.updateShotData(data, latestScaleWeight);

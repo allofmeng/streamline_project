@@ -57,6 +57,7 @@ function displayShot(index) {
     // Update footer text
     const dateEl = document.getElementById('history-date');
     const profileNameEl = document.getElementById('history-profile-name');
+    const historyLabelEl = document.getElementById('shot-history-label');
 
     if (dateEl) {
         dateEl.textContent = new Date(shot.timestamp).toLocaleString();
@@ -64,6 +65,16 @@ function displayShot(index) {
     if (profileNameEl && shot.workflow && shot.workflow.profile) {
         profileNameEl.textContent = shot.workflow.profile.title;
     }
+    if (historyLabelEl) {
+        if (index === 0) {
+            historyLabelEl.textContent = 'LATEST';
+        } else if (index === shots.length - 1) {
+            historyLabelEl.textContent = 'OLDEST';
+        } else {
+            historyLabelEl.textContent = 'HISTORY';
+        }
+    }
+
 
     // Update chart and data table
     if (shot.measurements) {

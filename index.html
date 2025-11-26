@@ -24,13 +24,27 @@
         @font-face { font-family: 'Inter'; src: url('src/ui/Inter-ExtraBold.ttf') format('truetype'); font-weight: 800; }
         @font-face { font-family: 'Inter'; src: url('src/ui/Inter-Black.ttf') format('truetype'); font-weight: 900; }
 
+        @font-face { font-family: 'NotoSansMono'; src: url('src/ui/NotoSansMono-SemiBold.ttf') format('truetype'); font-weight: 600; }
+        @font-face { font-family: 'NotoSansMono'; src: url('src/ui/NotoSansMono-ExtraBold.ttf') format('truetype'); font-weight: 800; }
+
         body {
             font-family: 'Inter', sans-serif;
         }
         
+        .font-mono-custom {
+            font-family: 'NotoSansMono', monospace;
+        }
+
+        .font-inter-custom {
+            font-family: 'Inter', sans-serif;
+        }
+
         :root {
             --mimoja-blue-v2: #385A92;
             --mimoja-blue: #385A92; 
+            --profile-button-outline-color: #c5cdda;
+            --profile-button-background-color: #FFFFFF;
+            --box-color: #f6f8fa;
             
             --low-contrast-white: #959595;
             --dark-gray: #121212;
@@ -44,6 +58,9 @@
         }
 
         [data-theme='dark'] {
+            --profile-button-outline-color: #17191e;
+            --profile-button-background-color: #292c38;
+            --box-color: #17191e;
             /* Plus Minus Flash Colors (Dark Mode) */
             --plus-minus-flash-on-color: #272A34;
             --plus-minus-flash-on-color2: #1a1d25;
@@ -58,33 +75,33 @@
         }
     </style>
 </head>
-<body class="bg-base-100 text-base-content  w-screen min-h-screen flex flex-col">
+<body class="bg-white text-base-content  w-screen min-h-screen flex flex-col">
 
     <!-- Header -->
-    <header class="bg-base-200 p-2 flex justify-between items-center border-b border-base-300 w-full">
+    <header class="bg-[var(--box-color)] py-4 flex justify-between items-center border-b border-base-300 w-full ">
         <!-- Profile Favorites  md:h-12 lg:h-12-->
         <nav class="flex gap-2 flex-wrap">
-            <button id="fav-profile-btn-0" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg min-w-20 max-w-40 h-12 md:h-12 lg:h-12 text-sm md:text-xs ">Profile 1</button>
-            <button id="fav-profile-btn-1" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg min-w-20 max-w-40 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Profile 2</button>
-            <button id="fav-profile-btn-2" class="btn min-h-0 py-1 px-1 text-balance btn-outline flex justify-center items-center text-center max-w-40 h-12 min-w-20 md:text-xs border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg text-sm">Profile 3</button> 
-            <button id="fav-profile-btn-3" class="btn min-h-0 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg max-w-40 min-w-20 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Adaptive v2</button>
-            <button id="fav-profile-btn-4" class="btn min-h-0 py-1 px-1 text-balance btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-lg max-w-40 min-w-20 h-12 md:h-12 lg:h-12 text-sm md:text-xs">Flow Profile for Milk Drinks</button>
+            <button id="fav-profile-btn-0" class="btn min-h-0 text-balance btn-outline border-[var(--profile-button-outline-color)] bg-[var(--profile-button-background-color)] text-[var(--mimoja-blue)] rounded-lg min-w-20 max-w-40 h-12 md:h-12 lg:h-12 text-[13px] font-bold ">Profile 1</button>
+            <button id="fav-profile-btn-1" class="btn min-h-0 text-balance btn-outline border-[var(--profile-button-outline-color)] bg-[var(--profile-button-background-color)] text-[var(--mimoja-blue)] rounded-lg min-w-20 max-w-40 h-12 md:h-12 lg:h-12 text-[13px] font-bold">Profile 2</button>
+            <button id="fav-profile-btn-2" class="btn min-h-0 py-1 px-1 text-balance btn-outline flex justify-center items-center text-center max-w-40 h-12 min-w-20 border-[var(--profile-button-outline-color)] bg-[var(--profile-button-background-color)] text-[var(--mimoja-blue)] rounded-lg text-[13px] font-bold">Profile 3</button> 
+            <button id="fav-profile-btn-3" class="btn min-h-0 text-balance btn-outline border-[var(--profile-button-outline-color)] bg-[var(--profile-button-background-color)] text-[var(--mimoja-blue)] rounded-lg max-w-40 min-w-20 h-12 md:h-12 lg:h-12 text-[13px] font-bold">Adaptive v2</button>
+            <button id="fav-profile-btn-4" class="btn min-h-0 py-1 px-1 text-balance btn-outline border-[var(--profile-button-outline-color)] bg-[var(--profile-button-background-color)] text-[var(--mimoja-blue)] rounded-lg max-w-40 min-w-20 h-12 md:h-12 lg:h-12 text-[13px] font-bold">Flow Profile for Milk Drinks</button>
         </nav>
         <!-- Right side controls -->
         <div class="flex gap-2 items-center md:gap-2">
             <input type="checkbox" id="theme-toggle" class="toggle toggle-sm" />
-            <button class="btn btn-outline min-h-0 border-solid  border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-xl  h-6 md:h-6 lg:h-6 text-lg md:text-xs lg:text-xs settings-button">Settings</button>
+            <button class="btn btn-outline min-h-0 border-solid  border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-xl  h-8 md:h-6 lg:h-8 text-lg md:text-xs lg:text-xs settings-button">Settings</button>
             
-            <button id="sleep-button" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] min-h-0 rounded-xl h-6 md:h-6 lg:h-6 text-lg md:text-xs lg:text-xs">Sleep</button>
+            <button id="sleep-button" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] min-h-0 rounded-xl h-8 md:h-6 lg:h-8 text-lg md:text-xs lg:text-xs">Sleep</button>
         </div>
     </header>
 
     <div class="flex-grow flex">
         <!-- Left Sidebar: Shot Settings -->
-        <aside class="bg-base-200 p-4 md:p-2 flex flex-col justify-between border-r border-base-300">
+        <aside class="bg-[var(--box-color)] p-4 md:p-2 flex flex-col justify-around border-r border-base-300">
             <!-- Grind -->
             <div class="flex justify-between items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Grind</span>
+                <span class="w-24 text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Grind</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="grind-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="grind-value" class="text-xl md:text-lg font-bold text-center">1.4</span>
@@ -93,7 +110,7 @@
             </div>
             <!-- Dose In -->
             <div class="flex justify-between items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Dose</span>
+                <span class="w-24 text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Dose</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="dose-in-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="dose-in-value" class="text-xl md:text-lg font-bold text-center">20g</span>
@@ -102,7 +119,7 @@
             </div>
             <!-- Drink out -->
             <div class="flex justify-between items-center  w-full">
-                 <span class="w-24 text-nowrap text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Drink</span>
+                 <span class="w-24 text-nowrap text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Drink</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="drink-out-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <div class="text-center w-full">
@@ -118,13 +135,13 @@
                 <button id="drink-out-preset-3" class="text-sm md:text-xs btn-xs text-gray-400">22:44</button>
                 <button id="drink-out-preset-4" class="text-sm md:text-xs btn-xs text-gray-400">20:46</button>
             </div>
-            <div class="divider"></div>
+            <div class="divider my-0"></div>
             <!-- Temp -->
              <div class="flex justify-between items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Brew</span>
+                <span class="w-24 text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Brew</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="temp-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
-                    <span id="temp-value" class="text-xl md:text-lg font-bold text-center">92°c</span>
+                    <span id="temp-value" class="text-xl md:text-lg font-bold text-center">1.4</span>
                     <button id="temp-plus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">+</button>
                 </div>
             </div>
@@ -134,11 +151,11 @@
                 <button id="temp-preset-85" class="text-sm  btn-xsmd:text-xs text-gray-400">85°c</button>
                 <button id="temp-preset-92" class="text-sm btn-xs md:text-xs text-gray-400">92°c</button>
             </div>
-             <div class="divider"></div>
+             <div class="divider my-0"></div>
             <!-- Steam -->
             <div class="flex justify-between items-center w-full">
                 <div>
-                    <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Steam</span>
+                    <span class="w-24 text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Steam</span>
                     <span id="steam-mode-toggle" class="text-base text-xs text-nowrap block cursor-pointer">
                         <span id="steam-mode-time">Time</span> | <span id="steam-mode-flow">Flow</span>
                     </span>
@@ -164,10 +181,10 @@
                 <button id="steam-flow-preset-3" class="text-sm btn-xs md:text-xs text-gray-400">1.5ml/s</button>
                 <button id="steam-flow-preset-4" class="text-sm btn-xs md:text-xs text-gray-400">2.0ml/s</button>
             </div>
-            <div class="divider"></div>
+            <div class="divider my-0"></div>
             <!-- Flush -->
-            <div class="flex justify-between gap-2 items-center w-full">
-                <span class="w-24 text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Flush</span>
+            <div class="flex justify-between items-center w-full">
+                <span class="w-24 text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Flush</span>
                 <div class="grid grid-cols-[auto_90px_auto] items-center gap-x-2">
                     <button id="flush-minus" class="btn btn-sm md:btn-sm bg-[var(--button-grey)] font-extralight text-[29px]">-</button>
                     <span id="flush-value" class="text-xl md:text-lg font-bold text-center">5s</span>
@@ -181,11 +198,11 @@
                 <button id="flush-preset-3" class="text-sm  btn-xs md:text-xs text-gray-400">20s</button>
                 </div>
             
-            <div class="divider"></div>
+            <div class="divider my-0"></div>
             <!-- Hot Water -->
-            <div class="flex  justify-between gap-2 items-center w-full">
+            <div class="flex  justify-between items-center w-full">
                 <div>
-                    <span class="max-w-24 text-nowrap text-lg md:text-lg font-bold text-[var(--mimoja-blue-v2)]">Hot Water</span>
+                    <span class="max-w-24 text-nowrap text-[14px] md:text-[14px] font-semibold text-[var(--mimoja-blue-v2)]">Hot Water</span>
                     <span id="hot-water-mode-toggle" class="text-base text-xs text-nowrap block cursor-pointer">
                         <span id="hot-water-mode-temp">Temp</span> | <span id="hot-water-mode-vol">Vol</span>
                     </span>
@@ -236,35 +253,35 @@
             <footer class="bg-base-100 p-4 md:p-4 border-t-2 flex flex-col md:flex-row gap-4 md:gap-4">
                 <!-- Shot History -->
                 <div class="flex-none w-full md:w-1/3">
-                    <h2 class="text-lg md:textarea-sm font-semibold text-center mb-1 md:mb-1">SHOT HISTORY</h2>
+                    <h2 id="shot-history-label" class="text-sm md:text-sm  text-center mb-1 md:mb-1 font-inter-custom">SHOT HISTORY</h2>
                     <div class="flex items-center justify-between">
-                        <button id="history-prev-btn" class="btn btn-ghost">◀</button>
+                        <button id="history-prev-btn" class="btn btn-xs btn-ghost">◀</button>
                         <div class="text-center">
-                            <p id="history-date" class="text-xl md:text-xl font-bold">Tue, 14 Sept, 18:45</p>
-                            <p id="history-profile-name" class="text-lg md:text-lg">Londinium</p>
+                            <p id="history-date" class="text-sm md:text-sm font-semibold font-inter-custom">Tue, 14 Sept, 18:45</p>
+                            <p id="history-profile-name" class="text-sm md:text-sm  font-inter-custom">Londinium</p>
                         </div>
-                        <button id="history-next-btn" class="btn btn-ghost">▶</button>
+                        <button id="history-next-btn" class="btn btn-xs btn-ghost">▶</button>
                     </div>
                 </div>
                 <!-- Shot Data -->
                 <div class="flex-grow">
-                     <h2 class="text-lg md:text-lg font-semibold mb-2 md:mb-4">SHOT DATA</h2>
+                     
                      <div class="overflow-x-auto">
                          <table class="table table-xs md:table-xs">
                             <thead>
                                 <tr class="text-sm md:text-sm">
-                                    <th></th>
-                                    <th>Time</th>
-                                    <th>Grams</th>
-                                    <th>mL</th>
-                                    <th>°C</th>
-                                    <th>mL/s</th>
-                                    <th>Pressure</th>
+                                    <th class="font-inter-custom font-semibold"></th>
+                                    <th class="font-inter-custom font-semibold">Time</th>
+                                    <th class="font-inter-custom font-semibold">Grams</th>
+                                    <th class="font-inter-custom font-semibold">mL</th>
+                                    <th class="font-inter-custom font-semibold">°C</th>
+                                    <th class="font-inter-custom font-semibold">mL/s</th>
+                                    <th class="font-inter-custom font-semibold">Pressure</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody class="font-mono-custom">
                                 <tr class="text-xs md:text-xs">
-                                    <th class="font-semibold">Preinfusion</th>
+                                    <th class=" font-semibold font-inter-custom">Preinfusion</th>
                                     <td id="shot-data-pi-time">15s</td>
                                     <td id="shot-data-pi-weight">10g</td>
                                     <td id="shot-data-pi-volume">17ml</td>
@@ -273,7 +290,7 @@
                                     <td id="shot-data-pi-pressure">0-3.3 bar</td>
                                 </tr>
                                  <tr class="text-xs md:text-xs">
-                                    <th class="font-semibold">Extraction</th>
+                                    <th class="font-semibold font-inter-custom">Extraction</th>
                                     <td id="shot-data-ex-time">30s</td>
                                     <td id="shot-data-ex-weight">29g</td>
                                     <td id="shot-data-ex-volume">30ml</td>
@@ -282,7 +299,7 @@
                                     <td id="shot-data-ex-pressure">3-9 bar</td>
                                 </tr>
                                  <tr class="text-sm md:text-sm font-bold">
-                                    <th class="font-semibold">Total</th>
+                                    <th class="font-semibold font-inter-custom">Total</th>
                                     <td id="shot-data-total-time">45s</td>
                                     <td id="shot-data-total-weight">39g (1:2.5)</td>
                                     <td id="shot-data-total-volume">57ml</td>

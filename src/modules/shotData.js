@@ -116,25 +116,25 @@ function calculateAndRender(shotData) {
     const exVolume = totalVolume - piVolume;
 
     // --- Rendering ---
-    updateText(elements.pi.time, `${piTime.toFixed(1)}s`);
+    updateText(elements.pi.time, `${piTime.toFixed(1)}`);
     updateText(elements.pi.weight, piWeight !== null ? `${piWeight.toFixed(1)}g` : 'N/A');
     updateText(elements.pi.volume, `${piVolume.toFixed(0)}`);
-    updateText(elements.pi.temp, `${formatRange(piTemps, 0)}°c`);
+    updateText(elements.pi.temp, `${formatRange(piTemps, 0)}`);
     updateText(elements.pi.flow, `${formatRange(piFlows, 1)} `);
-    updateText(elements.pi.pressure, `${formatRange(piPressures, 1)} bar`);
+    updateText(elements.pi.pressure, `${formatRange(piPressures, 1)}`);
 
     if (exTime > 0) {
-        updateText(elements.ex.time, `${exTime.toFixed(1)}s`);
+        updateText(elements.ex.time, `${exTime.toFixed(1)}`);
         updateText(elements.ex.weight, exWeight !== null ? `${exWeight.toFixed(1)}g` : 'N/A');
-        updateText(elements.ex.volume, `${exVolume.toFixed(0)}ml`);
-        updateText(elements.ex.temp, `${formatRange(exTemps, 0)}°c`);
+        updateText(elements.ex.volume, `${exVolume.toFixed(0)}`);
+        updateText(elements.ex.temp, `${formatRange(exTemps, 0)}`);
         updateText(elements.ex.flow, `${formatRangeWithPeak(exFlows, 1)} `);
-        updateText(elements.ex.pressure, `${formatRangeWithPeak(exPressures, 1)} bar`);
+        updateText(elements.ex.pressure, `${formatRangeWithPeak(exPressures, 1)}`);
     }
 
-    updateText(elements.total.time, `${totalTime.toFixed(1)}s`);
+    updateText(elements.total.time, `${totalTime.toFixed(1)}`);
     updateText(elements.total.weight, totalWeight !== null ? `${totalWeight.toFixed(1)}g` : 'N/A');
-    updateText(elements.total.volume, `${totalVolume.toFixed(0)}ml`);
+    updateText(elements.total.volume, `${totalVolume.toFixed(0)}`);
 }
 
 export function renderPastShot(shotRecord) {
