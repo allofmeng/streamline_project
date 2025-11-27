@@ -155,6 +155,9 @@ function handleScaleData(data) {
         }
         // Update the UI with the new weight.
         throttledUpdateWeight(currentWeight);
+        if (shotStartTime) {
+            chart.updateWeight(shotStartTime, currentWeight);
+        }
     } else {
         // We received a message without a weight.
         // If we were already connected, we just keep the last weight on screen.
