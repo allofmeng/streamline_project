@@ -55,6 +55,10 @@
             --plus-minus-flash-on-color: #b8b8b8;
             --plus-minus-flash-on-color2: #cfcfcf;
             --plus-minus-flash-off-color: #ededed;
+
+            /* Theme toggle colors */
+            --bg--togglebtn: #FFFFFF;
+            --btn-togglebgcolor: #959595;
         }
 
         [data-theme='dark'] {
@@ -73,6 +77,29 @@
             border-radius: 0.5rem;
             transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
         }
+
+        #theme-toggle:checked + .togglebtn-change::before {
+            transition: 0.3s;
+            transform: translateX(23px);
+        }
+
+        .togglebtn-change {
+            background-color: var(--bg--togglebtn);
+        }
+
+        .togglebtn-change::before {
+            content: '';
+            display: block;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            background-color: var(--btn-togglebgcolor);
+            transition: 0.3s;
+            transform: translateX(0);
+        }
+
+
+      
     </style>
 </head>
 <body class="bg-white text-base-content  w-screen min-h-screen flex flex-col">
@@ -89,7 +116,11 @@
         </nav>
         <!-- Right side controls -->
         <div class="flex gap-2 items-center md:gap-2">
-            <input type="checkbox" id="theme-toggle" class="toggle toggle-sm" />
+            <div class="btn-status">
+                <input type="checkbox" name="theme-toggle" id="theme-toggle" class="hidden" />
+                <label for="theme-toggle" class="togglebtn-change flex items-center p-1 rounded-full w-12 h-6 cursor-pointer"></label>
+            </div>
+          
             <button class="btn btn-outline min-h-0 border-solid  border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-xl  h-8 md:h-6 lg:h-8 text-lg md:text-xs lg:text-xs settings-button">Settings</button>
             
             <button id="sleep-button" class="btn btn-outline border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] min-h-0 rounded-xl h-8 md:h-6 lg:h-8 text-lg md:text-xs lg:text-xs">Sleep</button>

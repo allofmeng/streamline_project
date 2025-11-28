@@ -418,16 +418,31 @@ function toggleSteamMode() {
 export function initThemeToggle() {
     const themeToggle = document.getElementById('theme-toggle');
     if (!themeToggle) return;
+    const btn = document.querySelector('.togglebtn-change');
+    if (!btn) return;
 
-    const currentTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', currentTheme);
-    themeToggle.checked = currentTheme === 'dark';
-
-    themeToggle.addEventListener('change', function() {
-        const theme = this.checked ? 'dark' : 'light';
+    const applyTheme = (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('theme', theme);
         chart.setTheme(theme);
+
+        if (theme === 'dark') {
+            btn.style.setProperty('--bg--togglebtn', '#FFFFFF'); // 
+            btn.style.setProperty('--btn-togglebgcolor', '#959595'); // 
+           
+        } else {
+            btn.style.setProperty('--bg--togglebtn', '#121212'); // 
+            btn.style.setProperty('--btn-togglebgcolor', '#FFFFFF'); // 
+        }
+    };
+
+    const currentTheme = localStorage.getItem('theme') || 'light';
+    themeToggle.checked = currentTheme === 'dark';
+    applyTheme(currentTheme);
+
+    themeToggle.addEventListener('change', function() {
+        const theme = this.checked ? 'dark' : 'light';
+        applyTheme(theme);
     });
 }
 

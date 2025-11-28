@@ -1,13 +1,15 @@
 import { connectWebSocket } from './api.js';
 
 const chartElement = document.getElementById('plotly-chart');
+let annotationUpdateCounter = 0;
+const ANNOTATION_UPDATE_THROTTLE = 10; // Update every 10 data points
 
 const chartData = {
     pressure: {
         x: [],
         y: [],
         name: 'Pressure',
-        type: 'scatter',
+        type: 'scattergl',
         line: { color: '#17c29a' },
         hoverinfo: 'name'
     },
@@ -15,7 +17,7 @@ const chartData = {
         x: [],
         y: [],
         name: 'Flow',
-        type: 'scatter',
+        type: 'scattergl',
         line: { color: '#0358cf' },
         hoverinfo: 'name'
     },
@@ -23,7 +25,7 @@ const chartData = {
         x: [],
         y: [],
         name: 'Target Pressure',
-        type: 'scatter',
+        type: 'scattergl',
         line: { color: '#17c29a', dash: 'dot' },
         hoverinfo: 'name'
     },
@@ -31,7 +33,7 @@ const chartData = {
         x: [],
         y: [],
         name: 'Target Flow',
-        type: 'scatter',
+        type: 'scattergl',
         line: { color: '#0358cf', dash: 'dot' },
         hoverinfo: 'name'
     },
@@ -39,7 +41,7 @@ const chartData = {
         x: [],
         y: [],
         name: 'Group Temp',
-        type: 'scatter',
+        type: 'scattergl',
         line: {color: '#ff97a1'},
         hoverinfo: 'name'
     },
@@ -47,7 +49,7 @@ const chartData = {
         x: [],
         y: [],
         name: 'Weight',
-        type: 'scatter',
+        type: 'scattergl',
         line: { color: '#e9d3c3' }, // light mode
         hoverinfo: 'name'
     }
@@ -61,7 +63,7 @@ const lightLayout = {
         gridcolor: '#E0E0E0',
         dtick: 1
     },
-    yaxis: { 
+    yaxis: {
         gridcolor: '#E0E0E0',
         range: [0, 10],
         dtick: 1
@@ -157,12 +159,16 @@ export function updateChart(shotStartTime, data, filterToPouring) {
     chartData.groupTemperature.x.push(time);
     chartData.groupTemperature.y.push(groupTemperatureY);
 
-    Plotly.extendTraces(chartElement, {
-        x: [[time], [time], [time], [time], [time]],
-        y: [[pressureY], [flowY], [targetPressureY], [targetFlowY], [groupTemperatureY]]
-    }, [0, 1, 2, 3, 4]);
+    Plotly.update(chartElement, {
+        x: [chartData.pressure.x, chartData.flow.x, chartData.targetPressure.x, chartData.targetFlow.x, chartData.groupTemperature.x],
+        y: [chartData.pressure.y, chartData.flow.y, chartData.targetPressure.y, chartData.targetFlow.y, chartData.groupTemperature.y]
+    }, {}, [0, 1, 2, 3, 4]);
 
-    Plotly.relayout(chartElement, { annotations: getAnnotations() });
+    annotationUpdateCounter++;
+    if (annotationUpdateCounter >= ANNOTATION_UPDATE_THROTTLE) {
+        // Plotly.relayout(chartElement, { annotations: getAnnotations() });
+        annotationUpdateCounter = 0;
+    }
 }
 
 export function updateWeight(shotStartTime, weight) {
@@ -175,12 +181,16 @@ export function updateWeight(shotStartTime, weight) {
     chartData.weight.x.push(time);
     chartData.weight.y.push(weightY);
     
-    Plotly.extendTraces(chartElement, {
-        x: [[time]],
-        y: [[weightY]]
-    }, [5]);
+    Plotly.update(chartElement, {
+        x: [chartData.weight.x],
+        y: [chartData.weight.y]
+    }, {}, [5]);
 
-    Plotly.relayout(chartElement, { annotations: getAnnotations() });
+    annotationUpdateCounter++;
+    if (annotationUpdateCounter >= ANNOTATION_UPDATE_THROTTLE) {
+        // Plotly.relayout(chartElement, { annotations: getAnnotations() });
+        annotationUpdateCounter = 0;
+    }
 }
 
 
@@ -228,22 +238,21 @@ export function plotHistoricalShot(measurements) {
             shotStartTime = new Date(scaleData.timestamp);
         }
 
-        if (machineData) {
-            const time = (new Date(machineData.timestamp) - shotStartTime) / 1000;
-            if (time >= 0) {
-                tempChartData.pressure.x.push(time);
-                tempChartData.pressure.y.push(machineData.pressure);
-                tempChartData.flow.x.push(time);
-                tempChartData.flow.y.push(machineData.flow);
-                tempChartData.targetPressure.x.push(time);
-                tempChartData.targetPressure.y.push(machineData.targetPressure);
-                tempChartData.targetFlow.x.push(time);
-                tempChartData.targetFlow.y.push(machineData.targetFlow);
-                tempChartData.groupTemperature.x.push(time);
-                tempChartData.groupTemperature.y.push((machineData.groupTemperature / 100) * 10);
-            }
-        }
-        if (scaleData && scaleData.weight) {
+                    if (machineData && machineData.state && (machineData.state.substate === 'preinfusion'||machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
+                        const time = (new Date(machineData.timestamp) - shotStartTime) / 1000;
+                        if (time >= 0) {
+                            tempChartData.pressure.x.push(time);
+                            tempChartData.pressure.y.push(machineData.pressure);
+                            tempChartData.flow.x.push(time);
+                            tempChartData.flow.y.push(machineData.flow);
+                            tempChartData.targetPressure.x.push(time);
+                            tempChartData.targetPressure.y.push(machineData.targetPressure);
+                            tempChartData.targetFlow.x.push(time);
+                            tempChartData.targetFlow.y.push(machineData.targetFlow);
+                            tempChartData.groupTemperature.x.push(time);
+                            tempChartData.groupTemperature.y.push((machineData.groupTemperature / 100) * 10);
+                        }
+                    }        if (scaleData && scaleData.weight) {
              const time = (new Date(scaleData.timestamp) - shotStartTime) / 1000;
              if (time >= 0) {
                 tempChartData.weight.x.push(time);
@@ -263,7 +272,7 @@ export function plotHistoricalShot(measurements) {
 const theme = localStorage.getItem('theme') || 'light';
 const layout = theme === 'dark' ? darkLayout : lightLayout;
 layout.annotations = getAnnotations();
-Plotly.react(chartElement, Object.values(chartData), layout);
+Plotly.react(chartElement, Object.values(chartData), layout, {displayModeBar: false});
 }
 
 export function initChart() {
@@ -271,7 +280,7 @@ export function initChart() {
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     chartData.weight.line.color = theme === 'dark' ? '#695f57' : '#e9d3c3';
     layout.annotations = getAnnotations();
-    Plotly.newPlot(chartElement, Object.values(chartData), layout);
+    Plotly.newPlot(chartElement, Object.values(chartData), layout, {displayModeBar: false});
     window.addEventListener('resize', () => {
         Plotly.Plots.resize(chartElement);
     });
