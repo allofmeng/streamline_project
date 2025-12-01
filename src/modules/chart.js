@@ -1,6 +1,7 @@
 import { connectWebSocket } from './api.js';
 
 const chartElement = document.getElementById('plotly-chart');
+let currentSubstate = 'idle';
 let annotationUpdateCounter = 0;
 const ANNOTATION_UPDATE_THROTTLE = 10; // Update every 10 data points
 
@@ -134,14 +135,17 @@ function getAnnotations() {
 }
 
 export function updateChart(shotStartTime, data, filterToPouring) {
+    if (data && data.state && data.state.substate) { // Add safety check
+        currentSubstate = data.state.substate;
+    }
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
-
+    filterToPouring=true;
     if (filterToPouring) {
-        if (data.state.substate !== 'preinfusion' && data.state.substate !== 'pouring' && data.state.substate !== 'pouringDone') {
+        if (data.state.substate !== 'preinfusion' && data.state.substate !== 'pouring' ) {
             return;
         }
     }
-
+    //&& data.state.substate !== 'pouringDone'
     const pressureY = data.pressure;
     const flowY = data.flow;
     const targetPressureY = data.targetPressure;
@@ -159,13 +163,17 @@ export function updateChart(shotStartTime, data, filterToPouring) {
     chartData.groupTemperature.x.push(time);
     chartData.groupTemperature.y.push(groupTemperatureY);
 
-    Plotly.update(chartElement, {
-        x: [chartData.pressure.x, chartData.flow.x, chartData.targetPressure.x, chartData.targetFlow.x, chartData.groupTemperature.x],
-        y: [chartData.pressure.y, chartData.flow.y, chartData.targetPressure.y, chartData.targetFlow.y, chartData.groupTemperature.y]
-    }, {}, [0, 1, 2, 3, 4]);
+    Plotly.extendTraces(chartElement, {
+        x: [[time], [time], [time], [time], [time]],
+        y: [[pressureY], [flowY], [targetPressureY], [targetFlowY], [groupTemperatureY]]
+    }, [0, 1, 2, 3, 4]);
 }
 
 export function updateWeight(shotStartTime, weight) {
+    if (currentSubstate !== 'preinfusion' && currentSubstate !== 'pouring' ) {
+        return;
+    }
+    //&& currentSubstate !== 'pouringDone'
     if (!shotStartTime) {
         return;
     }
@@ -174,17 +182,11 @@ export function updateWeight(shotStartTime, weight) {
 
     chartData.weight.x.push(time);
     chartData.weight.y.push(weightY);
-    
-    Plotly.update(chartElement, {
-        x: [chartData.weight.x],
-        y: [chartData.weight.y]
-    }, {}, [5]);
 
-    annotationUpdateCounter++;
-    if (annotationUpdateCounter >= ANNOTATION_UPDATE_THROTTLE) {
-        // Plotly.relayout(chartElement, { annotations: getAnnotations() });
-        annotationUpdateCounter = 0;
-    }
+    Plotly.extendTraces(chartElement, {
+        x: [[time]],
+        y: [[weightY]]
+    }, [5]);
 }
 
 
@@ -211,9 +213,10 @@ export function plotHistoricalShot(measurements) {
 
     // First, find the timestamp of the first data point that marks the start of the shot (preinfusion or pouring).
     // This will establish t=0 for the x-axis.
+    //|| machineData.state.substate === 'pouringDone'
     for (const dataPoint of measurements) {
         const machineData = dataPoint.machine;
-        if (machineData && machineData.state && (machineData.state.substate === 'preinfusion' || machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
+        if (machineData && machineData.state && (machineData.state.substate === 'preinfusion' || machineData.state.substate === 'pouring' )) {
             shotStartTime = new Date(machineData.timestamp);
             break; // Exit after finding the first relevant data point
         }
