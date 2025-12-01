@@ -137,7 +137,7 @@ export function updateChart(shotStartTime, data, filterToPouring) {
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
 
     if (filterToPouring) {
-        if (data.state.substate !== 'pouring' && data.state.substate !== 'pouringDone') {
+        if (data.state.substate !== 'preinfusion' && data.state.substate !== 'pouring' && data.state.substate !== 'pouringDone') {
             return;
         }
     }
@@ -163,12 +163,6 @@ export function updateChart(shotStartTime, data, filterToPouring) {
         x: [chartData.pressure.x, chartData.flow.x, chartData.targetPressure.x, chartData.targetFlow.x, chartData.groupTemperature.x],
         y: [chartData.pressure.y, chartData.flow.y, chartData.targetPressure.y, chartData.targetFlow.y, chartData.groupTemperature.y]
     }, {}, [0, 1, 2, 3, 4]);
-
-    annotationUpdateCounter++;
-    if (annotationUpdateCounter >= ANNOTATION_UPDATE_THROTTLE) {
-        // Plotly.relayout(chartElement, { annotations: getAnnotations() });
-        annotationUpdateCounter = 0;
-    }
 }
 
 export function updateWeight(shotStartTime, weight) {
@@ -214,10 +208,32 @@ export function plotHistoricalShot(measurements) {
     clearChart();
 
     let shotStartTime = null;
-    if (measurements[0].machine) {
-        shotStartTime = new Date(measurements[0].machine.timestamp);
+
+    // First, find the timestamp of the first data point that marks the start of the shot (preinfusion or pouring).
+    // This will establish t=0 for the x-axis.
+    for (const dataPoint of measurements) {
+        const machineData = dataPoint.machine;
+        if (machineData && machineData.state && (machineData.state.substate === 'preinfusion' || machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
+            shotStartTime = new Date(machineData.timestamp);
+            break; // Exit after finding the first relevant data point
+        }
     }
 
+    // If no data point marks the beginning of a shot, we can't plot it correctly from t=0.
+    // As a fallback, try to find the earliest timestamp available in the data.
+    if (!shotStartTime) {
+        console.warn("plotHistoricalShot: Could not find a starting data point (preinfusion/pouring) to begin the chart at t=0.");
+        const firstPoint = measurements.find(p => (p.machine && p.machine.timestamp) || (p.scale && p.scale.timestamp));
+        if (firstPoint) {
+            const machineTs = firstPoint.machine && new Date(firstPoint.machine.timestamp);
+            const scaleTs = firstPoint.scale && new Date(firstPoint.scale.timestamp);
+            shotStartTime = (machineTs && scaleTs) ? (machineTs < scaleTs ? machineTs : scaleTs) : (machineTs || scaleTs);
+        } else {
+            console.error("plotHistoricalShot: No timestamps found in any measurements.");
+            return; // No data to plot.
+        }
+    }
+    
     const tempChartData = {
         pressure: { x: [], y: [] },
         flow: { x: [], y: [] },
@@ -230,15 +246,9 @@ export function plotHistoricalShot(measurements) {
     measurements.forEach(dataPoint => {
         const machineData = dataPoint.machine;
         const scaleData = dataPoint.scale;
-
-        if(machineData && !shotStartTime) {
-            shotStartTime = new Date(machineData.timestamp);
-        }
-        if(scaleData && scaleData.timestamp && (!shotStartTime || new Date(scaleData.timestamp) < shotStartTime)) {
-            shotStartTime = new Date(scaleData.timestamp);
-        }
-
-                    if (machineData && machineData.state && (machineData.state.substate === 'preinfusion'||machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
+//machineData.state.substate === 'preinfusion'||
+//&&machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone'
+                    if (machineData && machineData.state &&(machineData.state.substate === 'preinfusion'||machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
                         const time = (new Date(machineData.timestamp) - shotStartTime) / 1000;
                         if (time >= 0) {
                             tempChartData.pressure.x.push(time);
