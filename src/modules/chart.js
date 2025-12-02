@@ -10,7 +10,8 @@ const chartData = {
         x: [],
         y: [],
         name: 'Pressure',
-        type: 'scattergl',
+        type: 'lines',
+        mode: 'lines',
         line: { color: '#17c29a' },
         hoverinfo: 'name'
     },
@@ -18,7 +19,8 @@ const chartData = {
         x: [],
         y: [],
         name: 'Flow',
-        type: 'scattergl',
+        type: 'lines',
+        mode: 'lines',
         line: { color: '#0358cf' },
         hoverinfo: 'name'
     },
@@ -26,7 +28,8 @@ const chartData = {
         x: [],
         y: [],
         name: 'Target Pressure',
-        type: 'scattergl',
+        type: 'lines',
+        mode: 'lines',
         line: { color: '#17c29a', dash: 'dot' },
         hoverinfo: 'name'
     },
@@ -34,7 +37,8 @@ const chartData = {
         x: [],
         y: [],
         name: 'Target Flow',
-        type: 'scattergl',
+        type: 'lines',
+        mode: 'lines',
         line: { color: '#0358cf', dash: 'dot' },
         hoverinfo: 'name'
     },
@@ -42,7 +46,8 @@ const chartData = {
         x: [],
         y: [],
         name: 'Group Temp',
-        type: 'scattergl',
+        type: 'lines',
+        mode: 'lines',
         line: {color: '#ff97a1'},
         hoverinfo: 'name'
     },
@@ -50,7 +55,8 @@ const chartData = {
         x: [],
         y: [],
         name: 'Weight',
-        type: 'scattergl',
+        type: 'lines',
+        mode: 'lines',
         line: { color: '#e9d3c3' }, // light mode
         hoverinfo: 'name'
     }
@@ -134,7 +140,7 @@ function getAnnotations() {
     return annotations;
 }
 
-export function updateChart(shotStartTime, data, filterToPouring) {
+export function updateChart(shotStartTime, data, weight, filterToPouring) {
     if (data && data.state && data.state.substate) { // Add safety check
         currentSubstate = data.state.substate;
     }
@@ -151,6 +157,7 @@ export function updateChart(shotStartTime, data, filterToPouring) {
     const targetPressureY = data.targetPressure;
     const targetFlowY = data.targetFlow;
     const groupTemperatureY = (data.groupTemperature / 100) * 10;
+    const weightY = weight / 10;
 
     chartData.pressure.x.push(time);
     chartData.pressure.y.push(pressureY);
@@ -162,33 +169,14 @@ export function updateChart(shotStartTime, data, filterToPouring) {
     chartData.targetFlow.y.push(targetFlowY);
     chartData.groupTemperature.x.push(time);
     chartData.groupTemperature.y.push(groupTemperatureY);
-
-    Plotly.extendTraces(chartElement, {
-        x: [[time], [time], [time], [time], [time]],
-        y: [[pressureY], [flowY], [targetPressureY], [targetFlowY], [groupTemperatureY]]
-    }, [0, 1, 2, 3, 4]);
-}
-
-export function updateWeight(shotStartTime, weight) {
-    if (currentSubstate !== 'preinfusion' && currentSubstate !== 'pouring' ) {
-        return;
-    }
-    //&& currentSubstate !== 'pouringDone'
-    if (!shotStartTime) {
-        return;
-    }
-    const time = (Date.now() - shotStartTime) / 1000;
-    const weightY = weight / 10;
-
     chartData.weight.x.push(time);
     chartData.weight.y.push(weightY);
 
     Plotly.extendTraces(chartElement, {
-        x: [[time]],
-        y: [[weightY]]
-    }, [5]);
+        x: [[time], [time], [time], [time], [time], [time]],
+        y: [[pressureY], [flowY], [targetPressureY], [targetFlowY], [groupTemperatureY], [weightY]]
+    }, [0, 1, 2, 3, 4, 5]);
 }
-
 
 export function clearChart() {
     for (const trace in chartData) {
