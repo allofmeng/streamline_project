@@ -141,7 +141,7 @@ export function updateChart(shotStartTime, data, filterToPouring) {
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
     filterToPouring=true;
     if (filterToPouring) {
-        if (data.state.substate !== 'preinfusion' && data.state.substate !== 'pouring' ) {
+        if (!(data.state.substate === 'preinfusion' || data.state.substate === 'pouring')) {
             return;
         }
     }
@@ -265,13 +265,14 @@ export function plotHistoricalShot(measurements) {
                             tempChartData.groupTemperature.x.push(time);
                             tempChartData.groupTemperature.y.push((machineData.groupTemperature / 100) * 10);
                         }
-                    }        if (scaleData && scaleData.weight) {
-             const time = (new Date(scaleData.timestamp) - shotStartTime) / 1000;
-             if (time >= 0) {
-                tempChartData.weight.x.push(time);
-                tempChartData.weight.y.push(scaleData.weight / 10);
-             }
-        }
+                        if (scaleData && scaleData.weight) {
+                            const time = (new Date(scaleData.timestamp) - shotStartTime) / 1000;
+                            if (time >= 0) {
+                               tempChartData.weight.x.push(time);
+                               tempChartData.weight.y.push(scaleData.weight / 10);
+                            }
+                       }
+                    }
     });
 
     Object.keys(tempChartData).forEach(key => {

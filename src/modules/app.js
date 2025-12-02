@@ -250,34 +250,51 @@ async function initializeDe1Connection() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    setDebug(true); // Uncomment to enable debug logs
-    chart.initChart();
-    ui.initUI(); // Initialize UI event listeners
-    history.initHistory(); // Initialize history module
-    profileManager.init(); // Initialize the profile manager
-    loadInitialData();
-    initializeDe1Connection();
-    connectWebSocket(handleData, () => {
-        logger.info('WebSocket reconnected. Resetting DE1 connection status.');
-        isDe1Connected = false; // Reset DE1 connection status so handleData can detect reconnection
-    });
-    connectScaleWebSocket(
-        handleScaleData, 
-        () => { // onReconnect
-            logger.info('Scale WebSocket reconnected. Resetting scale connection status.');
-            isScaleConnected = false; 
-        },
-        () => { // onDisconnect
-            logger.warn('Scale has disconnected.');
-            isScaleConnected = false;
-            ui.updateWeight('--g');
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        setDebug(true); // Uncomment to enable debug logs
+        logger.info('App initialization started.');
 
-            startScaleReconnectPolling();
+        chart.initChart();
+        ui.initUI(); // Initialize UI event listeners
+
+        await history.initHistory();
+        await profileManager.init();
+
+        await loadInitialData();
+        await initializeDe1Connection();
+
+        connectWebSocket(handleData, () => {
+            logger.info('WebSocket reconnected. Resetting DE1 connection status.');
+            isDe1Connected = false; // Reset DE1 connection status so handleData can detect reconnection
+        });
+        connectScaleWebSocket(
+            handleScaleData,
+            () => { // onReconnect
+                logger.info('Scale WebSocket reconnected.');
+            },
+            () => { // onDisconnect
+                logger.warn('Scale has disconnected.');
+                isScaleConnected = false;
+                ui.updateWeight('--g');
+                startScaleReconnectPolling();
+            }
+        );
+        initWaterTankSocket();
+        ensureGatewayModeTracking();
+        resetDataTimeout(); // Start the timeout timer initially.
+        connectShotSettingsWebSocket(handleShotSettingsData);
+
+        logger.info('App initialization finished.');
+    } catch (error) {
+        logger.error('CRITICAL: Unhandled error during application initialization:', error);
+        // Optionally, display a user-friendly error message on the page
+        const body = document.querySelector('body');
+        if (body) {
+            body.innerHTML = `<div style="color: red; padding: 2rem;">
+                <h1>Application Error</h1>
+                <p>A critical error occurred during startup. Please check the console for details and try refreshing the page.</p>
+            </div>`;
         }
-    );
-    initWaterTankSocket();
-    ensureGatewayModeTracking();
-    resetDataTimeout(); // Start the timeout timer initially.
-    connectShotSettingsWebSocket(handleShotSettingsData);
+    }
 });

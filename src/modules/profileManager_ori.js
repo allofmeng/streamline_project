@@ -1,7 +1,6 @@
 import { logger } from './logger.js';
 import { sendProfile, getWorkflow } from './api.js';
 import { updateProfileName } from './ui.js';
-import { getSetting, setSetting, openDB } from './idb.js';
 
 const FAV_COUNT = 5;
 const PROFILES_PATH = 'src/profiles/';
@@ -47,49 +46,32 @@ async function loadAvailableProfiles() {
     logger.info('Loaded available profiles:', Object.keys(availableProfiles));
 }
 
-async function loadAssignments() {
+function loadAssignments() {
     try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             favoriteAssignments = JSON.parse(saved);
             logger.info('Loaded profile assignments from localStorage.');
-            await saveAssignments(); //This will ensure idb is also updated. 
-            return;
         }
-
-        logger.warn('No assignments in localStorage, checking IndexedDB...');
-        const idbAssignments = await getSetting(STORAGE_KEY);
-
-        if (idbAssignments) {
-            favoriteAssignments = idbAssignments;
-            logger.info('Loaded profile assignments from IndexedDB.');
-            await saveAssignments(); // This will "heal" localStorage.
-            return;
+        else {
+            const profileKeys = Object.keys(availableProfiles);
+            for (let i = 0; i < FAV_COUNT; i++) {
+                favoriteAssignments[i] = profileKeys[i] || null;
+            }            saveAssignments();
+            logger.info('Created default profile assignments.');
         }
-
-        logger.info('No assignments in IndexedDB, creating defaults.');
-        const profileKeys = Object.keys(availableProfiles);
-        for (let i = 0; i < FAV_COUNT; i++) {
-            favoriteAssignments[i] = profileKeys[i] || null;
-        }
-        await saveAssignments();
-        logger.info('Created and saved default profile assignments.');
-
     }
     catch (error) {
-        logger.error('Failed to load profile assignments:', error);
+        logger.error('Failed to load profile assignments from localStorage:', error);
     }
 }
 
-
-async function saveAssignments() {
+function saveAssignments() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(favoriteAssignments));
-        await setSetting(STORAGE_KEY, favoriteAssignments);
-        logger.info('Saved profile assignments to localStorage and IndexedDB.');
     }
     catch (error) {
-        logger.error('Failed to save profile assignments:', error);
+        logger.error('Failed to save profile assignments to localStorage:', error);
     }
 }
 
@@ -139,7 +121,7 @@ async function handleProfileClick(index) {
     logger.info(`Sending profile '${profile.title}' to REA...`);
     try {
         await sendProfile(profile);
-        logger.info(`Successfully sent profile. Verifying...`);
+        logger.info('Successfully sent profile. Verifying...');
 
         const isVerified = await verifyProfileChange(profile.title);
 
@@ -169,10 +151,10 @@ async function handleProfileClick(index) {
     }
 }
 
-async function assignProfile(buttonIndex, profileKey) {
+function assignProfile(buttonIndex, profileKey) {
     logger.info(`Assigning profile '${profileKey}' to button ${buttonIndex}`);
     favoriteAssignments[buttonIndex] = profileKey;
-    await saveAssignments();
+    saveAssignments();
     updateButtonUI();
     document.getElementById('profile_modal').close();
 }
@@ -199,13 +181,13 @@ function openProfileSelectionModal(buttonIndex) {
     modal.showModal();
 }
 
-async function handleLongPress(index) {
+function handleLongPress(index) {
     const isAssigned = favoriteAssignments[index];
 
     if (isAssigned) {
         logger.info(`Clearing assignment for favorite button ${index}`);
         favoriteAssignments[index] = null;
-        await saveAssignments();
+        saveAssignments();
         updateButtonUI();
     }
     else {
@@ -249,76 +231,50 @@ function handleProfileUpload(event) {
 // --- Initialization ---
 
 export async function init() {
-    logger.info('Profile Manager init started.');
-    try {
-        for (let i = 0; i < FAV_COUNT; i++) {
-            const button = document.getElementById(`fav-profile-btn-${i}`);
-            if (button) favoriteButtons.push(button);
-        }
-        logger.info('Buttons collected.');
+    for (let i = 0; i < FAV_COUNT; i++) {
+        const button = document.getElementById(`fav-profile-btn-${i}`);
+        if (button) favoriteButtons.push(button);
+    }
 
-        await openDB();
-        logger.info('Database opened.');
+    await loadAvailableProfiles();
+    loadAssignments();
+    updateButtonUI();
 
-        await loadAvailableProfiles();
-        logger.info('Available profiles loaded.');
+    favoriteButtons.forEach((button, index) => {
+        let pressTimer = null;
 
-        await loadAssignments();
-        logger.info('Assignments loaded.');
+        const startPress = () => {
+            // Make sure we clear any previous timer
+            clearTimeout(pressTimer);
+            pressTimer = setTimeout(() => {
+                handleLongPress(index);
+                pressTimer = null;
+            }, LONG_PRESS_DURATION);
+        };
 
-        updateButtonUI();
-        logger.info('Button UI updated.');
+        const cancelPress = () => {
+            clearTimeout(pressTimer);
+        };
 
-        favoriteButtons.forEach((button, index) => {
-            let pressTimer = null;
-            let isLongPress = false;
+        button.addEventListener('click', () => handleProfileClick(index));
+        button.addEventListener('mousedown', startPress);
+        button.addEventListener('mouseup', cancelPress);
+        button.addEventListener('mouseleave', cancelPress);
+        button.addEventListener('touchstart', startPress, { passive: true });
+        button.addEventListener('touchend', cancelPress);
+    });
 
-            const startPress = () => {
-                isLongPress = false; // Reset on new press
-                clearTimeout(pressTimer);
-                pressTimer = setTimeout(() => {
-                    isLongPress = true;
-                    handleLongPress(index);
-                    pressTimer = null;
-                }, LONG_PRESS_DURATION);
-            };
+    const uploadButton = document.getElementById('upload-profile-btn');
+    const fileInput = document.getElementById('profile-upload-input');
 
-            const cancelPress = () => {
-                clearTimeout(pressTimer);
-            };
-
-            button.addEventListener('click', (e) => {
-                if (isLongPress) {
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return;
-                }
-                handleProfileClick(index);
-            });
-
-            button.addEventListener('mousedown', startPress);
-            button.addEventListener('mouseup', cancelPress);
-            button.addEventListener('mouseleave', cancelPress);
-            button.addEventListener('touchstart', startPress, { passive: true });
-            button.addEventListener('touchend', cancelPress);
+    if (uploadButton && fileInput) {
+        uploadButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            logger.info('Upload button clicked, attempting to trigger file input.');
+            fileInput.click();
         });
-        logger.info('Event listeners attached.');
-
-        const uploadButton = document.getElementById('upload-profile-btn');
-        const fileInput = document.getElementById('profile-upload-input');
-        if (uploadButton && fileInput) {
-            uploadButton.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                logger.info('Upload button clicked, attempting to trigger file input.');
-                fileInput.click();
-            });
-            fileInput.addEventListener('change', handleProfileUpload);
-        }
-        logger.info('Upload button listener attached.');
-
-    } catch (error) {
-        logger.error('CRITICAL: Error during Profile Manager initialization:', error);
+        fileInput.addEventListener('change', handleProfileUpload);
     }
 
     logger.info('Profile Manager initialized.');
