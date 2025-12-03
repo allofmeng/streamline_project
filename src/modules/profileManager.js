@@ -6,6 +6,7 @@ import { getSetting, setSetting, openDB } from './idb.js';
 const FAV_COUNT = 5;
 const PROFILES_PATH = 'src/profiles/';
 const STORAGE_KEY = 'streamline-favorite-profiles';
+const UPLOADED_PROFILES_KEY = 'streamline-uploaded-profiles';
 const LONG_PRESS_DURATION = 700; // ms
 
 let favoriteButtons = [];
@@ -44,7 +45,22 @@ async function loadAvailableProfiles() {
             logger.error(`Failed to load profile: ${fileName}`, error);
         }
     }
+
+    await loadUploadedProfilesFromDB();
     logger.info('Loaded available profiles:', Object.keys(availableProfiles));
+}
+
+async function loadUploadedProfilesFromDB() {
+    try {
+        const uploadedProfiles = await getSetting(UPLOADED_PROFILES_KEY);
+        if (uploadedProfiles) {
+            // Merging uploaded profiles. If a name conflicts with a manifest profile, the uploaded one takes precedence.
+            Object.assign(availableProfiles, uploadedProfiles);
+            logger.info('Loaded custom profiles from DB:', Object.keys(uploadedProfiles));
+        }
+    } catch (error) {
+        logger.error('Failed to load custom profiles from DB.', error);
+    }
 }
 
 async function loadAssignments() {
@@ -90,6 +106,17 @@ async function saveAssignments() {
     }
     catch (error) {
         logger.error('Failed to save profile assignments:', error);
+    }
+}
+
+async function saveUploadedProfile(fileName, profileData) {
+    try {
+        const uploadedProfiles = await getSetting(UPLOADED_PROFILES_KEY) || {};
+        uploadedProfiles[fileName] = profileData;
+        await setSetting(UPLOADED_PROFILES_KEY, uploadedProfiles);
+        logger.info(`Saved uploaded profile '${fileName}' to IndexedDB.`);
+    } catch (error) {
+        logger.error(`Failed to save uploaded profile '${fileName}' to IndexedDB.`, error);
     }
 }
 
@@ -221,14 +248,15 @@ function handleProfileUpload(event) {
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         try {
             const profile = JSON.parse(e.target.result);
             const fileName = file.name;
-            
+
             if (profile.title && profile.steps) {
                 availableProfiles[fileName] = profile;
-                logger.info(`Successfully loaded uploaded profile: ${profile.title}`);
+                await saveUploadedProfile(fileName, profile);
+                logger.info(`Successfully loaded uploaded profile: ${fileName}`);
                 // Re-open the modal to show the new profile
                 if (currentButtonIndex !== null) {
                     openProfileSelectionModal(currentButtonIndex);
