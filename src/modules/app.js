@@ -115,7 +115,7 @@ function handleData(data) {
                 historyLabelEl.textContent = 'CURRENT';
             }
         }
-        chart.updateChart(shotStartTime, data);
+        chart.updateChart(shotStartTime, data, latestScaleWeight);
         shotData.updateShotData(data, latestScaleWeight);
     } else {
         shotStartTime = null;
@@ -155,9 +155,6 @@ function handleScaleData(data) {
         }
         // Update the UI with the new weight.
         throttledUpdateWeight(currentWeight);
-        if (shotStartTime) {
-            chart.updateWeight(shotStartTime, currentWeight);
-        }
     } else {
         // We received a message without a weight.
         // If we were already connected, we just keep the last weight on screen.
@@ -250,34 +247,66 @@ async function initializeDe1Connection() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    setDebug(true); // Uncomment to enable debug logs
-    chart.initChart();
-    ui.initUI(); // Initialize UI event listeners
-    history.initHistory(); // Initialize history module
-    profileManager.init(); // Initialize the profile manager
-    loadInitialData();
-    initializeDe1Connection();
-    connectWebSocket(handleData, () => {
-        logger.info('WebSocket reconnected. Resetting DE1 connection status.');
-        isDe1Connected = false; // Reset DE1 connection status so handleData can detect reconnection
-    });
-    connectScaleWebSocket(
-        handleScaleData, 
-        () => { // onReconnect
-            logger.info('Scale WebSocket reconnected. Resetting scale connection status.');
-            isScaleConnected = false; 
-        },
-        () => { // onDisconnect
-            logger.warn('Scale has disconnected.');
-            isScaleConnected = false;
-            ui.updateWeight('--g');
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        setDebug(true);
+        logger.info('App DOMContentLoaded: Starting initialization.');
 
-            startScaleReconnectPolling();
+        chart.initChart();
+        logger.info('App DOMContentLoaded: Chart initialized.');
+
+        ui.initUI();
+        logger.info('App DOMContentLoaded: UI initialized.');
+
+        logger.info('App DOMContentLoaded: Awaiting History module...');
+        await history.initHistory();
+        logger.info('App DOMContentLoaded: History module finished.');
+
+        logger.info('App DOMContentLoaded: Awaiting Profile Manager module...');
+        await profileManager.init();
+        logger.info('App DOMContentLoaded: Profile Manager module finished.');
+
+        logger.info('App DOMContentLoaded: Awaiting initial data...');
+        await loadInitialData();
+        logger.info('App DOMContentLoaded: Initial data finished.');
+
+        logger.info('App DOMContentLoaded: Awaiting DE1 connection...');
+        await initializeDe1Connection();
+        logger.info('App DOMContentLoaded: DE1 connection finished.');
+
+        logger.info('App DOMContentLoaded: Setting up WebSockets and timers...');
+        connectWebSocket(handleData, () => {
+            logger.info('WebSocket reconnected. Resetting DE1 connection status.');
+            isDe1Connected = false; // Reset DE1 connection status so handleData can detect reconnection
+        });
+        connectScaleWebSocket(
+            handleScaleData,
+            () => { // onReconnect
+                logger.info('Scale WebSocket reconnected.');
+            },
+            () => { // onDisconnect
+                logger.warn('Scale has disconnected.');
+                isScaleConnected = false;
+                ui.updateWeight('--g');
+                startScaleReconnectPolling();
+            }
+        );
+        initWaterTankSocket();
+        ensureGatewayModeTracking();
+        resetDataTimeout(); // Start the timeout timer initially.
+        connectShotSettingsWebSocket(handleShotSettingsData);
+        logger.info('App DOMContentLoaded: WebSockets and timers set up.');
+
+        logger.info('App initialization finished successfully.');
+    } catch (error) {
+        logger.error('CRITICAL: Unhandled error during application initialization:', error);
+        // Optionally, display a user-friendly error message on the page
+        const body = document.querySelector('body');
+        if (body) {
+            body.innerHTML = `<div style="color: red; padding: 2rem;">
+                <h1>Application Error</h1>
+                <p>A critical error occurred during startup. Please check the console for details and try refreshing the page.</p>
+            </div>`;
         }
-    );
-    initWaterTankSocket();
-    ensureGatewayModeTracking();
-    resetDataTimeout(); // Start the timeout timer initially.
-    connectShotSettingsWebSocket(handleShotSettingsData);
+    }
 });
