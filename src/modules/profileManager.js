@@ -2,7 +2,6 @@ import { logger } from './logger.js';
 import { sendProfile, getWorkflow } from './api.js';
 import { updateProfileName } from './ui.js';
 import { openDB, getShot, addShot } from './idb.js';
-import { getSetting, setSetting, openDB } from './idb.js';
 
 const FAV_COUNT = 5;
 const PROFILES_PATH = 'src/profiles/';
@@ -43,93 +42,63 @@ async function loadAvailableProfiles() {
             logger.error(`Failed to load profile: ${fileName}`, error);
         }
     }
-    logger.info('[DEBUG] Profiles after file load:', Object.keys(availableProfiles));
 
     // 2. Load user-uploaded profiles from IndexedDB and merge them
     try {
-        const uploadedProfiles = await getShot('streamline-uploaded-profiles');
-        logger.info('[DEBUG] Raw data from IndexedDB for "streamline-uploaded-profiles":', uploadedProfiles);
-
+        const uploadedProfiles = await getShot(UPLOADED_PROFILES_KEY);
         if (uploadedProfiles && uploadedProfiles.value) {
             Object.assign(availableProfiles, uploadedProfiles.value);
-            logger.info('Merged uploaded profiles from IndexedDB:', Object.keys(uploadedProfiles.value));
-        } else {
-            logger.warn('[DEBUG] No uploaded profiles found in DB or data format is incorrect.');
+            logger.info('Merged uploaded profiles from IndexedDB.', Object.keys(uploadedProfiles.value));
         }
     } catch (error) {
         logger.error('Failed to get uploaded profiles from IndexedDB:', error);
     }
 
-    logger.info('[DEBUG] All available profiles after merge:', Object.keys(availableProfiles));
-}
-
-async 
-async function loadUploadedProfilesFromDB() {
-    try {
-        const uploadedProfiles = await getSetting(UPLOADED_PROFILES_KEY);
-        if (uploadedProfiles) {
-            // Merging uploaded profiles. If a name conflicts with a manifest profile, the uploaded one takes precedence.
-            Object.assign(availableProfiles, uploadedProfiles);
-            logger.info('Loaded custom profiles from DB:', Object.keys(uploadedProfiles));
-        }
-    } catch (error) {
-        logger.error('Failed to load custom profiles from DB.', error);
-    }
+    logger.info('All available profiles loaded.', Object.keys(availableProfiles));
 }
 
 async function loadAssignments() {
     try {
-        // Try localStorage first
+        // Try localStorage first for fast startup
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             favoriteAssignments = JSON.parse(saved);
             logger.info('Loaded profile assignments from localStorage.');
-            await saveAssignments(); //This will ensure idb is also updated. 
+            await saveAssignments(); // Heal IndexedDB if it's out of sync
             return;
         }
 
         logger.warn('No assignments in localStorage, checking IndexedDB...');
-        const idbAssignments = await getSetting(STORAGE_KEY);
+        const idbAssignments = await getShot(STORAGE_KEY);
 
-        if (idbAssignments) {
-            favoriteAssignments = idbAssignments;
+        if (idbAssignments && idbAssignments.value) {
+            favoriteAssignments = idbAssignments.value;
             logger.info('Loaded profile assignments from IndexedDB.');
-            await saveAssignments(); // This will "heal" localStorage.
+            await saveAssignments(); // Heal localStorage
             return;
         }
 
-        logger.info('No assignments in IndexedDB, creating defaults.');
+        logger.info('No saved assignments found. Creating defaults.');
         const profileKeys = Object.keys(availableProfiles);
         for (let i = 0; i < FAV_COUNT; i++) {
             favoriteAssignments[i] = profileKeys[i] || null;
         }
         await saveAssignments();
-        logger.info('Created and saved default profile assignments.');
-
     }
     catch (error) {
         logger.error('Failed to load profile assignments:', error);
     }
 }
 
-async 
 async function saveAssignments() {
-    logger.info('[SAVE DEBUG] Attempting to save assignments...', favoriteAssignments);
     try {
-        // Save to localStorage
         localStorage.setItem(STORAGE_KEY, JSON.stringify(favoriteAssignments));
-        logger.info('[SAVE DEBUG] Save to localStorage complete.');
-
-        // Save to IndexedDB
-        logger.info('[SAVE DEBUG] Attempting to save to IndexedDB...');
         await addShot({ id: STORAGE_KEY, value: favoriteAssignments });
-
-        logger.info(STORAGE_KEY, favoriteAssignments,'[SAVE DEBUG] Save to IndexedDB appears successful.');
+        logger.info('Saved assignments to localStorage and IndexedDB.');
     } catch (error) {
-        logger.error('[SAVE DEBUG] Error during saveAssignments:', error);
+        logger.error('Error during saveAssignments:', error);
     }
 }
-
 
 function updateButtonUI() {
     for (let i = 0; i < FAV_COUNT; i++) {
@@ -184,20 +153,16 @@ async function handleProfileClick(index) {
         if (isVerified) {
             updateProfileName(profile.title);
             favoriteButtons.forEach((btn, i) => {
-                // Classes that define the active state
                 const activeBgClass = 'bg-[var(--mimoja-blue-v2)]';
                 const activeTextClass = 'text-white';
-                // Class for inactive text color
                 const inactiveTextClass = 'text-[var(--mimoja-blue)]';
 
                 if (i === index) {
-                    // This is the clicked (active) button
                     btn.classList.add(activeBgClass, activeTextClass);
-                    btn.classList.remove(inactiveTextClass); // Ensure inactive text color is removed
+                    btn.classList.remove(inactiveTextClass);
                 } else {
-                    // This is an inactive button
                     btn.classList.remove(activeBgClass, activeTextClass);
-                    btn.classList.add(inactiveTextClass); // Ensure inactive text color is applied
+                    btn.classList.add(inactiveTextClass);
                 }
             });
         }
@@ -254,35 +219,35 @@ async function handleLongPress(index) {
 
 async function handleProfileUpload(event) {
     const file = event.target.files[0];
-    if (!file) {
-        return;
-    }
+    if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        try {
-            const profile = JSON.parse(e.target.result);
-            const fileName = file.name;
-            
-            if (profile.title && profile.steps) {
-                availableProfiles[fileName] = profile;
-                logger.info(`Successfully loaded uploaded profile: ${profile.title}`);
-                // Re-open the modal to show the new profile
-                if (currentButtonIndex !== null) {
-                    openProfileSelectionModal(currentButtonIndex);
-                }
-            } else {
-                logger.error('Uploaded file is not a valid profile format.');
-                alert('Error: Uploaded file is not a valid profile.');
+    try {
+        const fileContent = await file.text();
+        const profile = JSON.parse(fileContent);
+        const fileName = file.name;
+
+        if (profile.title && profile.steps) {
+            availableProfiles[fileName] = profile;
+            logger.info(`Successfully loaded uploaded profile: ${profile.title}`);
+
+            const existingUploaded = await getShot(UPLOADED_PROFILES_KEY);
+            const allUploaded = (existingUploaded && existingUploaded.value) ? existingUploaded.value : {};
+            allUploaded[fileName] = profile;
+            await addShot({ id: UPLOADED_PROFILES_KEY, value: allUploaded });
+            logger.info(`Saved new profile '${fileName}' to IndexedDB.`);
+
+            if (currentButtonIndex !== null) {
+                openProfileSelectionModal(currentButtonIndex);
             }
-        } catch (error) {
-            logger.error('Failed to parse uploaded profile:', error);
-            alert('Error: Could not parse the uploaded JSON file.');
+        } else {
+            logger.error('Uploaded file is not a valid profile format.');
+            alert('Error: Uploaded file is not a valid profile.');
         }
-    };
-    reader.readAsText(file);
+    } catch (error) {
+        logger.error('Failed to parse or save uploaded profile:', error);
+        alert('Error: Could not process the uploaded file.');
+    }
 }
-
 
 // --- Initialization ---
 
@@ -293,26 +258,21 @@ export async function init() {
             const button = document.getElementById(`fav-profile-btn-${i}`);
             if (button) favoriteButtons.push(button);
         }
-        logger.info('Buttons collected.');
 
         await openDB();
-        logger.info('Database opened.');
 
-    await loadAvailableProfiles();
-    loadAssignments();
-    updateButtonUI();
+        await loadAvailableProfiles();
+        await loadAssignments();
+        updateButtonUI();
 
         favoriteButtons.forEach((button, index) => {
             let pressTimer = null;
-            let isLongPress = false;
 
             const startPress = () => {
-                isLongPress = false; // Reset on new press
                 clearTimeout(pressTimer);
                 pressTimer = setTimeout(() => {
-                    isLongPress = true;
                     handleLongPress(index);
-                    pressTimer = null;
+                    pressTimer = null; 
                 }, LONG_PRESS_DURATION);
             };
 
@@ -320,22 +280,17 @@ export async function init() {
                 clearTimeout(pressTimer);
             };
 
-            button.addEventListener('click', (e) => {
-                if (isLongPress) {
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return;
+            button.addEventListener('click', () => {
+                if (pressTimer !== null) { // Prevents click firing after long press
+                    handleProfileClick(index)
                 }
-                handleProfileClick(index);
             });
-
             button.addEventListener('mousedown', startPress);
             button.addEventListener('mouseup', cancelPress);
             button.addEventListener('mouseleave', cancelPress);
             button.addEventListener('touchstart', startPress, { passive: true });
             button.addEventListener('touchend', cancelPress);
         });
-        logger.info('Event listeners attached.');
 
         const uploadButton = document.getElementById('upload-profile-btn');
         const fileInput = document.getElementById('profile-upload-input');
@@ -343,12 +298,10 @@ export async function init() {
             uploadButton.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                logger.info('Upload button clicked, attempting to trigger file input.');
                 fileInput.click();
             });
             fileInput.addEventListener('change', handleProfileUpload);
         }
-        logger.info('Upload button listener attached.');
 
     } catch (error) {
         logger.error('CRITICAL: Error during Profile Manager initialization:', error);
