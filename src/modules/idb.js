@@ -1,10 +1,8 @@
-
 import { logger } from './logger.js';
 
 const DB_NAME = 'shot_history';
-const DB_VERSION = 3;
-const SHOTS_STORE_NAME = 'shots';
-const SETTINGS_STORE_NAME = 'settings';
+const DB_VERSION = 5;
+const STORE_NAME = 'shots';
 
 let db;
 let openPromise = null;

@@ -1,6 +1,7 @@
 import { logger } from './logger.js';
 import { sendProfile, getWorkflow } from './api.js';
 import { updateProfileName } from './ui.js';
+import { openDB, getShot, addShot } from './idb.js';
 import { getSetting, setSetting, openDB } from './idb.js';
 
 const FAV_COUNT = 5;
@@ -17,6 +18,7 @@ let currentButtonIndex = null;
 // --- Helper Functions ---
 
 async function loadAvailableProfiles() {
+    // 1. Load default profiles from the file system
     let profileFiles = [];
     try {
         const response = await fetch(`${PROFILES_PATH}profile-manifest.json`);
@@ -24,15 +26,11 @@ async function loadAvailableProfiles() {
             throw new Error(`Failed to fetch profile manifest. Status: ${response.status}`);
         }
         profileFiles = await response.json();
-
     } catch (error) {
         logger.error('Failed to load profiles from manifest.', error);
-        logger.warn('Falling back to an empty profile list.');
-        profileFiles = [];
     }
 
-    // Deduplicate in case of weird directory listing
-    profileFiles = [...new Set(profileFiles)];
+    profileFiles = [...new Set(profileFiles)]; // Deduplicate
 
     for (const fileName of profileFiles) {
         try {
@@ -45,11 +43,27 @@ async function loadAvailableProfiles() {
             logger.error(`Failed to load profile: ${fileName}`, error);
         }
     }
+    logger.info('[DEBUG] Profiles after file load:', Object.keys(availableProfiles));
 
-    await loadUploadedProfilesFromDB();
-    logger.info('Loaded available profiles:', Object.keys(availableProfiles));
+    // 2. Load user-uploaded profiles from IndexedDB and merge them
+    try {
+        const uploadedProfiles = await getShot('streamline-uploaded-profiles');
+        logger.info('[DEBUG] Raw data from IndexedDB for "streamline-uploaded-profiles":', uploadedProfiles);
+
+        if (uploadedProfiles && uploadedProfiles.value) {
+            Object.assign(availableProfiles, uploadedProfiles.value);
+            logger.info('Merged uploaded profiles from IndexedDB:', Object.keys(uploadedProfiles.value));
+        } else {
+            logger.warn('[DEBUG] No uploaded profiles found in DB or data format is incorrect.');
+        }
+    } catch (error) {
+        logger.error('Failed to get uploaded profiles from IndexedDB:', error);
+    }
+
+    logger.info('[DEBUG] All available profiles after merge:', Object.keys(availableProfiles));
 }
 
+async 
 async function loadUploadedProfilesFromDB() {
     try {
         const uploadedProfiles = await getSetting(UPLOADED_PROFILES_KEY);
@@ -65,6 +79,7 @@ async function loadUploadedProfilesFromDB() {
 
 async function loadAssignments() {
     try {
+        // Try localStorage first
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             favoriteAssignments = JSON.parse(saved);
@@ -97,28 +112,24 @@ async function loadAssignments() {
     }
 }
 
-
+async 
 async function saveAssignments() {
+    logger.info('[SAVE DEBUG] Attempting to save assignments...', favoriteAssignments);
     try {
+        // Save to localStorage
         localStorage.setItem(STORAGE_KEY, JSON.stringify(favoriteAssignments));
-        await setSetting(STORAGE_KEY, favoriteAssignments);
-        logger.info('Saved profile assignments to localStorage and IndexedDB.');
-    }
-    catch (error) {
-        logger.error('Failed to save profile assignments:', error);
+        logger.info('[SAVE DEBUG] Save to localStorage complete.');
+
+        // Save to IndexedDB
+        logger.info('[SAVE DEBUG] Attempting to save to IndexedDB...');
+        await addShot({ id: STORAGE_KEY, value: favoriteAssignments });
+
+        logger.info(STORAGE_KEY, favoriteAssignments,'[SAVE DEBUG] Save to IndexedDB appears successful.');
+    } catch (error) {
+        logger.error('[SAVE DEBUG] Error during saveAssignments:', error);
     }
 }
 
-async function saveUploadedProfile(fileName, profileData) {
-    try {
-        const uploadedProfiles = await getSetting(UPLOADED_PROFILES_KEY) || {};
-        uploadedProfiles[fileName] = profileData;
-        await setSetting(UPLOADED_PROFILES_KEY, uploadedProfiles);
-        logger.info(`Saved uploaded profile '${fileName}' to IndexedDB.`);
-    } catch (error) {
-        logger.error(`Failed to save uploaded profile '${fileName}' to IndexedDB.`, error);
-    }
-}
 
 function updateButtonUI() {
     for (let i = 0; i < FAV_COUNT; i++) {
@@ -241,22 +252,21 @@ async function handleLongPress(index) {
     }
 }
 
-function handleProfileUpload(event) {
+async function handleProfileUpload(event) {
     const file = event.target.files[0];
     if (!file) {
         return;
     }
 
     const reader = new FileReader();
-    reader.onload = async (e) => {
+    reader.onload = (e) => {
         try {
             const profile = JSON.parse(e.target.result);
             const fileName = file.name;
-
+            
             if (profile.title && profile.steps) {
                 availableProfiles[fileName] = profile;
-                await saveUploadedProfile(fileName, profile);
-                logger.info(`Successfully loaded uploaded profile: ${fileName}`);
+                logger.info(`Successfully loaded uploaded profile: ${profile.title}`);
                 // Re-open the modal to show the new profile
                 if (currentButtonIndex !== null) {
                     openProfileSelectionModal(currentButtonIndex);
@@ -288,14 +298,9 @@ export async function init() {
         await openDB();
         logger.info('Database opened.');
 
-        await loadAvailableProfiles();
-        logger.info('Available profiles loaded.');
-
-        await loadAssignments();
-        logger.info('Assignments loaded.');
-
-        updateButtonUI();
-        logger.info('Button UI updated.');
+    await loadAvailableProfiles();
+    loadAssignments();
+    updateButtonUI();
 
         favoriteButtons.forEach((button, index) => {
             let pressTimer = null;

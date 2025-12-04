@@ -45,6 +45,12 @@ theme switching.
 *   **What it does:** Defines the list of pages (`::all_pages`) and uses helper functions like `streamline_rectangle` to draw the main background boxes and lines of the UI.                    
 *   **How to Recreate:** This is your core **HTML structure**. Use `<div>` elements for each box and line, and style them with CSS using **Flexbox** or **CSS Grid** to achieve the layout.     
                                                                                                                                                                                                 
+#### Key UI Element Dimensions                                                                                                                                                                  
+*   **Favorite Button:** Height = 12.5% of device width and 7.5% of device height.                                                                                                                
+*   **Left Hand Side Control Panel:** Width = 25% of screen width, Height = 85% of device height.                                                                                                
+*   **Top Header Container:** Height = 13.8% of device height, Full screen width.                                                                                                                 
+     
+                                                                                                                                                                                                
 ### 4. UI Components & Data Display                                                                                                                                                             
 This is the most important part of the file, using commands like `add_de1_variable`, `add_de1_text`, and `add_de1_button`.                                                                      
                                                                                                                                                                                                 
