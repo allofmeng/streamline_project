@@ -4,6 +4,8 @@ const chartElement = document.getElementById('plotly-chart');
 let currentSubstate = 'idle';
 let annotationUpdateCounter = 0;
 const ANNOTATION_UPDATE_THROTTLE = 10; // Update every 10 data points
+let lastWeight = 0;
+let lastTime = 0;
 
 const chartData = {
     pressure: {
@@ -157,7 +159,14 @@ export function updateChart(shotStartTime, data, weight, filterToPouring) {
     const targetPressureY = data.targetPressure;
     const targetFlowY = data.targetFlow;
     const groupTemperatureY = (data.groupTemperature / 100) * 10;
-    const weightY = weight / 10;
+    
+    let weightY = 0;
+    if (lastTime > 0 && time > lastTime) {
+        const timeDiff = time - lastTime;
+        weightY = (weight - lastWeight) / timeDiff;
+    }
+    lastWeight = weight;
+    lastTime = time;
 
     chartData.pressure.x.push(time);
     chartData.pressure.y.push(pressureY);
@@ -183,6 +192,8 @@ export function clearChart() {
         chartData[trace].x = [];
         chartData[trace].y = [];
     }
+    lastWeight = 0;
+    lastTime = 0;
     const theme = localStorage.getItem('theme') || 'light';
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     layout.annotations = [];
@@ -234,33 +245,43 @@ export function plotHistoricalShot(measurements) {
         weight: { x: [], y: [] }
     };
 
+    let lastScaleWeight = 0;
+    let lastScaleTime = 0;
+
     measurements.forEach(dataPoint => {
         const machineData = dataPoint.machine;
         const scaleData = dataPoint.scale;
-//machineData.state.substate === 'preinfusion'||
-//&&machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone'
-                    if (machineData && machineData.state &&(machineData.state.substate === 'preinfusion'||machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
-                        const time = (new Date(machineData.timestamp) - shotStartTime) / 1000;
-                        if (time >= 0) {
-                            tempChartData.pressure.x.push(time);
-                            tempChartData.pressure.y.push(machineData.pressure);
-                            tempChartData.flow.x.push(time);
-                            tempChartData.flow.y.push(machineData.flow);
-                            tempChartData.targetPressure.x.push(time);
-                            tempChartData.targetPressure.y.push(machineData.targetPressure);
-                            tempChartData.targetFlow.x.push(time);
-                            tempChartData.targetFlow.y.push(machineData.targetFlow);
-                            tempChartData.groupTemperature.x.push(time);
-                            tempChartData.groupTemperature.y.push((machineData.groupTemperature / 100) * 10);
-                        }
-                        if (scaleData && scaleData.weight) {
-                            const time = (new Date(scaleData.timestamp) - shotStartTime) / 1000;
-                            if (time >= 0) {
-                               tempChartData.weight.x.push(time);
-                               tempChartData.weight.y.push(scaleData.weight / 10);
-                            }
-                       }
-                    }
+
+        if (machineData && machineData.state && (machineData.state.substate === 'preinfusion' || machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
+            const time = (new Date(machineData.timestamp) - shotStartTime) / 1000;
+            if (time >= 0) {
+                tempChartData.pressure.x.push(time);
+                tempChartData.pressure.y.push(machineData.pressure);
+                tempChartData.flow.x.push(time);
+                tempChartData.flow.y.push(machineData.flow);
+                tempChartData.targetPressure.x.push(time);
+                tempChartData.targetPressure.y.push(machineData.targetPressure);
+                tempChartData.targetFlow.x.push(time);
+                tempChartData.targetFlow.y.push(machineData.targetFlow);
+                tempChartData.groupTemperature.x.push(time);
+                tempChartData.groupTemperature.y.push((machineData.groupTemperature / 100) * 10);
+            }
+        }
+
+        if (scaleData && scaleData.weight) {
+            const time = (new Date(scaleData.timestamp) - shotStartTime) / 1000;
+            if (time >= 0) {
+                let weightChange = 0;
+                if (lastScaleTime > 0 && time > lastScaleTime) {
+                    const timeDiff = time - lastScaleTime;
+                    weightChange = (scaleData.weight - lastScaleWeight) / timeDiff;
+                }
+                tempChartData.weight.x.push(time);
+                tempChartData.weight.y.push(weightChange);
+                lastScaleWeight = scaleData.weight;
+                lastScaleTime = time;
+            }
+        }
     });
 
     Object.keys(tempChartData).forEach(key => {
@@ -268,13 +289,12 @@ export function plotHistoricalShot(measurements) {
             chartData[key].x = tempChartData[key].x;
             chartData[key].y = tempChartData[key].y;
         }
-    }
-);
+    });
 
-const theme = localStorage.getItem('theme') || 'light';
-const layout = theme === 'dark' ? darkLayout : lightLayout;
-layout.annotations = getAnnotations();
-Plotly.react(chartElement, Object.values(chartData), layout, {displayModeBar: false});
+    const theme = localStorage.getItem('theme') || 'light';
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
+    layout.annotations = getAnnotations();
+    Plotly.react(chartElement, Object.values(chartData), layout, {displayModeBar: false});
 }
 
 export function initChart() {
