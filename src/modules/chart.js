@@ -1,4 +1,5 @@
 import { connectWebSocket } from './api.js';
+import { logger } from './logger.js';
 
 const chartElement = document.getElementById('plotly-chart');
 let currentSubstate = 'idle';
@@ -6,6 +7,8 @@ let annotationUpdateCounter = 0;
 const ANNOTATION_UPDATE_THROTTLE = 10; // Update every 10 data points
 let lastWeight = 0;
 let lastTime = 0;
+const SMOOTHING_FACTOR = 0.1;
+let smoothedWeightChange = 0;
 
 const chartData = {
     pressure: {
@@ -47,7 +50,7 @@ const chartData = {
     groupTemperature: {
         x: [],
         y: [],
-        name: 'Group Temp',
+        name: '°C',
         type: 'lines',
         mode: 'lines',
         line: {color: '#ff97a1'},
@@ -116,29 +119,57 @@ const darkLayout = {
 
 function getAnnotations() {
     const annotations = [];
+    const labelCandidates = [];
+
+    // 1. Collect potential labels
     for (const traceName in chartData) {
-        if (traceName === 'targetPressure' || traceName === 'targetFlow' ) {
+        if (traceName === 'targetPressure' || traceName === 'targetFlow') {
             continue;
         }
         const trace = chartData[traceName];
         if (trace.x.length > 0) {
-            annotations.push({
+            labelCandidates.push({
+                name: trace.name,
                 x: trace.x[trace.x.length - 1],
                 y: trace.y[trace.y.length - 1],
-                xref: 'x',
-                yref: 'y',
-                text: trace.name,
-                showarrow: false,
-                xanchor: 'left',
-                yanchor: 'top',
-                xshift: 5,
-                yshift: 5,
-                font: {
-                    color: trace.line.color
-                }
+                color: trace.line.color
             });
         }
     }
+
+    // 2. Sort by y-value, ascending
+    labelCandidates.sort((a, b) => a.y - b.y);
+
+    let lastY = -Infinity;
+    const minVerticalSeparation = 0.4; // Corresponds to y-axis units
+    const minAxisBuffer = 0.2; // Minimum distance from x-axis
+
+    // 3. Adjust positions to avoid overlap, moving from bottom up
+    for (const candidate of labelCandidates) {
+        let finalY = Math.max(candidate.y, minAxisBuffer);
+        
+        if (lastY !== -Infinity && finalY - lastY < minVerticalSeparation) {
+            finalY = lastY + minVerticalSeparation;
+        }
+        
+        annotations.push({
+            x: candidate.x,
+            y: finalY,
+            xref: 'x',
+            yref: 'y',
+            text: candidate.name,
+            showarrow: false,
+            xanchor: 'left',
+            yanchor: 'middle',
+            xshift: 5,
+            font: {
+                color: candidate.color
+            }
+        });
+
+        lastY = finalY;
+    }
+
     return annotations;
 }
 
@@ -163,7 +194,9 @@ export function updateChart(shotStartTime, data, weight, filterToPouring) {
     let weightY = 0;
     if (lastTime > 0 && time > lastTime) {
         const timeDiff = time - lastTime;
-        weightY = (weight - lastWeight) / timeDiff;
+        const rawWeightChange = (weight - lastWeight) / timeDiff;
+        smoothedWeightChange = (SMOOTHING_FACTOR * rawWeightChange) + (1 - SMOOTHING_FACTOR) * smoothedWeightChange;
+        weightY = smoothedWeightChange;
     }
     lastWeight = weight;
     lastTime = time;
@@ -194,6 +227,7 @@ export function clearChart() {
     }
     lastWeight = 0;
     lastTime = 0;
+    smoothedWeightChange = 0;
     const theme = localStorage.getItem('theme') || 'light';
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     layout.annotations = [];
@@ -212,7 +246,6 @@ export function plotHistoricalShot(measurements) {
 
     // First, find the timestamp of the first data point that marks the start of the shot (preinfusion or pouring).
     // This will establish t=0 for the x-axis.
-    //|| machineData.state.substate === 'pouringDone'
     for (const dataPoint of measurements) {
         const machineData = dataPoint.machine;
         if (machineData && machineData.state && (machineData.state.substate === 'preinfusion' || machineData.state.substate === 'pouring' )) {
@@ -236,6 +269,16 @@ export function plotHistoricalShot(measurements) {
         }
     }
     
+    // Find the shot end time
+    let shotEndTime = null;
+    for (let i = measurements.length - 1; i >= 0; i--) {
+        const machineData = measurements[i].machine;
+        if (machineData && machineData.state && (machineData.state.substate === 'preinfusion' || machineData.state.substate === 'pouring' || machineData.state.substate === 'pouringDone')) {
+            shotEndTime = new Date(machineData.timestamp);
+            break;
+        }
+    }
+
     const tempChartData = {
         pressure: { x: [], y: [] },
         flow: { x: [], y: [] },
@@ -247,6 +290,7 @@ export function plotHistoricalShot(measurements) {
 
     let lastScaleWeight = 0;
     let lastScaleTime = 0;
+    let localSmoothedWeightChange = 0;
 
     measurements.forEach(dataPoint => {
         const machineData = dataPoint.machine;
@@ -269,12 +313,18 @@ export function plotHistoricalShot(measurements) {
         }
 
         if (scaleData && scaleData.weight) {
-            const time = (new Date(scaleData.timestamp) - shotStartTime) / 1000;
+            const scaleTimestamp = new Date(scaleData.timestamp);
+            if (shotEndTime && scaleTimestamp > shotEndTime) {
+                return; // Stop processing scale data after the shot has ended
+            }
+            const time = (scaleTimestamp - shotStartTime) / 1000;
             if (time >= 0) {
                 let weightChange = 0;
                 if (lastScaleTime > 0 && time > lastScaleTime) {
                     const timeDiff = time - lastScaleTime;
-                    weightChange = (scaleData.weight - lastScaleWeight) / timeDiff;
+                    const rawWeightChange = (scaleData.weight - lastScaleWeight) / timeDiff;
+                    localSmoothedWeightChange = (SMOOTHING_FACTOR * rawWeightChange) + (1 - SMOOTHING_FACTOR) * localSmoothedWeightChange;
+                    weightChange = localSmoothedWeightChange;
                 }
                 tempChartData.weight.x.push(time);
                 tempChartData.weight.y.push(weightChange);
