@@ -1,13 +1,16 @@
 import { logger } from './logger.js';
-import { sendProfile, getWorkflow } from './api.js';
+import { sendProfile, getWorkflow, getValueFromStore, setValueInStore } from './api.js';
 import { updateProfileName } from './ui.js';
-import { openDB, getShot, addShot } from './idb.js';
+import { openDB, getSetting, setSetting } from './idb.js';
 
 const FAV_COUNT = 5;
 const PROFILES_PATH = 'src/profiles/';
-const STORAGE_KEY = 'streamline-favorite-profiles';
-const UPLOADED_PROFILES_KEY = 'streamline-uploaded-profiles';
 const LONG_PRESS_DURATION = 700; // ms
+
+const SETTINGS_NAMESPACE = 'streamline-app';
+const FAVORITES_KEY = 'favorite-profiles';
+const UPLOADED_PROFILES_KEY = 'uploaded-profiles';
+
 
 let favoriteButtons = [];
 let availableProfiles = {};
@@ -43,60 +46,118 @@ async function loadAvailableProfiles() {
         }
     }
 
-    // 2. Load user-uploaded profiles from IndexedDB and merge them
+    // 2. Load user-uploaded profiles using the new fallback logic
+    let uploadedProfiles = {};
     try {
-        const uploadedProfiles = await getShot(UPLOADED_PROFILES_KEY);
-        if (uploadedProfiles && uploadedProfiles.value) {
-            Object.assign(availableProfiles, uploadedProfiles.value);
-            logger.info('Merged uploaded profiles from IndexedDB.', Object.keys(uploadedProfiles.value));
+        const reaUploaded = await getValueFromStore(SETTINGS_NAMESPACE, UPLOADED_PROFILES_KEY);
+        if (reaUploaded) {
+            logger.info('Loaded uploaded profiles from REA store.');
+            uploadedProfiles = reaUploaded;
+            await setSetting(UPLOADED_PROFILES_KEY, uploadedProfiles); // Update backup
+        } else {
+            logger.warn('No uploaded profiles in REA store, checking IndexedDB backup...');
+            const idbUploaded = await getSetting(UPLOADED_PROFILES_KEY);
+            if (idbUploaded) {
+                logger.info('Loaded uploaded profiles from IndexedDB backup.');
+                uploadedProfiles = idbUploaded;
+                await setValueInStore(SETTINGS_NAMESPACE, UPLOADED_PROFILES_KEY, uploadedProfiles); // Sync back to REA
+            }
         }
     } catch (error) {
-        logger.error('Failed to get uploaded profiles from IndexedDB:', error);
+        logger.error('Failed to load uploaded profiles from REA store. Falling back to IndexedDB.', error);
+        try {
+            const idbUploaded = await getSetting(UPLOADED_PROFILES_KEY);
+            if (idbUploaded) {
+                uploadedProfiles = idbUploaded;
+            }
+        } catch (idbError) {
+             logger.error('Failed to load uploaded profiles from IndexedDB backup as well.', idbError);
+        }
+    }
+    
+    if (Object.keys(uploadedProfiles).length > 0) {
+        Object.assign(availableProfiles, uploadedProfiles);
+        logger.info('Merged uploaded profiles.', Object.keys(uploadedProfiles));
     }
 
     logger.info('All available profiles loaded.', Object.keys(availableProfiles));
 }
 
 async function loadAssignments() {
+    logger.info('Loading assignments...');
     try {
-        // Try localStorage first for fast startup
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            favoriteAssignments = JSON.parse(saved);
-            logger.info('Loaded profile assignments from localStorage.');
-            await saveAssignments(); // Heal IndexedDB if it's out of sync
+        // 1. Try to fetch from the primary source (REA store)
+        const reaAssignments = await getValueFromStore(SETTINGS_NAMESPACE, FAVORITES_KEY);
+        
+        if (reaAssignments) {
+            logger.info('Loaded assignments from REA store.');
+            favoriteAssignments = reaAssignments;
+            // Asynchronously update the local backup to keep it fresh
+            await setSetting(FAVORITES_KEY, reaAssignments);
             return;
         }
 
-        logger.warn('No assignments in localStorage, checking IndexedDB...');
-        const idbAssignments = await getShot(STORAGE_KEY);
+        // 2. If REA has no data, try the local backup (IndexedDB)
+        logger.warn('No assignments in REA store, checking IndexedDB backup...');
+        const idbAssignments = await getSetting(FAVORITES_KEY);
 
-        if (idbAssignments && idbAssignments.value) {
-            favoriteAssignments = idbAssignments.value;
-            logger.info('Loaded profile assignments from IndexedDB.');
-            await saveAssignments(); // Heal localStorage
+        if (idbAssignments) {
+            logger.info('Loaded assignments from IndexedDB backup.');
+            favoriteAssignments = idbAssignments;
+            // Data was found locally but not on the server, so let's sync it back up.
+            await saveAssignments();
             return;
         }
 
-        logger.info('No saved assignments found. Creating defaults.');
+        // 3. If neither source has data, create and save defaults.
+        logger.info('No assignments found anywhere. Creating defaults.');
         const profileKeys = Object.keys(availableProfiles);
         for (let i = 0; i < FAV_COUNT; i++) {
             favoriteAssignments[i] = profileKeys[i] || null;
         }
-        await saveAssignments();
-    }
-    catch (error) {
-        logger.error('Failed to load profile assignments:', error);
+        await saveAssignments(); // Saves to both REA and IndexedDB
+
+    } catch (error) {
+        // This catch block handles network failures when trying to reach the REA store.
+        logger.error('Failed to load from REA store. Falling back to IndexedDB.', error);
+        try {
+            const idbAssignments = await getSetting(FAVORITES_KEY);
+            if (idbAssignments) {
+                logger.info('Successfully loaded from IndexedDB backup during fallback.');
+                favoriteAssignments = idbAssignments;
+            } else {
+                 // Even the backup failed, so create defaults (but they will only be saved locally for now)
+                 logger.warn('IndexedDB backup is also empty. Creating defaults.');
+                 const profileKeys = Object.keys(availableProfiles);
+                 for (let i = 0; i < FAV_COUNT; i++) {
+                     favoriteAssignments[i] = profileKeys[i] || null;
+                 }
+            }
+        } catch (idbError) {
+            logger.error('CRITICAL: Failed to load from both REA store and IndexedDB backup.', idbError);
+        }
     }
 }
 
 async function saveAssignments() {
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(favoriteAssignments));
-        await addShot({ id: STORAGE_KEY, value: favoriteAssignments });
-        logger.info('Saved assignments to localStorage and IndexedDB.');
-    } catch (error) {
-        logger.error('Error during saveAssignments:', error);
+    logger.info('Saving assignments to REA store and IndexedDB backup...');
+
+    // We use Promise.allSettled to ensure we attempt both saves even if one fails.
+    const results = await Promise.allSettled([
+        setValueInStore(SETTINGS_NAMESPACE, FAVORITES_KEY, favoriteAssignments),
+        setSetting(FAVORITES_KEY, favoriteAssignments)
+    ]);
+
+    if (results[0].status === 'fulfilled') {
+        logger.info('Assignments saved to REA store successfully.');
+    } else {
+        logger.error('Failed to save assignments to REA store:', results[0].reason);
+    }
+
+    if (results[1].status === 'fulfilled') {
+        logger.info('Assignments saved to IndexedDB backup successfully.');
+    } else {
+        logger.error('Failed to save assignments to IndexedDB backup:', results[1].reason);
     }
 }
 
@@ -230,11 +291,16 @@ async function handleProfileUpload(event) {
             availableProfiles[fileName] = profile;
             logger.info(`Successfully loaded uploaded profile: ${profile.title}`);
 
-            const existingUploaded = await getShot(UPLOADED_PROFILES_KEY);
-            const allUploaded = (existingUploaded && existingUploaded.value) ? existingUploaded.value : {};
+            const existingUploaded = await getSetting(UPLOADED_PROFILES_KEY);
+            const allUploaded = existingUploaded || {};
             allUploaded[fileName] = profile;
-            await addShot({ id: UPLOADED_PROFILES_KEY, value: allUploaded });
-            logger.info(`Saved new profile '${fileName}' to IndexedDB.`);
+            
+            await Promise.allSettled([
+                setValueInStore(SETTINGS_NAMESPACE, UPLOADED_PROFILES_KEY, allUploaded),
+                setSetting(UPLOADED_PROFILES_KEY, allUploaded)
+            ]);
+            
+            logger.info(`Saved new profile '${fileName}' to REA store and IndexedDB backup.`);
 
             if (currentButtonIndex !== null) {
                 openProfileSelectionModal(currentButtonIndex);
@@ -259,7 +325,7 @@ export async function init() {
             if (button) favoriteButtons.push(button);
         }
 
-        await openDB();
+        await openDB(); // Still needed for the backup functionality
 
         await loadAvailableProfiles();
         await loadAssignments();

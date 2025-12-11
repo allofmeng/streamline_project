@@ -451,3 +451,38 @@ export async function ensureGatewayModeTracking() {
         }
     }
 }
+
+export async function getValueFromStore(namespace, key) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/store/${namespace}/${key}`);
+        if (response.status === 404) {
+            return null; // Key not found, which is a valid case
+        }
+        if (!response.ok) {
+            throw new Error(`API Error: ${response.status}`);
+        }
+        logger.info('getValueFromStore ok');
+        return response.json();
+    } catch (error) {
+        logger.error(`Failed to get value for key '${key}':`, error);
+        throw error;
+    }
+}
+
+export async function setValueInStore(namespace, key, value) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/store/${namespace}/${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(value),
+        });
+        if (response.status !== 204) {
+            throw new Error(`API Error: ${response.status}`);
+        }
+        logger.info('setValueInStore ok');
+        return true;
+    } catch (error) {
+        logger.error(`Failed to set value for key '${key}':`, error);
+        throw error;
+    }
+}
