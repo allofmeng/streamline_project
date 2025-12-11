@@ -1,6 +1,13 @@
-import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp, setTargetHotWaterDuration, setDe1Settings, setTargetSteamFlow, setTargetSteamDuration } from './api.js';
+import { getProfile, sendProfile, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp, setTargetHotWaterDuration, setDe1Settings, setTargetSteamFlow, setTargetSteamDuration, MachineState } from './api.js';
 import { logger } from './logger.js';
 import * as chart from './chart.js';
+
+export function formatStateForDisplay(state) {
+    if (!state) return '';
+    if (state === MachineState.FW_UPGRADE) return 'FW Upgrade';
+    const withSpaces = state.replace(/([A-Z])/g, ' $1');
+    return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
 
 let currentHotWaterVolume = 0;
 let currentHotWaterTemp = 0;
@@ -188,17 +195,17 @@ export function updateHotWaterDisplay(data) {
     tempEl.textContent = `${currentHotWaterTemp}°C`;
 
     if (hotWaterMode === 'volume') {
-        volEl.classList.remove('text-xs', 'text-gray-500');
-        volEl.classList.add('text-lg', 'font-bold');
-        tempEl.classList.remove('text-lg', 'font-bold');
-        tempEl.classList.add('text-xs', 'text-gray-500');
+        volEl.classList.remove('text-2xl', 'text-neutral-400');
+        volEl.classList.add('text-3xl', 'font-bold','text-neutral-900');
+        tempEl.classList.remove('text-3xl', 'font-bold');
+        tempEl.classList.add('text-2xl', 'text-neutral-400');
         modeVolEl.className = 'text-[var(--mimoja-blue-v2)]';
         modeTempEl.className = 'text-[var(--low-contrast-white)]';
     } else { // temperature mode
-        tempEl.classList.remove('text-xs', 'text-gray-500');
-        tempEl.classList.add('text-lg', 'font-bold');
-        volEl.classList.remove('text-lg', 'font-bold');
-        volEl.classList.add('text-xs', 'text-gray-500');
+        tempEl.classList.remove('text-2xl', 'text-neutral-400');
+        tempEl.classList.add('text-3xl', 'font-bold','text-neutral-900','font-bold');
+        volEl.classList.remove('text-3xl', 'font-bold');
+        volEl.classList.add('text-2xl', 'text-neutral-400');
         modeTempEl.className = 'text-[var(--mimoja-blue-v2)]';
         modeVolEl.className = 'text-[var(--low-contrast-white)]';
     }
@@ -337,17 +344,17 @@ export function updateSteamDisplay(data) {
     flowEl.textContent = `${currentSteamFlow.toFixed(1)}ml/s`;
 
     if (steamMode === 'time') {
-        durationEl.classList.remove('text-xs', 'text-gray-500');
-        durationEl.classList.add('text-lg', 'font-bold');
-        flowEl.classList.remove('text-lg', 'font-bold');
-        flowEl.classList.add('text-xs', 'text-gray-500');
+        durationEl.classList.remove('text-2xl', 'text-neutral-400');
+        durationEl.classList.add('text-3xl', 'font-bold','text-neutral-900');
+        flowEl.classList.remove('text-3xl', 'font-bold');
+        flowEl.classList.add('text-2xl', 'text-neutral-400');
         modeTimeEl.className = 'text-[var(--mimoja-blue-v2)]';
         modeFlowEl.className = 'text-[var(--low-contrast-white)]';
     } else { // flow mode
-        flowEl.classList.remove('text-xs', 'text-gray-500');
-        flowEl.classList.add('text-lg', 'font-bold');
-        durationEl.classList.remove('text-lg', 'font-bold');
-        durationEl.classList.add('text-xs', 'text-gray-500');
+        flowEl.classList.remove('text-2xl', 'text-neutral-400');
+        flowEl.classList.add('text-3xl', 'font-bold','text-neutral-900','font-bold');
+        durationEl.classList.remove('text-3xl', 'font-bold');
+        durationEl.classList.add('text-2xl', 'text-neutral-400');
         modeFlowEl.className = 'text-[var(--mimoja-blue-v2)]';
         modeTimeEl.className = 'text-[var(--low-contrast-white)]';
     }
@@ -448,6 +455,7 @@ export function initThemeToggle() {
 
 export function initUI() {
     initThemeToggle();
+    initFullscreenHandler();
     const drinkOutValueEl = document.getElementById('drink-out-value');
     const tempValueEl = document.getElementById('temp-value');
     const doseInValueEl = document.getElementById('dose-in-value');
@@ -716,31 +724,67 @@ export function initUI() {
 
     if (doseInValueEl) {
         makeEditable(doseInValueEl, (newValue) => {
-            doseInValueEl.textContent = `${newValue}g`;
-            updateDoseValue('in', newValue);
+            let value = newValue;
+            if (value > 30) {
+                alert('Dose weight is limited to 30g.');
+                value = 30;
+            }
+            if (value < 0) {
+                alert('Dose weight must be at least 0g.');
+                value = 0;
+            }
+            doseInValueEl.textContent = `${value}g`;
+            updateDoseValue('in', value);
             updateDrinkRatio();
         });
     }
 
     if (tempValueEl) {
         makeEditable(tempValueEl, (newValue) => {
-            tempValueEl.textContent = `${newValue}°c`;
-            updateTemperatureValue(newValue);
+            let value = Math.round(newValue); // Ensure it's an integer
+            if (value > 105) {
+                alert('Brew temperature is limited to 105°C.');
+                value = 105;
+            }
+            if (value < 0) {
+                alert('Brew temperature must be at least 0°C.');
+                value = 0;
+            }
+            tempValueEl.textContent = `${value}°c`;
+            updateTemperatureValue(value);
         });
     }
 
     if (drinkOutValueEl) {
         makeEditable(drinkOutValueEl, (newValue) => {
-            drinkOutValueEl.textContent = `${newValue}g`;
-            updateDoseValue('out', newValue);
+            let value = newValue;
+            if (value > 2000) {
+                alert('Drink weight is limited to 2000g.');
+                value = 2000;
+            }
+            if (value < 0) {
+                alert('Drink weight must be at least 0g.');
+                value = 0;
+            }
+            drinkOutValueEl.textContent = `${value}g`;
+            updateDoseValue('out', value);
             updateDrinkRatio();
         });
     }
 
     if (grindValueEl) {
         makeEditable(grindValueEl, (newValue) => {
-            grindValueEl.textContent = newValue.toFixed(1);
-            updateGrindValue(newValue);
+            let value = newValue;
+            if (value > 1000) {
+                alert('Grind setting is limited to 1000.');
+                value = 1000;
+            }
+            if (value < 0) {
+                alert('Grind setting must be at least 0.');
+                value = 0;
+            }
+            grindValueEl.textContent = value.toFixed(1);
+            updateGrindValue(value);
         });
     }
 
@@ -780,6 +824,15 @@ export function initUI() {
 
     if (flushValueEl) {
         makeEditable(flushValueEl, (newValue) => {
+            
+            if (newValue > 255) {
+                alert('Flush time is limited to 255s.');
+                newValue = 255;
+            }
+            if (newValue < 3) {
+                alert('Flush time must be at least 3s.');
+                newValue = 3;
+            }
             flushValueEl.textContent = `${newValue}s`;
             setDe1Settings({ flushTimeout: newValue }).catch(e => logger.error(e));
             updateFlushDisplay(newValue);
@@ -789,8 +842,18 @@ export function initUI() {
     const steamDurationValueEl = document.getElementById('steam-duration-value');
     if (steamDurationValueEl) {
         makeEditable(steamDurationValueEl, (newValue) => {
-            currentSteamDuration = newValue;
+            let value = newValue;
+            if (value > 255) {
+                alert('Steam time is limited to 255s.');
+                value = 255;
+            }
+            if (value < 0) {
+                alert('Steam time must be at least 0s.');
+                value = 0;
+            }
+            currentSteamDuration = value;
             setTargetSteamDuration(currentSteamDuration).catch(e => logger.error(e));
+            updateSteamDisplay({ targetSteamDuration: currentSteamDuration });
         });
     }
 
@@ -943,5 +1006,76 @@ export function updateDoseInDisplay(doseInValue) {
     const doseInValueEl = document.getElementById('dose-in-value');
     if (doseInValueEl && doseInValue) {
         doseInValueEl.textContent = `${doseInValue}g`;
+    }
+}
+
+// --- Fullscreen Handling ---
+
+function toggleFullScreen() {
+    const doc = window.document;
+    const docEl = doc.documentElement;
+
+    const requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
+    const cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+    // Check if fullscreen is active using vendor-prefixed properties
+    const isFullScreen = doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement;
+
+    if (!isFullScreen) {
+        if (requestFullScreen) {
+            requestFullScreen.call(docEl).catch(err => {
+                logger.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+            });
+        }
+    } else {
+        if (cancelFullScreen) {
+            cancelFullScreen.call(doc).catch(err => {
+                logger.error(`Error attempting to exit full-screen mode: ${err.message} (${err.name})`);
+            });
+        }
+    }
+}
+
+function updateFullscreenState() {
+    const isFullScreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+    
+    const enterIcon = document.querySelector('#fullscreen-toggle-btn .enter-fullscreen-icon');
+    const exitIcon = document.querySelector('#fullscreen-toggle-btn .exit-fullscreen-icon');
+
+    if (!enterIcon || !exitIcon) {
+        return; // Exit if icons aren't found
+    }
+
+    if (isFullScreen) {
+        document.body.setAttribute('fullscreen', '');
+        enterIcon.style.display = 'none';
+        exitIcon.style.display = 'block';
+    } else {
+        document.body.removeAttribute('fullscreen');
+        enterIcon.style.display = 'block';
+        exitIcon.style.display = 'none';
+    }
+}
+
+export function initFullscreenHandler() {
+    const fullscreenButton = document.getElementById('fullscreen-toggle-btn'); // Assuming a button with this ID exists
+
+    if (fullscreenButton) {
+        const fsEnabled = document.fullscreenEnabled || document.webkitFullscreenEnabled || document.mozFullScreenEnabled || document.msFullscreenEnabled;
+        
+        if (fsEnabled) {
+            fullscreenButton.addEventListener('click', toggleFullScreen);
+            
+            document.addEventListener('fullscreenchange', updateFullscreenState);
+            document.addEventListener('webkitfullscreenchange', updateFullscreenState);
+            document.addEventListener('mozfullscreenchange', updateFullscreenState);
+            document.addEventListener('MSFullscreenChange', updateFullscreenState);
+            
+            updateFullscreenState(); // Set initial state
+        } else {
+            fullscreenButton.style.display = 'none'; // Hide button if not supported
+        }
+    } else {
+        logger.warn('Fullscreen toggle button with id "fullscreen-toggle-btn" not found.');
     }
 }

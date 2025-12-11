@@ -1,4 +1,5 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, setDe1Settings, updateShotSettingsCache, getDe1Settings } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket,reconnectScale, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, setDe1Settings, updateShotSettingsCache, getDe1Settings, MachineState } from './api.js';
+import { initScaling } from './scaling.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import * as history from './history.js';
@@ -65,22 +66,22 @@ function handleData(data) {
     resetDataTimeout(); // Reset the timer every time data is received.
 
     const state = data.state.state;
-    let statusString = state;
+    let statusString = ui.formatStateForDisplay(state);
 
     // Detect DE1 reconnection
-    if (state !== 'error' && !isDe1Connected) {
+    if (state !== MachineState.ERROR && !isDe1Connected) {
         logger.info('DE1 machine reconnected. Loading initial data.');
         isDe1Connected = true;
         loadInitialData(); // Refresh all configuration data
         // Do not clear chart or reset shotStartTime as per user request
-    } else if (state === 'error' && isDe1Connected) {
+    } else if (state === MachineState.ERROR && isDe1Connected) {
         logger.warn('DE1 machine connected with error status.');
         // isDe1Connected = false;
         // ui.updateMachineStatus("Disconnected"); // Removed: Let the main logic handle it
     }
 
     // Check for shot completion (transition from 'espresso' to 'ready' or 'idle')
-    if (previousMachineState === 'espresso' && (state === 'ready' || state === 'idle')) {
+    if (previousMachineState === MachineState.ESPRESSO && (state === MachineState.READY || state === MachineState.IDLE)) {
 
         logger.info('Shot finished. Refreshing history.',previousMachineState);
         setTimeout(() => {
@@ -91,9 +92,9 @@ function handleData(data) {
     //logger.info("previousMachineState",previousMachineState)
     // New condition: If REA is running but not connected to the machine
     // Infer this if state is 'error'
-    if (state === 'error') {
+    if (state === MachineState.ERROR) {
         statusString = "Error";
-    } else if (state === 'heating') {
+    } else if (state === MachineState.HEATING) {
         const currentGroupTemp = data.groupTemperature;
         const targetGroupTemp = data.targetGroupTemperature;
         statusString = `Heating... (Group: ${currentGroupTemp.toFixed(0)}°c / ${targetGroupTemp.toFixed(0)}°c)`;
@@ -105,7 +106,7 @@ function handleData(data) {
     ui.updateTemperatures({ mix: data.mixTemperature, group: data.groupTemperature, steam: data.steamTemperature });
 
     // Update Chart and Shot Data Table
-    if (['espresso', 'flush', 'steam', 'hotWater'].includes(state)) {
+    if ([MachineState.ESPRESSO, MachineState.FLUSH, MachineState.STEAM, MachineState.HOT_WATER].includes(state)) {
         if (!shotStartTime) {
             shotStartTime = new Date(data.timestamp);
             chart.clearChart();
@@ -256,6 +257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         logger.info('App DOMContentLoaded: Chart initialized.');
 
         ui.initUI();
+        initScaling();
         logger.info('App DOMContentLoaded: UI initialized.');
 
         logger.info('App DOMContentLoaded: Awaiting History module...');

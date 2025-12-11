@@ -106,3 +106,7 @@ This is where the application comes to life.
 
 4.  **Testing and Debugging:**
     *   Thoroughly test all UI interactions and data flows. Browser developer tools will be essential for debugging both the UI and the Web Bluetooth communication.
+
+
+
+

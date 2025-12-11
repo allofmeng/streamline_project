@@ -62,7 +62,7 @@ const chartData = {
         name: 'Weight',
         type: 'lines',
         mode: 'lines',
-        line: { color: '#e9d3c3' }, // light mode
+        line: { color: '#D8BDA8' }, // light mode
         hoverinfo: 'name'
     }
 };
@@ -117,7 +117,23 @@ const darkLayout = {
     showlegend: false,
 };
 
+const labelColors = {
+    light: {
+        pressure: '#17c29a',
+        flow: '#0358cf',
+        groupTemperature: '#ff97a1',
+        weight: '#C7A58D'
+    },
+    dark: {
+        pressure: '#17c29a',
+        flow: '#0358cf',
+        groupTemperature: '#ff97a1',
+        weight: '#695f57'
+    }
+};
+
 function getAnnotations() {
+    const theme = localStorage.getItem('theme') || 'light';
     const annotations = [];
     const labelCandidates = [];
 
@@ -132,7 +148,7 @@ function getAnnotations() {
                 name: trace.name,
                 x: trace.x[trace.x.length - 1],
                 y: trace.y[trace.y.length - 1],
-                color: trace.line.color
+                color: (labelColors[theme] && labelColors[theme][traceName]) ? labelColors[theme][traceName] : trace.line.color
             });
         }
     }

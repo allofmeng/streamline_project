@@ -1,9 +1,33 @@
 import * as ui from './ui.js';
 import { logger ,setDebug} from './logger.js';
 
-const REA_PORT = 8080;
+export const REA_PORT = 8080;
 export const API_BASE_URL = `http://${window.location.hostname}:${REA_PORT}/api/v1`;
-const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+export const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+export const MachineState = {
+    BOOTING: 'booting',
+    BUSY: 'busy',
+    IDLE: 'idle',
+    SLEEPING: 'sleeping',
+    HEATING: 'heating',
+    PREHEATING: 'preheating',
+    ESPRESSO: 'espresso',
+    HOT_WATER: 'hotWater',
+    FLUSH: 'flush',
+    STEAM: 'steam',
+    STEAM_RINSE: 'steamRinse',
+    SKIP_STEP: 'skipStep',
+    CLEANING: 'cleaning',
+    DESCALING: 'descaling',
+    CALIBRATION: 'calibration',
+    SELF_TEST: 'selfTest',
+    AIR_PURGE: 'airPurge',
+    NEEDS_WATER: 'needsWater',
+    ERROR: 'error',
+    FW_UPGRADE: 'fwUpgrade',
+    READY: 'ready', // Note: Not in the official API doc, but used in app.js for shot completion logic
+};
 
 export let reconnectingWebSocket = null; // Exporting for app.js access
 let scaleWebSocket = null;

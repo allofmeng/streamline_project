@@ -226,6 +226,20 @@ Enables or disables the USB charger mode on the DE1 machine.
 
 ---
 
+#### **POST /api/v1/de1/waterLevels**
+
+*Set Water Level Threshold*
+
+Sets the water level warning threshold. Only the `warningThresholdPercentage` field from the request body is used.
+
+**Request Body:**
+- `application/json`: A `WaterLevels` object. Example: `{"warningThresholdPercentage": 20}`
+
+**Responses:**
+- `202 Accepted`: Levels updated.
+
+---
+
 #### **POST /api/v1/de1/firmware**
 
 *Push new firmware to the De1*
@@ -387,13 +401,86 @@ You can update only specific fields, like `doseData` or `grinderData`, or `profi
 
 ---
 
+### Key-Value Store
+
+Provides a simple key-value store for clients, organized by namespace.
+
+#### **GET /api/v1/store/{namespace}**
+
+*List Keys in Namespace*
+
+Retrieves a list of all keys within a specified namespace.
+
+**Parameters:**
+- `namespace` (path, required): The namespace to query.
+
+**Responses:**
+- `200 OK`: An array of key strings.
+
+---
+
+#### **GET /api/v1/store/{namespace}/{key}**
+
+*Get Value by Key*
+
+Retrieves the JSON value for a given key in a namespace.
+
+**Parameters:**
+- `namespace` (path, required): The namespace.
+- `key` (path, required): The key.
+
+**Responses:**
+- `200 OK`: The JSON value.
+- `404 Not Found`: Key not found.
+
+---
+
+#### **POST /api/v1/store/{namespace}/{key}**
+
+*Set Key-Value Pair*
+
+Sets or updates a key with a JSON value within a namespace.
+
+**Parameters:**
+- `namespace` (path, required): The namespace.
+- `key` (path, required): The key.
+
+**Request Body:**
+- `application/json`: Any valid JSON object.
+
+**Responses:**
+- `204 No Content`: Successfully stored.
+
+---
+
+#### **DELETE /api/v1/store/{namespace}/{key}**
+
+*Delete Key*
+
+Deletes a key-value pair from a namespace.
+
+**Parameters:**
+- `namespace` (path, required): The namespace.
+- `key` (path, required): The key to delete.
+
+**Responses:**
+- `200 OK`: Key deleted.
+- `404 Not Found`: Key not found.
+
+---
+
 #### **GET /api/v1/shots**
 
 *Get a list of shots stored by REA*
-*Or single shot using id *
-#### **GET /api/v1/shots?ids=**
-see example below 
-http://localhost:8080/api/v1/shots?ids=2025-09-17T11%3A48%3A55.863366
+
+Retrieves a list of shots. Can be filtered by a list of shot IDs.
+
+**Query Parameters:**
+- `ids` (optional): A comma-separated list of shot identifiers to retrieve.
+
+**Example:**
+`http://localhost:8080/api/v1/shots?ids=2025-09-17T11%3A48%3A55.863366`
+
 **Responses:**
 - `200 OK`: Returns an array of `ShotRecord` objects.
 
@@ -405,10 +492,9 @@ http://localhost:8080/api/v1/shots?ids=2025-09-17T11%3A48%3A55.863366
 *Get a list of identifiers of all the shots stored by REA*
 
 **Responses:**
-- `200 OK`: Returns an array of `ShotRecord` objects.
+- `200 OK`: Returns an array of shot ID strings.
 
 ---
-
 
 ## WebSocket API (AsyncAPI)
 
@@ -433,11 +519,11 @@ state	{
 state	MachineStateMachineStatestring
 example: espresso
 Enum:
-[ idle, booting, sleeping, heating, preheating, espresso, hotWater, flush, steam, skipStep, cleaning, descaling, transportMode, needsWater, error ]
+[ booting, busy, idle, sleeping, heating, preheating, espresso, hotWater, flush, steam, steamRinse, skipStep, cleaning, descaling, calibration, selfTest, airPurge, needsWater, error, fwUpgrade ]
 substate	MachineSubstate string
 example: preparingForShot
 Enum:
-[ idle, preparingForShot, preinfusion, pouring, pouringDone, cleaningStart, cleaingGroup, cleanSoaking, cleaningSteam ]
+[ idle, preparingForShot, preinfusion, pouring, pouringDone, cleaningStart, cleaingGroup, cleanSoaking, cleaningSteam, errorNaN, errorInf, errorGeneric, errorAcc, errorTSensor, errorPSensor, errorWLevel, errorDip, errorAssertion, errorUnsafe, errorInvalidParam, errorFlash, errorOOM, errorDeadline, errorHiCurrent, errorLoCurrent, errorBootFill, errorNoAC ]
 }
 flow	number
 pressure	number

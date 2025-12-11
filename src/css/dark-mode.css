@@ -1,4 +1,11 @@
+:root {
+    --text-primary: #121212;
+    --border-color: #d6d3d1; /* stone-300 */
+}
+
 [data-theme="dark"] {
+    --text-primary: #E0E0E0;
+    --border-color: #374151; /* gray-700 */
     --mimoja-blue-v2: #415996;
     --mimoja-blue: #292c38;
     --low-contrast-white: #959595;

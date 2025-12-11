@@ -1,0 +1,1010 @@
+openapi: 3.0.3
+info:
+  title: Rea Prime Rest API
+  version: 1.0.0
+  description: |
+    This API provides endpoints to retrieve a list of Bluetooth devices, trigger a scan for new devices, manage DE1 espresso machine state and settings, and interact with a connected scale.
+servers:
+  - url: http://{tablet-ip}
+    variables:
+      tablet-ip:
+        default: localhost
+
+paths:
+  /api/v1/devices:
+    get:
+      summary: Get Available Devices
+      description: Retrieves a list of available devices with their connection states.
+      tags: [Devices]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    id:
+                      type: string
+                    state:
+                      type: string
+                      enum: [connected, disconnected]
+                    type:
+                      type: string
+                      enum: [machine, scale, sensor]
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/devices/scan:
+    get:
+      summary: Scan for Devices
+      description: Triggers a device scan.
+      tags: [Devices]
+      parameters:
+        - name: connect
+          description: whether REA should automatically connect to discovered devices while scanning (applies for scales). Default is 'false'
+          in: query
+          schema:
+            type: boolean
+        - name: quick
+          description: If this flag is set to true, REA will return immediately after calling this function, returning an empty array. Useful if you want to poll for new devices manually
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Scan started successfully
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/devices/connect:
+    put:
+      summary: Connect to specified device
+      tags: [Devices]
+      parameters:
+        - name: deviceId
+          description: The id of the device, previously discovered with /api/v1/devices/scan request
+          in: query
+          required: true
+          schema: 
+            type: string
+      responses:
+        "200":
+          description: "Device connected successfully"
+
+
+  # DE1 specific API
+  /api/v1/de1/state:
+    get:
+      summary: Get DE1 State
+      description: Retrieves the current DE1 machine state.
+      tags: [DE1]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MachineSnapshot"
+  /api/v1/de1/state/{newState}:
+    put:
+      summary: Request DE1 State Change
+      description: Requests a state change for the DE1 espresso machine.
+      tags: [DE1]
+      parameters:
+        - name: newState
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/MachineState"
+      responses:
+        "200":
+          description: State change successful
+        "400":
+          description: Bad Request
+  /api/v1/de1/profile:
+    post:
+      summary: Set DE1 Profile
+      description: Uploads a new brewing profile to the DE1 machine.
+      tags: [DE1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Profile"
+      responses:
+        "200":
+          description: Profile updated successfully
+  /api/v1/de1/shotSettings:
+    post:
+      summary: Update Shot Settings
+      description: Updates shot settings on the DE1 espresso machine.
+      tags: [DE1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShotSettings"
+      responses:
+        "200":
+          description: Shot settings updated successfully
+  /api/v1/de1/settings:
+    get:
+      summary: Get De1 settings
+      description: pulls additional settings from the De1
+      tags: [DE1]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/De1SettingsResponse"
+    post:
+      summary: Set De1 settings
+      description: set additional settings on the De1, each setting can be set individually
+      tags: [DE1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/De1SettingsRequest"
+      responses:
+        "200":
+          description: Settings update successful
+
+  /api/v1/de1/settings/advanced:
+    get:
+      summary: Get advanced De1 settings
+      description: Get additional advanced De1 settings
+      tags: [DE1]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/De1AdvancedSettingsResponse"
+    post:
+      summary: Set advanced De1 settings
+      description: Set advanced settings on the De1, each setting can be sent separately
+      tags: [DE1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/De1AdvancedSettingsRequest"
+      responses:
+        "200":
+          description: Advanced settings updated successfully
+
+  /api/v1/de1/usb/{state}:
+    put:
+      summary: Toggle USB Charger Mode
+      description: Enables or disables the USB charger mode on the DE1 machine.
+      tags: [DE1]
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [enable, disable]
+      responses:
+        "200":
+          description: USB mode updated successfully
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/de1/waterLevels:
+    post:
+      summary: Set new water level threshold, only the warningThresholdPercentage field is important here
+      tags: [DE1]
+      requestBody:
+        required: true
+        content: 
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaterLevels"
+      responses:
+        "202":
+          description: Levels updated
+
+  /api/v1/de1/firmware:
+    post:
+      summary: Push new firmware to the De1
+      description: Send a firmware file to De1, the call will wait until the firmware upgrade is complete (which might be a long time)
+      tags: [DE1]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+      responses:
+        "200":
+          description: Firmware update successful. Need to restart De1 to load new firmware
+        "500":
+          description: Something went wrong during the firmware upgrade process. Check the response and Rea logs
+
+  # Scale API
+  /api/v1/scale/tare:
+    put:
+      summary: Tare Scale
+      description: Tares the connected scale.
+      tags: [Scale]
+      responses:
+        "200":
+          description: Scale tared successfully
+        "404":
+          description: Scale not found
+
+  # Sensors API handling
+  /api/v1/sensors:
+    get:
+      summary: Get a list of sensor devices connected to Rea
+      description: Will show all the sensors and their ids, that are currently connected and available through Rea
+      tags: [Sensors]
+      responses:
+        "200":
+          description: List of available sensors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    info:
+                      $ref: "#/components/schemas/SensorManifest"
+
+  /api/v1/sensors/{id}:
+    get:
+      summary: Get full manifest for a sensor
+      tags: [Sensors]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full sensor manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SensorManifest"
+        "404":
+          description: Sensor not found
+
+  /api/v1/sensors/{id}/execute:
+    post:
+      summary: Execute a sensor command
+      tags: [Sensors]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                commandId:
+                  type: string
+                params:
+                  type: object
+                  nullable: true
+      responses:
+        "200":
+          description: Sensor executed command
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                  result:
+                    type: object
+                    nullable: true
+        "404":
+          description: Sensor not found
+
+  # REA settings API
+  /api/v1/settings:
+    get:
+      summary: Get Rea settings
+      tags: [REA Settings]
+      responses:
+        "200":
+          description: Rea settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReaSettings"
+    post:
+      summary: Update Rea settings
+      tags: [REA Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReaSettingsRequest"
+      responses:
+        "200":
+          description: Rea settings updated successfully
+
+  # REA Workflow API
+  /api/v1/workflow:
+    get:
+      summary: Get info about current workflow
+      tags: [Workflow]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRequest"
+    put:
+      summary: Set or update current workflow
+      tags: [Workflow]
+      description: You can update only specific fields, like doseData or grinderData, or profile etc.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowRequest"
+      responses:
+        "200":
+          description: Returns the new workflow object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRequest"
+
+  # REA Shot history API
+  /api/v1/shots:
+    get:
+      summary: Get a list of shots stored by REA
+      tags: [Shots History]
+      parameters:
+        - in: query
+          name: ids
+          description: identifiers of the shots, comma separated
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ShotRecord"
+  /api/v1/shots/ids:
+    get:
+      summary: Get a list of identifiers of all the shots
+      tags: [Shots History]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  # REA Key-Value Store for clients
+  /api/v1/store/{namespace}:
+    get:
+      summary: Get a list of all the keys in the specified key value namespace
+      tags: [Key value store]
+      parameters:
+        - name: namespace
+          value: default
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Array of keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/v1/store/{namespace}/{key}:
+    get:
+      summary: Get value for a key
+      tags: [Key value store]
+      parameters:
+        - name: namespace
+          value: default
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: JSON value stored under the key
+          content:
+            application/json:
+              schema: {}
+        "404":
+          description: Key not found
+
+    post:
+      summary: Set value for a key
+      tags: [Key value store]
+      parameters:
+        - name: namespace
+          value: default
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "204":
+          description: Successfully stored
+
+    delete:
+      summary: Delete key
+      tags: [Key value store]
+      parameters:
+        - name: namespace
+          value: default
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "404":
+          description: Key not found
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        e:
+          type: string
+        st:
+          type: string
+    ScaleSnapshot:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        weight:
+          type: number
+        batteryLevel:
+          type: integer
+    MachineSnapshot:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        state:
+          type: object
+          properties:
+            state:
+              $ref: "#/components/schemas/MachineState"
+            substate:
+              $ref: "#/components/schemas/MachineSubstate"
+        flow:
+          type: number
+        pressure:
+          type: number
+          example: 6.2
+        targetFlow:
+          type: number
+        targetPressure:
+          type: number
+        mixTemperature:
+          type: number
+        groupTemperature:
+          type: number
+        targetMixTemperature:
+          type: number
+        targetGroupTemperature:
+          type: number
+        profileFrame:
+          type: integer
+        steamTemperature:
+          type: number
+    MachineState:
+      type: string
+      enum:
+        [
+          booting,
+          busy,
+          idle,
+          sleeping,
+          heating,
+          preheating,
+          espresso,
+          hotWater,
+          flush,
+          steam,
+          steamRinse,
+          skipStep,
+          cleaning,
+          descaling,
+          calibration,
+          selfTest,
+          airPurge,
+          needsWater,
+          error,
+          fwUpgrade,
+        ]
+      example: espresso
+    MachineSubstate:
+      type: string
+      enum:
+        [
+          idle,
+          preparingForShot,
+          preinfusion,
+          pouring,
+          pouringDone,
+          cleaningStart,
+          cleaingGroup,
+          cleanSoaking,
+          cleaningSteam,
+          errorNaN,
+          errorInf,
+          errorGeneric,
+          errorAcc,
+          errorTSensor,
+          errorPSensor,
+          errorWLevel,
+          errorDip,
+          errorAssertion,
+          errorUnsafe,
+          errorInvalidParam,
+          errorFlash,
+          errorOOM,
+          errorDeadline,
+          errorHiCurrent,
+          errorLoCurrent,
+          errorBootFill,
+          errorNoAC,
+
+        ]
+      example: preparingForShot
+    Profile:
+      type: object
+      properties:
+        version:
+          type: string
+        title:
+          type: string
+        notes:
+          type: string
+        author:
+          type: string
+        beverage_type:
+          type: string
+        steps:
+          type: array
+          items:
+            type: object
+        target_volume:
+          type: number
+        target_weight:
+          type: number
+        target_volume_count_start:
+          type: integer
+        tank_temperature:
+          type: number
+    ShotSettings:
+      type: object
+      properties:
+        steamSetting:
+          type: integer
+          nullable: false
+        targetSteamTemp:
+          type: integer
+          nullable: false
+        targetSteamDuration:
+          type: integer
+          nullable: false
+        targetHotWaterTemp:
+          type: integer
+          nullable: false
+        targetHotWaterVolume:
+          type: integer
+          nullable: false
+        targetHotWaterDuration:
+          type: integer
+          nullable: false
+        targetShotVolume:
+          type: integer
+          nullable: false
+        groupTemp:
+          type: number
+          nullable: false
+    WaterLevels:
+      type: object
+      properties:
+        currentPercentage:
+          type: integer
+        warningThresholdPercentage:
+          type: integer
+    De1SettingsRequest:
+      type: object
+      properties:
+        usb:
+          type: boolean
+          nullable: true
+        fan:
+          type: integer
+          nullable: true
+        flushTemp:
+          type: integer
+          nullable: true
+        flushFlow:
+          type: number
+          nullable: true
+        flushTimeout:
+          type: integer
+          nullable: true
+        hotWaterFlow:
+          type: number
+          nullable: true
+        steamFlow:
+          type: number
+          nullable: true
+        tankTemp:
+          type: integer
+          nullable: true
+    De1SettingsResponse:
+      type: object
+      properties:
+        usb:
+          type: boolean
+        fan:
+          type: integer
+        flushTemp:
+          type: integer
+        flushFlow:
+          type: number
+        flushTimeout:
+          type: integer
+        hotWaterFlow:
+          type: number
+        steamFlow:
+          type: number
+        tankTemp:
+          type: integer
+    De1AdvancedSettingsRequest:
+      type: object
+      properties:
+        heaterPh1Flow:
+          description: Heater phase 1 flow (when heating up for shot)
+          type: number
+          nullable: true
+        heaterPh2Flow:
+          description: Heater phase 2 flow (when heating up for shot)
+          type: number
+          nullable: true
+        heaterIdleTemp:
+          description: Heater idle temperature
+          type: number
+          nullable: true
+        heaterPh2Timeout:
+          description: Heater phase 2 timeout in seconds (how long should de1 try to stabilize temperature)
+          type: integer
+          nullable: true
+    De1AdvancedSettingsResponse:
+      type: object
+      properties:
+        heaterPh1Flow:
+          description: Heater phase 1 flow (when heating up for shot)
+          type: number
+        heaterPh2Flow:
+          description: Heater phase 2 flow (when heating up for shot)
+          type: number
+        heaterIdleTemp:
+          description: Heater idle temperature
+          type: number
+        heaterPh2Timeout:
+          description: Heater phase 2 timeout in seconds (how long should de1 try to stabilize temperature)
+          type: integer
+    De1RawMessage:
+      type: object
+      required:
+        - type
+        - operation
+        - characteristicUUID
+        - payload
+      properties:
+        type:
+          $ref: "#/components/schemas/De1RawMessageType"
+        operation:
+          $ref: "#/components/schemas/De1RawOperationType"
+        characteristicUUID:
+          type: string
+          description: UUID of the characteristic (len = 4).
+        payload:
+          type: string
+          description: The data payload as a hex string.
+
+    De1RawMessageType:
+      type: string
+      enum:
+        - request
+        - response
+      description: Type of raw message indicating whether it's a request or response.
+
+    De1RawOperationType:
+      type: string
+      enum:
+        - read
+        - write
+        - notify
+      description: Operation type indicating the nature of the raw message.
+
+    ReaSettingsRequest:
+      type: object
+      properties:
+        gatewayMode:
+          description: Control whether Rea acts as gateway. Disabled means gateway is disabled, full means full gateway mode. Tracking means rea will not show graphs, but will control the shot (stop at weight)
+          type: string
+          enum: ["disabled", "full", "tracking"]
+          nullable: true
+        webUiPath:
+          description: Set a path on local filesystem, from which REA will serve the webUI
+          type: string
+          nullable: true
+        logLevel:
+          description: Current REA log level
+          type: string
+          enum: [ALL,FINEST,FINER,FINE,CONFIG,INFO,WARNING,SEVERE,SHOUT,OFF]
+          nullable: true
+
+    ReaSettings:
+      type: object
+      properties:
+        gatewayMode:
+          description: Control whether Rea acts as gateway. Disabled means gateway is disabled, full means full gateway mode. Tracking means rea will not show graphs, but will control the shot (stop at weight)
+          type: string
+          enum: ["disabled", "full", "tracking"]
+        webUiPath:
+          description: Path of the currently served folder on the filesystem, if enabled
+          type: string
+        logLevel:
+          description: Current REA log level
+          type: string
+          enum: [ALL,FINEST,FINER,FINE,CONFIG,INFO,WARNING,SEVERE,SHOUT,OFF]
+
+    SensorManifest:
+      type: object
+      required:
+        - id
+        - dataChannels
+      properties:
+        id:
+          type: string
+          description: Unique sensor ID
+          example: "sensor:acme:tempflow:001"
+        name:
+          type: string
+          example: "Acme Temp+Flow v1"
+        vendor:
+          type: string
+          example: "Acme"
+        dataChannels:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataChannel"
+        commands:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandDescriptor"
+
+    DataChannel:
+      type: object
+      required:
+        - key
+        - type
+      properties:
+        key:
+          type: string
+          example: "temperature"
+        type:
+          type: string
+          enum: ["number", "integer", "string", "boolean", "object", "array"]
+          example: "number"
+        unit:
+          type: string
+          example: "°C"
+
+    CommandDescriptor:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          example: "calibrate"
+        name:
+          nullable: true
+          type: string
+          example: "Calibrate sensor"
+        description:
+          nullable: true
+          type: string
+          example: "Run auto-calibration routine."
+        paramsSchema:
+          type: object
+          additionalProperties: true
+          example:
+            type: object
+            properties:
+              mode:
+                type: string
+                enum: ["quick", "full"]
+            required: ["mode"]
+        resultSchema:
+          type: object
+          additionalProperties: true
+          example:
+            type: object
+            properties:
+              success:
+                type: boolean
+              message:
+                type: string
+
+    SensorSnapshot:
+      type: object
+      required:
+        - values
+
+    WorkflowRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        profile:
+          $ref: "#/components/schemas/Profile"
+        doseData:
+          $ref: "#/components/schemas/DoseData"
+        grinderData:
+          $ref: "#/components/schemas/GrinderData"
+        coffeeData:
+          $ref: "#/components/schemas/CoffeeData"
+
+    DoseData:
+      type: object
+      required:
+        - doseIn
+        - doseOut
+      properties:
+        doseIn:
+          type: number
+        doseOut:
+          type: number
+
+    GrinderData:
+      type: object
+      required:
+        - setting
+      properties:
+        setting:
+          type: string
+        manufacturer:
+          type: string
+        model:
+          type: string
+
+    CoffeeData:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        roaster:
+          type: string
+
+    ShotRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+        measurements:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShotSnapshot"
+        workflow:
+          $ref: "#/components/schemas/WorkflowRequest"
+
+    ShotSnapshot:
+      type: object
+      properties:
+        machine:
+          $ref: "#/components/schemas/MachineSnapshot"
+        scale:
+          $ref: "#/components/schemas/WeightSnapshot"
+
+    WeightSnapshot:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        weight:
+          type: number
+        weightFlow:
+          type: number
+        batteryLevel:
+          type: integer

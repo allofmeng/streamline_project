@@ -278,14 +278,14 @@ The two primary font families used are `Inter` and a monospace font `mono`.
 
 Button sizes in `skin.tcl` are defined by absolute coordinates. For the HTML/CSS rewrite, these should be treated as guidelines for responsive design.
 
-| Button Type                          | Typical Dimensions (Width x Height in px) | Notes                                                                            |
+| Button Type                          | Typical Dimensions (Width x Height in px on 2560*1600) | Notes                                                                            |
 | ------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
-| **Top Profile Favorites Buttons**    | ~100-148px x ~48px                        | (Derived from current HTML implementation: `min-w-20 max-w-40 h-12` is 80-160px x 48px in Tailwind/rem units) |
+| **Top Profile Favorites Buttons** |  320*120 px 
 | **Large Control Buttons** (Header/Footer actions) | ~630px x ~80px (e.g., settings button area)     | Buttons like the large settings/off page button.                                 |
-| **History Navigation Buttons**       | ~100px x ~320px                           | Left/Right arrows for shot history.                                              |
-| **Left Sidebar Setting Buttons**     | ~100px x ~80px                            | Buttons for adjusting Grind, Dose, Temp, Steam, Flush, Hot Water values.         |
+| **History Navigation Buttons**       | ~54px x ~54px                           | Left/Right arrows for shot history.                                              |
+| **Left Sidebar Setting Buttons**     | ~96px x ~96px                            | Buttons for adjusting Grind, Dose, Temp, Steam, Flush, Hot Water values.         |
 | **Left Sidebar Preset Buttons**      | ~148px x ~62px                            | Smaller buttons for quick selection of presets (e.g., 18:36, 75°c).              |
-| **Mode Toggle Areas** (Hot Water/Steam) | ~222px x ~109-122px                       | Area for toggling between Time/Flow or Temp/Vol display/control.                 |                                                                                              
+| **Mode Toggle Areas** (Hot Water/Steam) | 176px x ~31px                       | Area for toggling between Time/Flow or Temp/Vol display/control.                 |                                                                                              
                                                                                                                                                                                                 
 #### Dark Mode                                                                                                                                                                                  
                                                                                                                                                                                                 
