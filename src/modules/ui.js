@@ -924,20 +924,17 @@ export function updateMachineStatus(status) {
     const machineStatusEl = document.getElementById('machine-status');
     if (machineStatusEl) {
         machineStatusEl.textContent = status;
-        if (status === "Disconnected") {
+
+        // Set color based on status
+        if (status === "Disconnected" || status === "Error" || status.startsWith('Heating')) {
             machineStatusEl.classList.remove('text-[var(--green)]');
             machineStatusEl.classList.add('text-red-500');
-         if (status === '"Error"') {
-            machineStatusEl.classList.remove('text-[var(--green)]');
-            machineStatusEl.classList.add('text-red-500');
-        }
         } else {
             machineStatusEl.classList.remove('text-red-500');
             machineStatusEl.classList.add('text-[var(--green)]');
         }
     }
 }
-
 export function updateTemperatures({ mix, group, steam }) {
     const mixTempEl = document.getElementById('data-mix-temp');
     const groupTempEl = document.getElementById('data-group-temp');

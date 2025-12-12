@@ -21,7 +21,7 @@ let dataTimeout;
 let de1DeviceId = null;
 let isDe1Connected = false; // New variable to track DE1 connection status
 let isScaleConnected = false; // New variable to track Scale connection status
-let previousMachineState = null; // Track previous machine state
+let previousState = {}; // Track previous machine state object {state, substate}
 let scaleReconnectPoller = null;
 let latestScaleWeight = 0;
 let heatingStartTime = null;
@@ -50,6 +50,10 @@ function resetDataTimeout() {
     }, 5000); // 5-second timeout
 }
 
+function isHeatingState(state, substate) {
+    return state === MachineState.HEATING || (state === MachineState.IDLE && substate === 'preparingForShot');
+}
+
 function stopScaleReconnectPolling() {
     if (scaleReconnectPoller) {
         logger.info('Stopping scale reconnect polling.');
@@ -76,10 +80,12 @@ function handleData(data) {
     resetDataTimeout(); // Reset the timer every time data is received.
 
     const { state, substate } = data.state;
+    const wasHeating = isHeatingState(previousState.state, previousState.substate);
+    const isHeating = isHeatingState(state, substate);
     let statusString;
 
     // Reset heating timer if state changes FROM heating
-    if (previousMachineState === MachineState.HEATING && state !== MachineState.HEATING) {
+    if (wasHeating && !isHeating) {
         heatingStartTime = null;
         heatingStartTemp = 0;
     }
@@ -87,12 +93,12 @@ function handleData(data) {
     // Determine the status string based on state and substate
     if (state === MachineState.ERROR) {
         statusString = "Error";
-    } else if (state === MachineState.HEATING) {
+    } else if (isHeating) {
         const targetGroupTemp = data.targetGroupTemperature;
         const currentGroupTemp = data.groupTemperature;
 
         // If we just entered heating state, record start time and temp.
-        if (previousMachineState !== MachineState.HEATING) {
+        if (!wasHeating) {
             heatingStartTime = Date.now();
             heatingStartTemp = currentGroupTemp;
         }
@@ -111,7 +117,7 @@ function handleData(data) {
                 if (eta < 5) eta = 5;
                 if (eta > 600) eta = 600; 
 
-                statusString = `Heating... (Time Remaining: ${eta}s)`;
+                statusString = `Heating Time Remaining : ${eta}s`;
             } else {
                 // Not enough data for ETA yet, show temp progress
                 statusString = `Heating... (${currentGroupTemp.toFixed(0)}°c / ${targetGroupTemp.toFixed(0)}°c)`;
@@ -143,14 +149,13 @@ function handleData(data) {
     }
 
     // Check for shot completion (transition from 'espresso' to 'ready' or 'idle')
-    if (previousMachineState === MachineState.ESPRESSO && (state === MachineState.READY || state === MachineState.IDLE)) {
-
-        logger.info('Shot finished. Refreshing history.',previousMachineState);
+    if (previousState.state === MachineState.ESPRESSO && (state === MachineState.READY || state === MachineState.IDLE)) {
+        logger.info('Shot finished. Refreshing history.', previousState);
         setTimeout(() => {
             history.initHistory();
         }, 5000);
     }
-    previousMachineState = state; // Update previous state
+    previousState = data.state; // Update previous state
 
     // Update UI elements
     ui.updateMachineStatus(statusString);
