@@ -476,7 +476,7 @@ export async function setValueInStore(namespace, key, value) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(value),
         });
-        if (response.status !== 204) {
+        if (!response.ok) {
             throw new Error(`API Error: ${response.status}`);
         }
         logger.info('setValueInStore ok');

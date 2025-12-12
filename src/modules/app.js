@@ -8,6 +8,14 @@ import * as profileManager from './profileManager.js';
 import { initWaterTankSocket } from './waterTank.js';
 import { logger, setDebug } from './logger.js';
 
+// Helper function to format state strings
+function formatStateString(text) {
+    if (!text) return '';
+    // "camelCase" -> "Camel Case"
+    const result = text.replace(/([A-Z])/g, ' $1');
+    return result.charAt(0).toUpperCase() + result.slice(1).trim();
+}
+
 let shotStartTime = null;
 let dataTimeout;
 let de1DeviceId = null;
@@ -16,6 +24,8 @@ let isScaleConnected = false; // New variable to track Scale connection status
 let previousMachineState = null; // Track previous machine state
 let scaleReconnectPoller = null;
 let latestScaleWeight = 0;
+let heatingStartTime = null;
+let heatingStartTemp = 0;
 
 // To filter the chart to only show data from the 'pouring' state,
 // set this variable to true in your browser's developer console.
@@ -65,8 +75,60 @@ function handleData(data) {
     //logger.debug("handleData received new snapshot.");
     resetDataTimeout(); // Reset the timer every time data is received.
 
-    const state = data.state.state;
-    let statusString = ui.formatStateForDisplay(state);
+    const { state, substate } = data.state;
+    let statusString;
+
+    // Reset heating timer if state changes FROM heating
+    if (previousMachineState === MachineState.HEATING && state !== MachineState.HEATING) {
+        heatingStartTime = null;
+        heatingStartTemp = 0;
+    }
+
+    // Determine the status string based on state and substate
+    if (state === MachineState.ERROR) {
+        statusString = "Error";
+    } else if (state === MachineState.HEATING) {
+        const targetGroupTemp = data.targetGroupTemperature;
+        const currentGroupTemp = data.groupTemperature;
+
+        // If we just entered heating state, record start time and temp.
+        if (previousMachineState !== MachineState.HEATING) {
+            heatingStartTime = Date.now();
+            heatingStartTemp = currentGroupTemp;
+        }
+
+        const togo = targetGroupTemp - currentGroupTemp;
+
+        if (togo > 0.5 && heatingStartTime && currentGroupTemp > heatingStartTemp) {
+            const elapsed = (Date.now() - heatingStartTime) / 1000; // seconds
+            const warmed = currentGroupTemp - heatingStartTemp;
+
+            // Only calculate ETA if we've warmed at least 0.5 degree and 2s passed to get a stable rate
+            if (warmed > 0.5 && elapsed > 2) {
+                const timePerDegree = elapsed / warmed;
+                let eta = Math.round(timePerDegree * togo);
+
+                if (eta < 5) eta = 5;
+                if (eta > 600) eta = 600; 
+
+                statusString = `Heating... (Time Remaining: ${eta}s)`;
+            } else {
+                // Not enough data for ETA yet, show temp progress
+                statusString = `Heating... (${currentGroupTemp.toFixed(0)}°c / ${targetGroupTemp.toFixed(0)}°c)`;
+            }
+        } else {
+             statusString = `Heating... (${currentGroupTemp.toFixed(0)}°c / ${targetGroupTemp.toFixed(0)}°c)`;
+        }
+    } else {
+        const formattedState = formatStateString(state);
+        const formattedSubstate = formatStateString(substate);
+        statusString = formattedState;
+
+        // Append substate if it's meaningful and not redundant
+        if (formattedSubstate && formattedSubstate.toLowerCase() !== 'idle' && formattedSubstate.toLowerCase() !== formattedState.toLowerCase()) {
+            statusString += ` (${formattedSubstate})`;
+        }
+    }
 
     // Detect DE1 reconnection
     if (state !== MachineState.ERROR && !isDe1Connected) {
@@ -89,16 +151,6 @@ function handleData(data) {
         }, 5000);
     }
     previousMachineState = state; // Update previous state
-    //logger.info("previousMachineState",previousMachineState)
-    // New condition: If REA is running but not connected to the machine
-    // Infer this if state is 'error'
-    if (state === MachineState.ERROR) {
-        statusString = "Error";
-    } else if (state === MachineState.HEATING) {
-        const currentGroupTemp = data.groupTemperature;
-        const targetGroupTemp = data.targetGroupTemperature;
-        statusString = `Heating... (Group: ${currentGroupTemp.toFixed(0)}°c / ${targetGroupTemp.toFixed(0)}°c)`;
-    }
 
     // Update UI elements
     ui.updateMachineStatus(statusString);
@@ -300,6 +352,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         logger.info('App DOMContentLoaded: WebSockets and timers set up.');
 
         logger.info('App initialization finished successfully.');
+
+        // Prompt user to enter fullscreen
+        if (!document.fullscreenElement && !sessionStorage.getItem('fullscreenPromptDismissed')) {
+            const toastContainer = document.getElementById('fullscreen-toast-container');
+            if (toastContainer) {
+                toastContainer.style.display = 'grid'; // Use grid as per DaisyUI examples for centering
+
+                document.getElementById('toast-fullscreen-btn').onclick = () => {
+                    document.getElementById('fullscreen-toggle-btn').click();
+                    toastContainer.style.display = 'none';
+                    sessionStorage.setItem('fullscreenPromptDismissed', 'true');
+                };
+
+                document.getElementById('toast-close-btn').onclick = () => {
+                    toastContainer.style.display = 'none';
+                    sessionStorage.setItem('fullscreenPromptDismissed', 'true');
+                };
+            }
+        }
     } catch (error) {
         logger.error('CRITICAL: Unhandled error during application initialization:', error);
         // Optionally, display a user-friendly error message on the page

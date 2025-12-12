@@ -266,5 +266,19 @@
             </div>
         </div>
     </dialog>
+
+    <!-- Fullscreen Prompt Toast -->
+    <div id="fullscreen-toast-container" class="toast toast-center toast-middle" style="z-index: 10000; display: none;">
+        <div class="alert bg-base-100/60 backdrop-blur-md text-[var(--text-primary)] shadow-lg">
+            <div class="flex-col gap-y-2 text-center">
+                <h3 class="font-bold">Fullscreen Recommended</h3>
+                <div class="text-xs">For the best experience, please use fullscreen mode.</div>
+                <div class="flex gap-2 self-center pt-2">
+                    <button id="toast-fullscreen-btn" class="btn btn-primary btn-sm text-white">Enter Fullscreen</button>
+                    <button id="toast-close-btn" class="btn btn-ghost btn-sm">Later</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
