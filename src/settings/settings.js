@@ -4859,8 +4859,8 @@ export function renderShotUploadSettings() {
                     <div class="content-stretch flex items-center justify-between relative w-full">
                         <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
                             <p class="leading-[1.2]" data-i18n-key="Upload existing shot history">Upload existing shot history</p>
-                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Send shots recorded before you turned this on, a few at a time while the machine is idle.">
-                                Send shots recorded before you turned this on, a few at a time while the machine is idle.
+                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Upload existing shot history, a few at a time while the machine is idle.">
+                                Upload existing shot history, a few at a time while the machine is idle.
                             </p>
                         </div>
                         <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
