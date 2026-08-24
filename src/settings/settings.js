@@ -17,7 +17,7 @@ import { openNotesModal } from '../modules/notes-modal.js';
 import { openDB, getSetting, setSetting, addEmails, getAllEmails, getLatestEmailTimestamp } from '../modules/idb.js';
 import { openModal, shouldUseNumpad, initializeNumpadModal } from '../modules/numpad-modal.js';
 import { ensureDye2PluginReady, getDye2VersionInfo, installDye2Plugin, offerDye2Update, checkDye2UpdatesIfDue } from '../modules/dyeStrip.js';
-import { pluginKeywords, pluginListKeywords, subcategoryMatches } from '../modules/settings-search.js';
+import { pluginKeywords, pluginListKeywords, subcategoryMatches, categoryMatches, highlightTokens, textFromHtml, tokenPattern, HIGHLIGHT_CLASS } from '../modules/settings-search.js';
 import { haYamlBlocks } from '../modules/home-assistant.js';
 
 // Config for each numeric input that should get two-click numpad support
@@ -334,6 +334,54 @@ function syncBrightnessSliderFill(slider, value) {
         `linear-gradient(to right, #385a92 0%, #385a92 ${stop}%, #e8e8e8 ${stop}%, #e8e8e8 100%)`;
 }
 
+// Light up the search words inside the page itself, not only in the nav on the
+// left. Most of the words a person searches for live in the body copy — typing
+// "upload" surfaces the Shot Uploader page, and the word it matched is in the
+// paragraph under the toggle, so it has to be visible there.
+//
+// Text nodes are rewritten one at a time instead of reassigning innerHTML: the
+// content area is full of live inputs, sliders and inline handlers, and
+// re-serialising it would reset values and drop state. Nothing needs undoing —
+// updateSettingsContentArea rebuilds the area from scratch on every render, so
+// the marks disappear with it.
+function highlightSearchInContent() {
+    const area = document.getElementById('settings-content-area');
+    const pattern = tokenPattern(document.getElementById('settings-search')?.value || '');
+    if (!area || !pattern) return;
+
+    const SKIP = new Set(['SCRIPT', 'STYLE', 'MARK', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION']);
+    const walker = document.createTreeWalker(area, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+            if (SKIP.has(node.parentElement?.tagName)) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+        },
+    });
+    // Collect first: replacing a node while walking would move the cursor onto
+    // the fragment just inserted.
+    const targets = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        pattern.lastIndex = 0;
+        if (pattern.test(node.nodeValue)) targets.push(node);
+    }
+
+    for (const node of targets) {
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        pattern.lastIndex = 0;
+        for (let m = pattern.exec(node.nodeValue); m; m = pattern.exec(node.nodeValue)) {
+            if (m.index > last) frag.appendChild(document.createTextNode(node.nodeValue.slice(last, m.index)));
+            const mark = document.createElement('mark');
+            mark.className = HIGHLIGHT_CLASS;
+            mark.textContent = m[0];
+            frag.appendChild(mark);
+            last = m.index + m[0].length;
+        }
+        if (last < node.nodeValue.length) frag.appendChild(document.createTextNode(node.nodeValue.slice(last)));
+        node.parentNode.replaceChild(frag, node);
+    }
+}
+
 function updateSettingsContentArea(category) {
     // Leaving the Lighting page → flush any deferred cross-state palette PUT,
     // THEN stop previewing (flush-before-clear: one strip transition, and the
@@ -383,6 +431,8 @@ function updateSettingsContentArea(category) {
         // re-wires it after a reclaim.
         if (category === 'calib_loadcell' && calStep === 4) calEnsureScaleWs();
         setTimeout(attachSettingsNumpad, 0);
+        // After translatePage(), so the marks land on the text actually shown.
+        highlightSearchInContent();
     }
 }
 
@@ -6391,6 +6441,9 @@ export async function initializeSettings() {
         });
     }
 
+    // Set up search functionality
+    setupSettingsSearch();
+
     initResizableSubNav();
 
     // Set up main category navigation
@@ -6463,9 +6516,6 @@ export async function initializeSettings() {
              activeSettingsCategory = null;
         }
     }
-
-    // Set up search functionality
-    setupSettingsSearch();
 
     // Apply translations to the settings page
     setLanguage(getCurrentLanguage());
@@ -7808,6 +7858,33 @@ async function loadPluginSearchKeywords() {
     }
 }
 
+let pageTextIndexed = false;
+
+// Index the words each settings page actually shows, so a search reaches the
+// copy on the page and not just its title — "history" should find the "Upload
+// existing shot history" toggle, which lives nowhere in the nav tree.
+//
+// The renderers are plain functions returning an HTML string, so the text is
+// obtained by calling them and stripping the tags. Each is wrapped: one that
+// throws (or needs a cache that is not loaded yet) costs that page its page-text
+// keywords, nothing more — its name and plugin keywords still match. Runs once;
+// re-rendering on every keystroke would be wasteful and pointless, as the copy
+// does not change between searches.
+function indexSettingsPageText() {
+    if (pageTextIndexed) return;
+    pageTextIndexed = true;
+    for (const category of Object.values(settingsTree)) {
+        for (const subcat of category.subcategories || []) {
+            if (!subcat.settingsCategory) continue;
+            try {
+                subcat.pageText = textFromHtml(renderSettingsContent(subcat.settingsCategory));
+            } catch (e) {
+                logger.debug(`No page text indexed for ${subcat.id}:`, e?.message);
+            }
+        }
+    }
+}
+
 // Set up search functionality for settings
 function setupSettingsSearch() {
     const searchInput = document.getElementById('settings-search');
@@ -7817,6 +7894,8 @@ function setupSettingsSearch() {
     }
 
     loadPluginSearchKeywords().catch(e => logger.warn('Plugin search keywords unavailable:', e));
+    indexSettingsPageText();
+
 
     // Store original navigation structure
     const originalMainCategories = {};
@@ -7847,7 +7926,7 @@ function setupSettingsSearch() {
         
         Object.entries(settingsTree).forEach(([key, category]) => {
             // Check if main category name matches
-            const mainCategoryMatches = category.name.toLowerCase().includes(searchTerm);
+            const mainCategoryMatches = categoryMatches(category.name, searchTerm);
 
             // Search only the subcategories visible on this machine — Bengle-only
             // pages must not surface via search on a non-Bengle machine.
@@ -7872,6 +7951,9 @@ function setupSettingsSearch() {
 
         // Update the navigation with filtered results
         updateNavigationWithResults(filteredCategories, searchTerm);
+        // The page on screen keeps its content; repaint it so its own copy
+        // shows the words too. Re-rendering also clears the previous marks.
+        if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
     });
 }
 
@@ -7985,7 +8067,7 @@ function updateNavigationWithResults(filteredCategories, searchTerm) {
             // Translate before highlighting — search filters on the English name but the
             // nav must stay in the active language (otherwise it reverts to English).
             const translatedName = getTranslation(settingsTree[key]?.i18nKey || category.name);
-            const highlightedName = highlightMatch(translatedName, searchTerm);
+            const highlightedName = highlightTokens(translatedName, searchTerm);
             btn.innerHTML = `${number}. <span>${highlightedName}</span>`;
 
             navUl.appendChild(li);
@@ -8039,7 +8121,7 @@ function updateNavigationWithResults(filteredCategories, searchTerm) {
             // subcategory match — jump directly to the first matching subcategory.
             // Otherwise fall back to the first subcategory in the list.
             const subBtns = [...(subCategoriesPanel?.querySelectorAll('.settings-subnav-btn') || [])];
-            const mainMatches = category && category.name.toLowerCase().includes(searchTerm);
+            const mainMatches = category && categoryMatches(category.name, searchTerm);
             const targetSubBtn = (!mainMatches && searchTerm)
                 ? (subBtns.find(sb => sb.textContent.toLowerCase().includes(searchTerm)) || subBtns[0])
                 : subBtns[0];
@@ -8104,7 +8186,7 @@ function renderFilteredSubcategories(mainCategoryKey, searchTerm) {
         const prefix = prefixMatch ? prefixMatch[1] : '';
         const label = prefix ? subcat.name.slice(prefix.length) : subcat.name;
         const translatedLabel = getTranslation(subcat.i18nKey || label);
-        const highlightedName = highlightMatch(translatedLabel, searchTerm);
+        const highlightedName = highlightTokens(translatedLabel, searchTerm);
 
         subcategoryItems += `
             <li>
@@ -8117,15 +8199,6 @@ function renderFilteredSubcategories(mainCategoryKey, searchTerm) {
     });
 
     return `<ul class="space-y-1">${subcategoryItems}</ul>`;
-}
-
-// Highlight matching text within a string
-function highlightMatch(text, searchTerm) {
-    if (!searchTerm) return text;
-
-    const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escapedTerm})`, 'gi');
-    return text.replace(regex, '<mark class="bg-yellow-300 text-black">$1</mark>');
 }
 
 /**
