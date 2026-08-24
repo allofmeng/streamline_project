@@ -44,17 +44,17 @@ const BUSY_STATES = new Set([
 // line by design, so a level reading there is normal operation, not something
 // to warn about -- only the DE1's own needsWater state is then worth showing.
 //
-// Two inputs, because they answer different questions:
-//   refillKitPresent   GET /machine/info -> extra.refillKit. Whether the
-//                      hardware is there. Undocumented in rest_v1.yml (the
-//                      `extra` object is untyped) but reported; null until the
-//                      fetch lands.
-//   refillKitSetting   De1AdvancedSettings: 2 = auto, 1 = force on,
-//                      0 = force off. What the machine has been told to do.
+// Both inputs come from the same DE1 MMR register (see machine.js): today
+// refillKitPresent === true is exactly refillKitSetting === 1, and a read of
+// 0/1 is the firmware's own detection result rather than a user preference.
+// They are taken separately anyway so this rule still reads correctly if decaid
+// ever splits presence from configuration.
+//   refillKitPresent   GET /machine/info -> extra.refillKit; null until fetched
+//   refillKitSetting   De1AdvancedSettings: 0 = off, 1 = on, 2 = auto
 //
-// Force off wins over presence: an installed kit that has been disabled does
-// not refill, so that tank really can run dry. Otherwise either a detected kit
-// or an explicit force-on suppresses the level warning.
+// A register reading 0 means no kit, so force off wins over presence: nothing
+// is refilling that tank and it really can run dry. Otherwise a present kit
+// suppresses the level warning. Unknowns never suppress.
 export function shouldShowTankWarning({ state, tankLow, refillKitPresent, refillKitSetting }) {
     if (!tankLow) return false;
     if (state === 'needsWater') return false; // already the real machine state

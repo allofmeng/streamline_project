@@ -37,10 +37,23 @@ export function isBengleMachine() {
 }
 
 // ── Refill kit ───────────────────────────────────────────────────────────────
-// GET /api/v1/machine/info reports it as `extra.refillKit` (boolean). The field
-// is real but undocumented: MachineInfo.extra is typed only as "various extra
-// information" in rest_v1.yml, and nothing about the kit appears on any
-// WebSocket channel — see decentespresso/decaid#671.
+// GET /api/v1/machine/info reports it as `extra.refillKit` (boolean). Real but
+// undocumented: MachineInfo.extra is typed only as "various extra information"
+// in rest_v1.yml, and nothing about the kit is on any WebSocket channel — see
+// decentespresso/decaid#671.
+//
+// What it actually is, from decaid's source (unified_de1.dart, onConnect):
+// ONE MMR register, `refillKitPresent` (0x0080385C), read once at connect into
+// `_refillKit`. `extra.refillKit` is its bit 0, and `refillKitSetting` on
+// /machine/settings/advanced is the SAME cached value mapped to
+// 0 = off / 1 = on / 2 = auto. They are not two independent signals:
+// refillKit === true is exactly refillKitSetting === 1.
+//
+// Detection still lands there, because decaid writes 2 (auto) back to the
+// register on every connect and the firmware resolves it: this dev DE1Pro
+// reports refillKit false with refillKitSetting 0 — auto came back as "no kit",
+// not as the 2 that was written. So a read of 0/1 is a detection result, even
+// though the write semantics are force-off/force-on.
 //
 // It matters because a plumbed machine refills itself, so the tank level rides
 // the refill threshold and a level-based low-water warning is noise
