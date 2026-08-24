@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, getDe1AdvancedSettings, updateShotSettingsCache, getDe1Settings, MachineState, getShotIds, getShots, getValueFromStore, verifyVisualizerCredentials, connectScaleDevice, tareScale, connectTimeToReadyWebSocket, connectShotStateWebSocket, sendDeviceCommand, saveScaleDeviceId, getScaleDeviceId, getDeviceWebSocket, initDeviceWebSocketWithCallback, connectDeviceWebSocket, connectDisplayWebSocket, restoreBrightnessFromStorage, getMachineInfo, getMachineState, setMachineState, getReaSettings, getAppInfo } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, getDe1AdvancedSettings, updateShotSettingsCache, getDe1Settings, MachineState, getShotIds, getShots, getValueFromStore, verifyVisualizerCredentials, connectScaleDevice, tareScale, connectTimeToReadyWebSocket, connectShotStateWebSocket, sendDeviceCommand, saveScaleDeviceId, getScaleDeviceId, getDeviceWebSocket, initDeviceWebSocketWithCallback, connectDeviceWebSocket, connectDisplayWebSocket, restoreBrightnessFromStorage, getMachineInfo, getMachineState, setMachineState, getReaSettings, getAppInfo, getCachedRefillKitSetting } from './api.js';
 import { initScaling } from './scaling.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
@@ -10,6 +10,7 @@ import * as profileManager from './profileManager.js';
 import * as api from './api.js';
 import { loadPage, initRouter, isSubPage } from './router.js';
 import { initWaterTankSocket, isTankBelowRefillLevel } from './waterTank.js';
+import { shouldShowTankWarning } from './tank-warning.js';
 import { logger, setDebug } from './logger.js';
 import { deriveScreensaverAction, isMachineAsleep, isScreensaverSuppressed } from './screensaver-policy.js';
 import { createMachineLinkWatcher, machineFromDevicesPayload } from './machine-link.js';
@@ -608,10 +609,17 @@ function handleData(data) {
 
         // Tank-level warning, independent of the machine's own `needsWater`
         // state (that's a hard block that only fires once the machine actively
-        // tries to heat/pull). Same priority a real needsWater state already
-        // has -- it wins over Heating/pouring text too, since isHeatingState()
-        // never returns true for state === 'needsWater'.
-        if (state !== MachineState.NEEDS_WATER && isTankBelowRefillLevel()) {
+        // tries to heat/pull). It wins over Heating text -- isHeatingState()
+        // never returns true for state === 'needsWater' -- but NOT over an
+        // operation in progress: replacing "steam" here tore down the steam
+        // elapsed timer in ui.updateMachineStatus, which then restarted at 0
+        // (issue #60). shouldShowTankWarning holds that rule, plus the
+        // refill-kit exemption.
+        if (shouldShowTankWarning({
+            state,
+            tankLow: isTankBelowRefillLevel(),
+            refillKitSetting: getCachedRefillKitSetting(),
+        })) {
             statusString = formatStateString(MachineState.NEEDS_WATER);
         }
     }

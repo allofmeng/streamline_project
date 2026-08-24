@@ -95,6 +95,11 @@ export function msSinceTileInteraction() { return Date.now() - lastTileInteracti
 
 let grindStep = 0.1;
 
+// How long the steam elapsed counter will pick up where it left off. Covers a
+// dropped/odd status frame; a genuine second steam session is always further
+// apart than this.
+const STEAM_RESUME_GRACE_MS = 2000;
+
 export function flashPlusMinusButton(button) {
     // Add the flash animation class
     button.classList.add('flash-animation');
@@ -2305,10 +2310,13 @@ export function updateMachineStatus(data) {
         delete machineStatusEl.preinfusionOrPouringIntervalId;
     }
 
-    // Manage steam interval lifecycle
+    // Manage steam interval lifecycle. The stop is stamped so a status blip --
+    // one odd frame, a warning that briefly replaced the status text -- can
+    // resume the count instead of restarting it at 0 (issue #60).
     if (!isCurrentlySteamState && machineStatusEl.steamIntervalId) {
         clearInterval(machineStatusEl.steamIntervalId);
         delete machineStatusEl.steamIntervalId;
+        machineStatusEl.steamStoppedAt = Date.now();
     }
 
     // Manage flush interval lifecycle
@@ -2453,7 +2461,13 @@ export function updateMachineStatus(data) {
                 } else {
                     // Original steam counter logic for active steaming
                     if (!machineStatusEl.steamIntervalId) {
-                        machineStatusEl.currentSteamValue = 0;
+                        // Steam that reappears within the grace window is the same
+                        // session seen through a gap in the status string, not a new
+                        // one -- carry the count over. Anything longer starts at 0.
+                        const sinceStop = Date.now() - (machineStatusEl.steamStoppedAt ?? 0);
+                        const resuming = sinceStop < STEAM_RESUME_GRACE_MS
+                            && typeof machineStatusEl.currentSteamValue === 'number';
+                        machineStatusEl.currentSteamValue = resuming ? machineStatusEl.currentSteamValue : 0;
 
                         machineStatusEl.steamIntervalId = setInterval(() => {
                             machineStatusEl.currentSteamValue += 1;
