@@ -1184,6 +1184,10 @@ async function sendShotSettings() {
 // see resyncIfDrifted.
 export const STEAM_DURATION_LAST_VALUE_KEY = 'last-steam-duration';
 export const STEAM_FLOW_LAST_VALUE_KEY = 'last-steam-flow';
+// The steam temperature to come back to when steam is re-armed after being
+// switched off (duration 0). Only ever holds an ENABLED temperature -- 0 is the
+// off state, not something to restore.
+export const STEAM_TEMP_LAST_VALUE_KEY = 'last-steam-temp';
 export const MILK_STOP_LAST_VALUE_KEY = 'last-milk-stop';
 export const FLUSH_DURATION_LAST_VALUE_KEY = 'last-flush-duration';
 export const HOT_WATER_VOLUME_LAST_VALUE_KEY = 'last-hot-water-volume';
@@ -1215,6 +1219,25 @@ export async function persistSharedValue(key, value) {
     }
 }
 
+// The read side of persistSharedValue: shared KV first so every device agrees,
+// per-device IndexedDB only when the store can't be reached. null when neither
+// has a record (or both failed) -- callers treat that as "the user never set
+// this", not as a value.
+export async function readSharedValue(key) {
+    try {
+        return await getValueFromStore(SETTINGS_NAMESPACE, key);
+    } catch (e) {
+        logger.warn(`readSharedValue: KV lookup failed for ${key}, falling back to local cache:`, e);
+        try {
+            await openDB();
+            return await getSetting(key);
+        } catch (e2) {
+            logger.warn(`readSharedValue failed for ${key}:`, e2);
+            return null;
+        }
+    }
+}
+
 // Resync for a main-page control: make Rea's workflow record agree with what
 // the user last set.
 //
@@ -1232,19 +1255,7 @@ export async function persistSharedValue(key, value) {
 // is the source of truth so a phone and a tablet agree on the target;
 // IndexedDB is only consulted if the store can't be reached.
 export async function resyncIfDrifted(key, fetchedValue, pushFn) {
-    let remembered = null;
-    try {
-        remembered = await getValueFromStore(SETTINGS_NAMESPACE, key);
-    } catch (e) {
-        logger.warn(`resyncIfDrifted: KV lookup failed for ${key}, falling back to local cache:`, e);
-        try {
-            await openDB();
-            remembered = await getSetting(key);
-        } catch (e2) {
-            logger.warn(`resyncIfDrifted failed for ${key}:`, e2);
-            return null;
-        }
-    }
+    const remembered = await readSharedValue(key);
     // No record of the user ever setting this -> whatever the machine holds
     // stands. Otherwise the remembered value wins, INCLUDING when the workflow
     // has no value at all (fetchedValue null/undefined): a missing field is not
@@ -1286,11 +1297,33 @@ export async function setTargetHotWaterDuration(duration) {
 }
 
 export async function setTargetSteamTemp(temp) {
-    return updateWorkflow({
-        steamSettings: {
-            targetTemperature: parseFloat(temp)
-        }
-    });
+    // Schema: integer, 0 = heater off, enabled range 135-160 (DE1) / 135-165
+    // (Bengle); Decaid also reads anything below that range as off.
+    const value = Math.round(parseFloat(temp));
+    if (value > 0) await persistSharedValue(STEAM_TEMP_LAST_VALUE_KEY, value);
+    return updateWorkflow({ steamSettings: { targetTemperature: value } });
+}
+
+// The heater half of a steam-duration change.
+//
+// Duration 0 is the dashboard's "steam off", but duration alone does not touch
+// the heater -- rest_v1.yml, SteamSettings.duration: "This does not control
+// steam-heater preheating." Only targetTemperature 0 does (same rule the DE1
+// firmware path has always had: de1app binary.tcl zeroes the target below
+// 135C). So the duration setter carries the heater with it: off at 0, and back
+// to the last enabled temperature when the user re-arms steam.
+//
+// The temperature to come back to is read from the workflow at the moment we
+// switch off -- one GET, only on that transition. With no remembered value the
+// enable path sends no temperature at all rather than inventing one.
+async function steamHeaterFor(duration) {
+    if (duration === 0) {
+        const current = (await getWorkflow().catch(() => null))?.steamSettings?.targetTemperature;
+        if (current > 0) await persistSharedValue(STEAM_TEMP_LAST_VALUE_KEY, current);
+        return { targetTemperature: 0 };
+    }
+    const remembered = await readSharedValue(STEAM_TEMP_LAST_VALUE_KEY);
+    return remembered > 0 ? { targetTemperature: Math.round(remembered) } : {};
 }
 
 // KV first, machine second -- deliberately the reverse order of the hot-water
@@ -1303,7 +1336,7 @@ export async function setTargetSteamTemp(temp) {
 export async function setTargetSteamDuration(duration) {
     const value = parseFloat(duration);
     await persistSharedValue(STEAM_DURATION_LAST_VALUE_KEY, value);
-    return updateWorkflow({ steamSettings: { duration: value } });
+    return updateWorkflow({ steamSettings: { duration: value, ...(await steamHeaterFor(value)) } });
 }
 
 export async function setTargetSteamFlow(flow) {
@@ -1567,6 +1600,14 @@ export async function setDe1Settings(settings) {
         logger.error('Error setting DE1 settings:', error);
         throw error; // Re-throw to allow calling code to handle
     }
+}
+
+// Sync read of the refill-kit mode out of the advanced-settings cache below
+// (fetched at boot by initMainPageOnce, refreshed by the settings page after a
+// change). null until the first fetch lands -- callers treat that as "unknown"
+// and behave as if there were no kit.
+export function getCachedRefillKitSetting() {
+    return de1AdvancedSettingsCache.data?.refillKitSetting ?? null;
 }
 
 export async function getDe1AdvancedSettings() {

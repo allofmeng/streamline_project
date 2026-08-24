@@ -113,9 +113,11 @@ function initMobileValueInputs() {
                             window.app.ui.updateTemperatureValue(tempC);
                         } else if (type === 'steam-duration') {
                             // The numpad blanks a bare "0" to '' — treat empty/NaN as 0.
-                            // 0 = steam heater off: the middleware gates steamEnabled on
-                            // duration > 0, so sending 0 sets targetSteamTemp 0 and the
-                            // firmware disables the steam heater (temporary, reversible).
+                            // 0 = steam off. Duration alone does NOT touch the heater
+                            // (rest_v1.yml: SteamSettings.duration "does not control
+                            // steam-heater preheating") — api.setTargetSteamDuration
+                            // sends targetTemperature 0 alongside it, and restores the
+                            // remembered temperature when steam is re-armed.
                             const v = (newVal === '' || isNaN(parseFloat(newVal))) ? 0 : parseFloat(newVal);
                             window.app.ui.updateSteamDisplay({ targetSteamDuration: v });
                             window.app.ui.pushSteamSetting('duration', window.app.api.setTargetSteamDuration(v));

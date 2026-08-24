@@ -1,4 +1,4 @@
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
+import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation } from '../modules/i18n.js';
@@ -218,6 +218,10 @@ async function flushPendingChanges() {
         tasks.push(updateWorkflow({ steamSettings: steam }));
         if (isNum(steam.duration)) persistSharedValue(STEAM_DURATION_LAST_VALUE_KEY, steam.duration);
         if (isNum(steam.flow)) persistSharedValue(STEAM_FLOW_LAST_VALUE_KEY, steam.flow);
+        // Enabled temperatures only: 0 is the heater switched off, and the main
+        // page reads this key to decide what to switch back ON to when steam is
+        // re-armed -- see api.setTargetSteamDuration.
+        if (steam.targetTemperature > 0) persistSharedValue(STEAM_TEMP_LAST_VALUE_KEY, steam.targetTemperature);
         // Armed targets only: 0 means the stop was switched off, not a
         // temperature worth remembering -- see api.setStopAtTemperature.
         if (steam.stopAtTemperature > 0) persistSharedValue(MILK_STOP_LAST_VALUE_KEY, steam.stopAtTemperature);
@@ -2622,7 +2626,7 @@ export function renderSteamSettings() {
                     <div class="content-stretch flex items-center justify-between relative w-full">
                         <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
                             <p class="leading-[1.2]" data-i18n-key="Steam temperature">Steam temperature</p>
-                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)]">${tempInputValue(0)} – ${tempInputValue(170)} ${tempUnitLabel()}</span>
+                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)]">${tempInputValue(0)}, ${tempInputValue(135)} – ${tempInputValue(165)} ${tempUnitLabel()}</span>
                         </div>
                         <div class="flex gap-[20px] h-[72px] items-center">
                             <button aria-label="Decrease steam temperature" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
@@ -2633,7 +2637,7 @@ export function renderSteamSettings() {
                             </button>
                             <div class="flex items-center justify-center" style="width: 130px;">
                                 <input type="text" inputmode="numeric" pattern="[0-9]*" id="steamTempInput" class="text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border-none w-full"
-                                       value="${tempInputValue(targetTemp)}" step="1" min="${tempInputValue(0)}" max="${tempInputValue(170)}"
+                                       value="${tempInputValue(targetTemp)}" step="1" min="${tempInputValue(0)}" max="${tempInputValue(165)}"
                                        onchange="window.updateSteamSetting('targetTemperature', Math.round(window.tempInputToCelsius(this.value)))">
                                 <span class="ml-1 text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">${tempUnitLabel()}</span>
                             </div>
@@ -2645,7 +2649,7 @@ export function renderSteamSettings() {
                             </button>
                         </div>
                     </div>
-                    <p class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] leading-[1.2]" data-i18n-key="Setting below 130 °C turns the steam heater off">Setting below 130 °C turns the steam heater off</p>
+                    <p class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] leading-[1.2]" data-i18n-key="The lowest setting turns the steam heater off">The lowest setting turns the steam heater off</p>
                 </div>
             </div>
 
@@ -7625,14 +7629,28 @@ export async function initializeSettings() {
         }
     };
 
+    // 0 is off, 135-165 is the enabled range (rest_v1.yml SteamSettings), and
+    // nothing in between is a real setting -- Decaid reads anything under the
+    // range as off. So the buttons step between off and the bottom of the range
+    // instead of walking the user through 134 meaningless degrees. The floor
+    // used to be 135 with a label promising that "below 130" turned the heater
+    // off, which the buttons could not reach at all.
     window.adjustSteamTemp = function(change) {
         const input = document.getElementById('steamTempInput');
-        if (input) {
-            let newValue = parseInt(input.value, 10) + change;
-            newValue = Math.max(tempInputValue(130), Math.min(tempInputValue(170), newValue));
-            input.value = newValue;
-            input.dispatchEvent(new Event('change'));
+        if (!input) return;
+        const off = tempInputValue(0);
+        const min = tempInputValue(135);
+        const current = parseInt(input.value, 10);
+        let newValue;
+        if (current <= off) {
+            newValue = change > 0 ? min : off;              // off -> bottom of range
+        } else {
+            newValue = current + change;
+            if (newValue < min) newValue = off;             // below the range -> off
+            else newValue = Math.min(tempInputValue(165), newValue);
         }
+        input.value = newValue;
+        input.dispatchEvent(new Event('change'));
     };
 
     window.adjustSteamDuration = function(change) {
