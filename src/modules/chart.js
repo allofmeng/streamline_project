@@ -32,6 +32,17 @@ function getChartElement() {
     }
     return document.getElementById('plotly-chart');
 }
+// Plotly only tolerates relayout/update/restyle on a div it has actually drawn
+// into: those paths all read gd._fullLayout, which does not exist before the
+// first newPlot/react, or after a Plotly.purge. Both edges are reachable here —
+// initChart deliberately defers the first draw until there is data and the
+// scaling pass has settled (see initChart), and profile_selector purges the div
+// on teardown. Touching the div in either window threw
+// "Cannot read properties of undefined (reading '_guiEditing')".
+function isPlotted(element) {
+    return !!element && !!element._fullLayout;
+}
+
 let currentSubstate = 'idle';
 let previousSubstateForShape = 'idle'; // To track step changes for vertical lines
 let lastWeight = 0;
@@ -354,7 +365,7 @@ let isLiveShot = false;
 export function finalizeLiveChart() {
     isLiveShot = false;
     const element = getChartElement();
-    if (!element) return;
+    if (!isPlotted(element)) return;
     Plotly.relayout(element, { annotations: getAnnotations() });
 }
 
@@ -362,7 +373,10 @@ export function finalizeLiveChart() {
 // the plot area after the chart width changes (e.g. GHC column toggling).
 export function refreshLabelMargin() {
     const element = getChartElement();
-    if (!element) return;
+    // Nothing drawn yet (or purged): there is no layout to refresh, and the
+    // first real draw applies the current labels anyway. streamline:languagechange
+    // fires during initI18n at boot, which is exactly this window.
+    if (!isPlotted(element)) return;
     // Hidden behind another page (e.g. settings, profile selector) -- skip the
     // Plotly.relayout below. It's a real, non-cheap layout op with zero
     // visible effect while hidden, and every streamline:languagechange fires
@@ -459,8 +473,9 @@ function flushChart() {
     const dtickValue = dtickForTime(pendingTime);
     const rangeMax = rangeMaxForLabels(pendingTime);
 
-    // A step marker changed shapes → full react. Then pin the x-range.
-    if (pendingReact) {
+    // A step marker changed shapes → full react. An un-drawn div has to take
+    // this path too: Plotly.update below cannot create the plot.
+    if (pendingReact || !isPlotted(element)) {
         pendingReact = false;
         isLiveShot = true; // live from here on — applyLabelLayout gives Plotly no annotations
         const layout = theme === 'dark' ? darkLayout : lightLayout;
@@ -789,7 +804,7 @@ function handleProfileFrameChange(currentFrame, time, profile, theme) {
 function applyPendingUpdates() {
     if (pendingUpdates.shapes || pendingUpdates.annotations) {
         const element = getChartElement();
-        if (element) {
+        if (isPlotted(element)) {
             Plotly.relayout(element, {
                 shapes: pendingUpdates.shapes,
                 annotations: pendingUpdates.annotations
@@ -1469,6 +1484,7 @@ export function initChart() {
             roTimeout = setTimeout(() => {
                 if (chartEl.offsetParent === null) return;   // hidden (subpage open)
                 if (!chartEl.clientHeight || !chartEl.clientWidth) return;
+                if (!isPlotted(chartEl)) return;             // nothing drawn to resize yet
                 try {
                     Plotly.relayout(chartEl, { width: chartEl.clientWidth, height: chartEl.clientHeight });
                     refreshLabelMargin();
