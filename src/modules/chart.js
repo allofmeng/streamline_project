@@ -1328,10 +1328,16 @@ export function plotProfile(profile) {
     tempX.push(0);
     tempY.push(initialTemp);
 
+    // Where one step hands over to the next, for the vertical markers below.
+    // The 0 and end-of-profile edges are the axis borders already, so only the
+    // interior boundaries get a line.
+    const stepBoundaries = [];
+
     for (const step of profile.steps) {
         const duration = parseFloat(step.seconds || 0);
         if (duration <= 0) continue;
 
+        if (currentTime > 0) stepBoundaries.push(currentTime);
         const nextTime = currentTime + duration;
         const temp = (parseFloat(step.temperature || 0) / 100) * 10;
         const transition = step.transition || 'fast';
@@ -1354,6 +1360,12 @@ export function plotProfile(profile) {
     const layout = JSON.parse(JSON.stringify(theme === 'dark' ? darkLayout : lightLayout));
     layout.annotations = [];
     layout.shapes = []; // Clear shapes for profile plot
+    // Same dashed step markers the live chart draws (addStepMarker), so a
+    // profile previewed in the selector is read the same way as one being
+    // pulled.
+    for (const boundary of stepBoundaries) {
+        addStepMarker(layout, boundary, theme);
+    }
     layout.xaxis.range = [0, currentTime];
 
     // Adaptive X-axis tick density based on profile duration
