@@ -1,7 +1,7 @@
 import { logger } from './logger.js';
 import { getTranslation } from './i18n.js';
 import { hasMachineGFlow, createScaleFlowResolver, createPourPhaseTracker } from './historical-gflow.js';
-import { EXP_TOP_FLOOR, computeExpandedTopYMax, computeExpandedTempRange } from './chart-autoscale.js';
+import { EXP_TOP_FLOOR, computeExpandedTopYMax, computeExpandedTempRange, pickVisible } from './chart-autoscale.js';
 
 // Maps internal trace key → i18n key used for the chart label.
 const LABEL_KEYS = {
@@ -690,6 +690,50 @@ function expandedTempTraces() {
     return traces;
 }
 
+// Plotly's legend has no notion of "last one standing": a single click always
+// toggles just the clicked trace. So after a double-click isolates one line,
+// clicking that same line hides it too and leaves an empty chart the user has
+// to click their way out of. Read as a toggle it is also backwards — the click
+// that turned everything else off should be the click that turns it back on.
+//
+// Cancel that one case (returning false from plotly_legendclick suppresses
+// Plotly's own handling) and restore every trace instead. Every other legend
+// click keeps stock behaviour, including double-click-to-isolate.
+function keepOneTraceVisible(gd) {
+    gd.on('plotly_legendclick', (ev) => {
+        const visible = gd.data.map(t => t.visible ?? true);
+        const soleSurvivor = visible[ev.curveNumber] === true
+            && visible.filter(v => v === true).length === 1;
+        if (!soleSurvivor) return true;
+        Plotly.restyle(gd, 'visible', true);
+        return false;
+    });
+}
+
+// The y-arrays behind the top chart's traces, in the SAME order
+// expandedTopTraces() emits them — Plotly reports visibility by trace index, so
+// the two orders have to agree (test/chart-autoscale.test.mjs pins that).
+function expandedTopSeriesYs() {
+    const s = expandedSeries;
+    return [s.pressure.y, s.flow.y, s.gflow.y, s.targetPressure.y, s.targetFlow.y];
+}
+
+// Rescale the top axis to the traces still shown. GFlow can reach three digits
+// (a scale drop-out spikes g/s) and it shares one axis with pressure in bar and
+// flow in ml/s, so it drags the ceiling to ~300 and squashes everything else
+// into the bottom few percent. Hiding it from the legend has to give that room
+// back.
+//
+// prevYMax 0 makes computeExpandedTopYMax snap instead of easing: its 2-units-
+// per-call climb-down exists to stop a live axis flickering, but a legend click
+// is a deliberate request and 300 -> 12 would take ~144 frames to walk down.
+function rescaleExpandedTop(gd) {
+    if (!gd?._fullLayout) return;
+    const flags = gd.data?.map(t => t.visible ?? true);
+    expandedTopYMax = computeExpandedTopYMax(pickVisible(expandedTopSeriesYs(), flags), 0);
+    Plotly.relayout(gd, { 'yaxis.range': [0, expandedTopYMax] });
+}
+
 function renderExpandedCharts() {
     if (!expandedOpen) return;
     const topEl = document.getElementById('expanded-flow-chart');
@@ -698,8 +742,7 @@ function renderExpandedCharts() {
     const theme = localStorage.getItem('theme') || 'light';
     const cfg = { displayModeBar: false, responsive: true, staticPlot: false };
     expandedTopYMax = computeExpandedTopYMax(
-        [expandedSeries.pressure.y, expandedSeries.flow.y, expandedSeries.targetPressure.y,
-         expandedSeries.targetFlow.y, expandedSeries.gflow.y],
+        pickVisible(expandedTopSeriesYs(), topEl.data?.map(t => t.visible ?? true)),
         expandedTopYMax
     );
     const topLayout = expandedLayout(theme, [0, expandedTopYMax], false);
@@ -709,6 +752,11 @@ function renderExpandedCharts() {
     if (!expandedInited) {
         Plotly.newPlot(topEl, expandedTopTraces(), topLayout, cfg);
         Plotly.newPlot(tempEl, expandedTempTraces(), tempLayout, cfg);
+        keepOneTraceVisible(topEl);
+        keepOneTraceVisible(tempEl);
+        // Fires after Plotly has applied a legend toggle or isolate (and after
+        // keepOneTraceVisible's restore), which is when the axis has to follow.
+        topEl.on('plotly_restyle', () => rescaleExpandedTop(topEl));
         expandedInited = true;
     } else {
         Plotly.react(topEl, expandedTopTraces(), topLayout, cfg);

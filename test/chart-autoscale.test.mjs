@@ -17,7 +17,9 @@ import {
     niceCeil,
     computeExpandedTopYMax,
     computeExpandedTempRange,
+    pickVisible,
 } from '../src/modules/chart-autoscale.js';
+import { readFileSync } from 'node:fs';
 
 test('band constants are the hardware-validated values', () => {
     assert.equal(EXP_TOP_FLOOR, 12);
@@ -217,4 +219,55 @@ test('temp band: omitted mix-target argument keeps legacy behaviour', () => {
         computeExpandedTempRange([80], [78], [63], []),
     );
     assert.deepEqual(computeExpandedTempRange([80], [78], [63]), [63, 85]);
+});
+
+// ── Axis follows the traces that are actually shown ─────────────────────────
+
+test('pickVisible keeps only the series whose trace is visible', () => {
+    const a = [1], b = [2], c = [3];
+    // Plotly reports 'legendonly' for a legend-hidden trace, false for one
+    // hidden programmatically; neither is visible.
+    assert.deepEqual(pickVisible([a, b, c], [true, 'legendonly', true]), [a, c]);
+    assert.deepEqual(pickVisible([a, b, c], [true, false, true]), [a, c]);
+    assert.deepEqual(pickVisible([a, b, c], [true, true, true]), [a, b, c]);
+});
+
+test('pickVisible treats an absent or short flag list as all-visible', () => {
+    // Nothing drawn yet: gd.data is undefined on the first render.
+    const ys = [[1], [2]];
+    assert.deepEqual(pickVisible(ys, undefined), ys);
+    assert.deepEqual(pickVisible(ys, null), ys);
+    assert.deepEqual(pickVisible(ys, [false]), [ys[1]]);
+});
+
+test('hiding a three-digit GFlow hands the axis back to the other lines', () => {
+    // The case from the field: g/s spikes to ~300 on a scale drop-out and
+    // shares one axis with pressure (bar) and flow (ml/s), so everything else
+    // is squashed into the bottom few percent until GFlow is hidden.
+    const pressure = [0, 9], flow = [0, 4], gflow = [0, 300];
+    const all = [pressure, flow, gflow];
+    assert.equal(computeExpandedTopYMax(all, 0), 320);
+    // prevYMax 0 = snap, which is what a legend click asks for.
+    assert.equal(computeExpandedTopYMax(pickVisible(all, [true, true, 'legendonly']), 0), 12);
+});
+
+test('the top-chart trace order in chart.js matches the y-array order', () => {
+    // Plotly reports visibility by trace INDEX, so expandedTopTraces() and
+    // expandedTopSeriesYs() must emit the same series in the same order or
+    // hiding one line would rescale against another. chart.js touches the DOM
+    // at import time, so read the order out of the source instead.
+    const src = readFileSync(new URL('../src/modules/chart.js', import.meta.url), 'utf8');
+    const body = (name) => {
+        const m = src.match(new RegExp(`function ${name}\\(\\)\\s*\\{[\\s\\S]*?\\n\\}`));
+        assert.ok(m, `${name} not found in chart.js`);
+        return m[0];
+    };
+    const keys = ['pressure', 'flow', 'gflow', 'targetPressure', 'targetFlow'];
+    const orderIn = (text) => keys
+        .map(k => ({ k, at: text.indexOf(`s.${k}.`) }))
+        .filter(e => e.at !== -1)
+        .sort((a, b) => a.at - b.at)
+        .map(e => e.k);
+    assert.deepEqual(orderIn(body('expandedTopSeriesYs')), keys);
+    assert.deepEqual(orderIn(body('expandedTopTraces')), keys);
 });

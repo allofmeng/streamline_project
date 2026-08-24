@@ -21,6 +21,16 @@ export function niceCeil(v) {
     return Math.ceil(v / 10) * 10;
 }
 
+// Drop the y-arrays whose trace is hidden, so an axis computed from these
+// follows what is actually on screen. `visibleFlags` is Plotly's per-trace
+// `visible` in the same order as `seriesYs` — true, false or 'legendonly';
+// anything that is not exactly true counts as hidden. A missing/short flag list
+// (nothing drawn yet) leaves the series untouched.
+export function pickVisible(seriesYs, visibleFlags) {
+    if (!visibleFlags) return seriesYs;
+    return seriesYs.filter((_, i) => (visibleFlags[i] ?? true) === true);
+}
+
 // Damped top-axis max. `seriesYs` is a list of y-arrays (real units); `prevYMax`
 // is the previous damped value the caller stored. Grows instantly so peaks stay
 // visible; eases back down at most 2 units per call, and only once the need has

@@ -1974,6 +1974,49 @@ function wireExpandedChart() {
     const backBtn = document.getElementById('expanded-chart-back');
     if (backBtn) backBtn.addEventListener('click', close);
 
+    // Tap anywhere on the overlay to close it — the back arrow is a small
+    // target on a tablet and the charts fill the rest of the screen.
+    //
+    // Three things the obvious `overlay.onclick = close` gets wrong, all found
+    // by driving the real overlay in a browser:
+    //
+    //  - Panning. The expanded charts are interactive (staticPlot:false in
+    //    renderExpandedCharts), and a drag across a plot still ends in a click.
+    //    Only a press that stayed put counts as a tap — the same travel check
+    //    the exit-to-dashboard button in index.html uses, minus its long-press.
+    //
+    //  - The legend. Plotly's own legend handling is the only way to toggle a
+    //    trace (single click) or isolate one (double click), and both are taps
+    //    landing inside the plot container. Anything starting in the legend is
+    //    left entirely to Plotly, or a double click would close the overlay on
+    //    its first click and never reach Plotly at all.
+    //
+    //  - pointerup does not arrive. Over a plot's drag layer, Plotly lays a
+    //    cover div across the window on mousedown and removes it on mouseup, so
+    //    the pointerup fires outside this overlay and never reaches this
+    //    listener; pointerdown, mousedown and click all still do. Hence the
+    //    split: pointerdown records where the press began, click decides.
+    //
+    // Consequence, accepted deliberately: double-clicking the PLOT area no
+    // longer autoscales, because the first click closes. renderExpandedCharts
+    // recomputes both y-ranges on every frame anyway, so that reset had nothing
+    // lasting to undo. The legend's double-click isolate is unaffected.
+    const overlay = document.getElementById('expanded-chart-overlay');
+    if (overlay) {
+        const TAP_SLOP = 10;
+        let downX = 0, downY = 0, downInLegend = false;
+        const inLegend = (node) => !!(node instanceof Element && node.closest('.legend'));
+        overlay.addEventListener('pointerdown', (e) => {
+            downX = e.clientX;
+            downY = e.clientY;
+            downInLegend = inLegend(e.target);
+        });
+        overlay.addEventListener('click', (e) => {
+            if (downInLegend || inLegend(e.target)) return;
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) <= TAP_SLOP) close();
+        });
+    }
+
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && chart.isExpandedChartOpen && chart.isExpandedChartOpen()) close();
     });
