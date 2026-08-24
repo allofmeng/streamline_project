@@ -5,6 +5,7 @@ import { openContextMenu } from './context-menu.js';
 import { openDB, getSetting, setSetting } from './idb.js';
 import { loadPage } from './router.js'; // Singular and correctly formatted import
 import { getTranslation, fitTextToBox } from './i18n.js';
+import { resolveProfileKeyByTitle } from './active-profile.js';
 
 /**
  * Rename a profile by ID
@@ -329,6 +330,28 @@ export function setActiveProfile(profileId) {
     activeProfileId = profileId;
 }
 
+// Bind activeProfileId to the profile the machine has loaded, by title.
+//
+// Tile edits are saved onto the active record's metadata, and until this
+// existed the id was only ever set by tapping a favourite / picking in the
+// selector, plus a boot-time match that scanned ONLY the five favourite slots.
+// So after a reload with a profile that is not on a favourite button, every
+// dose/yield/grind/temp edit was written to the workflow and then dropped on
+// the floor -- and the next profile switch showed the profile's own numbers
+// again. Called on every loadInitialData, which is also the path a profile
+// switch made elsewhere goes through.
+export function syncActiveProfileFromTitle(title) {
+    const key = resolveProfileKeyByTitle(availableProfiles, title, translateProfileTitle);
+    if (key) {
+        activeProfileId = key;
+        logger.info(`Active profile bound to ${key} ("${title}")`);
+    } else {
+        activeProfileId = null;
+        logger.warn(`No stored profile matches loaded profile "${title}" — tile edits will not persist.`);
+    }
+    return key;
+}
+
 export function getActiveProfileRecord() {
     if (!activeProfileId || !availableProfiles[activeProfileId]) return null;
     return availableProfiles[activeProfileId];
@@ -377,7 +400,15 @@ export function withSavedBrewTemp(profile, metadata) {
 }
 
 export async function saveContextToActiveProfile(fields) {
-    if (!activeProfileId || !availableProfiles[activeProfileId]) return;
+    // Last-ditch bind: the machine's profile is on screen even when nothing has
+    // set the id this session. Better than dropping the user's number.
+    if (!activeProfileId || !availableProfiles[activeProfileId]) {
+        syncActiveProfileFromTitle(document.getElementById('profile-name')?.textContent);
+    }
+    if (!activeProfileId || !availableProfiles[activeProfileId]) {
+        logger.warn('No active profile — tile edit not persisted:', fields);
+        return;
+    }
     const profileId = activeProfileId; // pin target across the async queue wait
     try {
         // Metadata-only PUT — the profile (execution) hash is untouched, so the
@@ -909,10 +940,7 @@ const FALLBACK_PROFILE_TITLES = [
 ];
 
 function findProfileKeyByTitle(title) {
-    const lower = title.toLowerCase();
-    return Object.keys(availableProfiles).find(
-        k => availableProfiles[k]?.profile?.title?.toLowerCase() === lower
-    ) || null;
+    return resolveProfileKeyByTitle(availableProfiles, title, translateProfileTitle);
 }
 
 async function autoPopulateFavoritesFromHistory() {

@@ -1203,6 +1203,13 @@ async function loadInitialData() {
             logger.info(`Active profile: ${profile.title}`);
             currentActiveProfile = profile;
 
+            // Bind the save target for the sidebar tiles BEFORE anything can be
+            // edited. The favourite-button scan below used to be the only thing
+            // that did this, so a loaded profile sitting in no favourite slot
+            // left the id null and every dose/yield/grind/temp edit was thrown
+            // away instead of being saved onto that profile.
+            profileManagerModule.syncActiveProfileFromTitle(profile.title);
+
             // Set the current profile in the chart module for step change detection
             chart.setCurrentProfile(profile);
             logger.info('Profile set in chart module for step change detection');
@@ -1228,9 +1235,6 @@ async function loadInitialData() {
 if (assignedProfileRecord && assignedProfileRecord.profile &&
                             assignedProfileRecord.profile.title === profile.title) {
                             // This button has the active profile assigned to it
-                            // Sync activeProfileId so saveGrindToActiveProfile works after page load/refresh
-                            profileManagerModule.setActiveProfile(assignedProfileKey);
-                            logger.info(`Synced activeProfileId to ${assignedProfileKey} for profile "${profile.title}"`);
                             const activeBgClass = 'bg-[var(--mimoja-blue-v2)]';
                             const activeTextClass = 'text-white';
                             const inactiveTextClass = 'text-[var(--mimoja-blue)]';
