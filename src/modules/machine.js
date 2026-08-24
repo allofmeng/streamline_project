@@ -35,3 +35,26 @@ export function getMachineModel() {
 export function isBengleMachine() {
     return isBengleModel(machineModel);
 }
+
+// ── Refill kit ───────────────────────────────────────────────────────────────
+// GET /api/v1/machine/info reports it as `extra.refillKit` (boolean). The field
+// is real but undocumented: MachineInfo.extra is typed only as "various extra
+// information" in rest_v1.yml, and nothing about the kit appears on any
+// WebSocket channel — see decentespresso/decaid#671.
+//
+// It matters because a plumbed machine refills itself, so the tank level rides
+// the refill threshold and a level-based low-water warning is noise
+// (streamline-js#60). Recorded from the same machine-info fetch that resolves
+// the model, in loadInitialData, so it also re-runs on a machine swap.
+
+let refillKitPresent = null;
+
+/** Record whether the connected machine has a refill kit (null = unknown). */
+export function setRefillKitPresent(present) {
+    refillKitPresent = (present === undefined || present === null) ? null : Boolean(present);
+}
+
+/** True/false once machine info has been read, null while unknown. */
+export function isRefillKitPresent() {
+    return refillKitPresent;
+}

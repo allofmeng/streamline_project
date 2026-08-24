@@ -40,14 +40,24 @@ const BUSY_STATES = new Set([
     'steamRinse', 'calibration', 'selfTest', 'airPurge', 'fwUpgrade',
 ]);
 
-// refillKitSetting: 2 = auto, 1 = force on, 0 = force off (rest_v1.yml
-// De1AdvancedSettings). Forced on means the machine refills itself from
-// plumbing, so a low reading is normal operation and only the DE1's own
-// needsWater state is worth showing. Auto is indistinguishable from "no kit"
-// through the API, so it keeps the level warning.
-export function shouldShowTankWarning({ state, tankLow, refillKitSetting }) {
+// A machine that refills itself from plumbing holds the tank around the refill
+// line by design, so a level reading there is normal operation, not something
+// to warn about -- only the DE1's own needsWater state is then worth showing.
+//
+// Two inputs, because they answer different questions:
+//   refillKitPresent   GET /machine/info -> extra.refillKit. Whether the
+//                      hardware is there. Undocumented in rest_v1.yml (the
+//                      `extra` object is untyped) but reported; null until the
+//                      fetch lands.
+//   refillKitSetting   De1AdvancedSettings: 2 = auto, 1 = force on,
+//                      0 = force off. What the machine has been told to do.
+//
+// Force off wins over presence: an installed kit that has been disabled does
+// not refill, so that tank really can run dry. Otherwise either a detected kit
+// or an explicit force-on suppresses the level warning.
+export function shouldShowTankWarning({ state, tankLow, refillKitPresent, refillKitSetting }) {
     if (!tankLow) return false;
-    if (refillKitSetting === 1) return false;
     if (state === 'needsWater') return false; // already the real machine state
+    if (refillKitSetting !== 0 && (refillKitPresent === true || refillKitSetting === 1)) return false;
     return !BUSY_STATES.has(state);
 }

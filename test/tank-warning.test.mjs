@@ -30,26 +30,34 @@ test('an operation in progress keeps its own status', () => {
     // Replacing "steam" here is what tore down the steam elapsed timer and made
     // it restart at 0 on every threshold crossing.
     for (const state of ['steam', 'steamRinse', 'espresso', 'hotWater', 'flush', 'cleaning', 'descaling', 'transportMode']) {
-        assert.equal(shouldShowTankWarning({ state, tankLow: true, refillKitSetting: 2 }), false, state);
+        assert.equal(shouldShowTankWarning({ state, tankLow: true, refillKitPresent: false, refillKitSetting: 2 }), false, state);
     }
 });
 
 test('an idle machine still gets the warning', () => {
     for (const state of ['idle', 'ready', 'sleeping', 'heating', 'preheating', 'booting']) {
-        assert.equal(shouldShowTankWarning({ state, tankLow: true, refillKitSetting: 2 }), true, state);
+        assert.equal(shouldShowTankWarning({ state, tankLow: true, refillKitPresent: false, refillKitSetting: 2 }), true, state);
     }
 });
 
-test('a forced-on refill kit fills itself, so the level warning stays quiet', () => {
-    assert.equal(shouldShowTankWarning({ state: 'idle', tankLow: true, refillKitSetting: 1 }), false);
-    // Auto-detect is indistinguishable from "no kit" through the API, and an
-    // unknown setting (advanced settings not fetched yet) must not suppress it.
-    assert.equal(shouldShowTankWarning({ state: 'idle', tankLow: true, refillKitSetting: 2 }), true);
-    assert.equal(shouldShowTankWarning({ state: 'idle', tankLow: true, refillKitSetting: 0 }), true);
-    assert.equal(shouldShowTankWarning({ state: 'idle', tankLow: true, refillKitSetting: null }), true);
+test('a machine that refills itself keeps the level warning quiet', () => {
+    const idle = (extra) => shouldShowTankWarning({ state: 'idle', tankLow: true, ...extra });
+    // A detected kit is the definitive answer, whatever the mode says.
+    assert.equal(idle({ refillKitPresent: true, refillKitSetting: 2 }), false);
+    assert.equal(idle({ refillKitPresent: true, refillKitSetting: 1 }), false);
+    // Force-on without detection: the user is asserting a kit is fitted.
+    assert.equal(idle({ refillKitPresent: false, refillKitSetting: 1 }), false);
+    // Force-off disables an installed kit, so that tank really can run dry.
+    assert.equal(idle({ refillKitPresent: true, refillKitSetting: 0 }), true);
+    assert.equal(idle({ refillKitPresent: false, refillKitSetting: 0 }), true);
+    // No kit, and unknowns (machine info / advanced settings not fetched yet)
+    // must never suppress the warning.
+    assert.equal(idle({ refillKitPresent: false, refillKitSetting: 2 }), true);
+    assert.equal(idle({ refillKitPresent: null, refillKitSetting: null }), true);
+    assert.equal(idle({}), true);
 });
 
 test('no warning without a low tank, and none over the real needsWater state', () => {
-    assert.equal(shouldShowTankWarning({ state: 'idle', tankLow: false, refillKitSetting: 2 }), false);
-    assert.equal(shouldShowTankWarning({ state: 'needsWater', tankLow: true, refillKitSetting: 2 }), false);
+    assert.equal(shouldShowTankWarning({ state: 'idle', tankLow: false, refillKitPresent: false, refillKitSetting: 2 }), false);
+    assert.equal(shouldShowTankWarning({ state: 'needsWater', tankLow: true, refillKitPresent: false, refillKitSetting: 2 }), false);
 });

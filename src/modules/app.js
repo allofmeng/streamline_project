@@ -14,7 +14,7 @@ import { shouldShowTankWarning } from './tank-warning.js';
 import { logger, setDebug } from './logger.js';
 import { deriveScreensaverAction, isMachineAsleep, isScreensaverSuppressed } from './screensaver-policy.js';
 import { createMachineLinkWatcher, machineFromDevicesPayload } from './machine-link.js';
-import { setMachineModel, isBengleMachine } from './machine.js';
+import { setMachineModel, isBengleMachine, setRefillKitPresent, isRefillKitPresent } from './machine.js';
 import { classifyStopReason, canonicalStopReason, STOP_TARGET_WEIGHT, STOP_TARGET_VOLUME, STOP_PROFILE_ENDED } from './stop-reason.js';
 import { resolveMilkProbePresence } from './steam-mode.js';
 import { readTimeToReadyFrame, heatingSecondsLeft } from './heating-countdown.js';
@@ -618,6 +618,7 @@ function handleData(data) {
         if (shouldShowTankWarning({
             state,
             tankLow: isTankBelowRefillLevel(),
+            refillKitPresent: isRefillKitPresent(),
             refillKitSetting: getCachedRefillKitSetting(),
         })) {
             statusString = formatStateString(MachineState.NEEDS_WATER);
@@ -1386,6 +1387,10 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
             logger.warn('Could not fetch machine info; Bengle gating stays off:', e);
         }
         setMachineModel(machineInfo?.model ?? null);
+        // Undocumented but reported: MachineInfo.extra.refillKit. A plumbed
+        // machine parks the tank on the refill line, so the level-based
+        // low-water warning has to stay quiet on one (issue #60).
+        setRefillKitPresent(machineInfo?.extra?.refillKit ?? null);
 
         // Bengle-only header quick-toggle for the cup warmer. Fails closed: a
         // failed machine-info fetch leaves the gate off and the button hidden.
