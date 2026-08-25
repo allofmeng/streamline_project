@@ -17,6 +17,9 @@ import {
     steamSyncField,
     foldSteamSyncState,
     shouldRetrySteamSync,
+    ECO_STEAM_TEMP,
+    ECO_STEAM_DELAY_MS,
+    shouldEnterEcoSteam,
 } from '../src/modules/steam-mode.js';
 
 // ── resolveSteamFlowPresetsForModel ─────────────────────────────────────────
@@ -363,4 +366,46 @@ test('steamSyncField: milk stop marks the duration element it shares', () => {
     assert.equal(steamSyncField('time'), 'duration');
     assert.equal(steamSyncField('temperature'), 'duration');
     assert.equal(steamSyncField('flow'), 'flow');
+});
+
+
+// ── Eco steam ────────────────────────────────────────────────────────────────
+
+test('eco steam parks one degree above the 135C heater cutoff', () => {
+    // 135 turns the heater off (de1app binary.tcl:184, Decaid's >= 135 rule), so
+    // 136 is barely-heated rather than cold. Not a tunable number.
+    assert.equal(ECO_STEAM_TEMP, 136);
+    assert.equal(ECO_STEAM_DELAY_MS, 600000); // de1app steam_eco_delay_seconds 600
+});
+
+test('shouldEnterEcoSteam: only from an idle machine with steam armed', () => {
+    const idle = { enabled: true, machineState: 'idle', configuredTemp: 150 };
+    assert.equal(shouldEnterEcoSteam(idle), true);
+    assert.equal(shouldEnterEcoSteam({ ...idle, configuredTemp: 135 }), true); // bottom of the range is still armed
+});
+
+test('shouldEnterEcoSteam: the setting gates everything', () => {
+    assert.equal(shouldEnterEcoSteam({ enabled: false, machineState: 'idle', configuredTemp: 150 }), false);
+});
+
+test('shouldEnterEcoSteam: never while the machine is doing something', () => {
+    for (const state of ['steam', 'espresso', 'hotWater', 'flush', 'sleeping', 'heating', null]) {
+        assert.equal(
+            shouldEnterEcoSteam({ enabled: true, machineState: state, configuredTemp: 150 }),
+            false,
+            `entered eco from ${state}`,
+        );
+    }
+});
+
+test('shouldEnterEcoSteam: steam already off is left off, never armed', () => {
+    // 0 is the off state. Entering would raise the target to 136 -- switching a
+    // heater ON that the user switched off.
+    for (const temp of [0, 134, undefined, null, '150']) {
+        assert.equal(
+            shouldEnterEcoSteam({ enabled: true, machineState: 'idle', configuredTemp: temp }),
+            false,
+            `entered eco with configuredTemp ${temp}`,
+        );
+    }
 });

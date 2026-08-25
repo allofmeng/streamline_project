@@ -67,6 +67,48 @@ export function resolveSteamStopMode(stopTemp, storedMode, isBengle) {
     return 'time';
 }
 
+// ── Eco steam ────────────────────────────────────────────────────────────────
+// Idle energy saver, ported from de1app (settings eco_steam, gui.tcl
+// do_eco_steam, binary.tcl return_de1_packed_steam_hotwater_settings): after a
+// spell with no interaction the steam target is dropped to just above the
+// heater's cutoff, and any interaction puts it back.
+
+/**
+ * Target the steam boiler is parked at while eco steam is active.
+ *
+ * 136, not 135, is deliberate: the DE1 turns the steam heater off entirely
+ * BELOW 135 (de1app binary.tcl:184; Decaid's De1Controller._writeSteamSettings
+ * applies the same >= 135 rule), so eco parks one degree above the cutoff --
+ * barely heated rather than cold, so steam comes back quickly.
+ */
+export const ECO_STEAM_TEMP = 136;
+
+/** Idle time before the boiler is parked (de1app steam_eco_delay_seconds 600). */
+export const ECO_STEAM_DELAY_MS = 10 * 60 * 1000;
+
+/** Lowest steam target that means "steam is armed" -- below it the heater is off. */
+export const STEAM_ENABLED_MIN_TEMP = 135;
+
+/**
+ * May eco steam take the boiler down right now?
+ *
+ * @param {object} o
+ * @param {boolean} o.enabled  the user's eco steam setting
+ * @param {string|null} o.machineState  latest confirmed machine state
+ * @param {*} o.configuredTemp  the workflow's steam target
+ * @returns {boolean}
+ */
+export function shouldEnterEcoSteam({ enabled, machineState, configuredTemp }) {
+    if (!enabled) return false;
+    // Only from a machine that is doing nothing. Steaming, pulling a shot or
+    // flushing all mean the boiler is in use; asleep means the heater is already
+    // off and there is nothing to save.
+    if (machineState !== 'idle') return false;
+    // Steam already off -> nothing to park, and entering would ARM a heater the
+    // user turned off.
+    return typeof configuredTemp === 'number' && configuredTemp >= STEAM_ENABLED_MIN_TEMP;
+}
+
 // ── Milk-probe presence ──────────────────────────────────────────────────────
 // Snapshot contract: milkTemperature is real °C; 0 (or an absent field) means
 // no probe / no reading. A probe must not flicker out on a single 0 frame, so

@@ -1,3 +1,4 @@
+import { isEcoSteamEnabled, setEcoSteamEnabled } from '../modules/eco-steam.js';
 import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
@@ -2701,6 +2702,22 @@ export function renderSteamSettings() {
                     </div>
                     <p class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] leading-[1.2]" data-i18n-key="The lowest setting turns the steam heater off">The lowest setting turns the steam heater off</p>
                 </div>
+            </div>
+
+            <!-- Eco steam -->
+            <div class="content-stretch flex items-center justify-between gap-[24px] relative w-full">
+                <div class="flex flex-col gap-[10px] font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
+                    <p class="leading-[1.2]" data-i18n-key="Eco steam">Eco steam</p>
+                    <p class="text-[20px] font-normal opacity-60 leading-[1.2]" data-i18n-key="After ten idle minutes the steam boiler drops to just above its cutoff. Any touch brings it straight back.">After ten idle minutes the steam boiler drops to just above its cutoff. Any touch brings it straight back.</p>
+                </div>
+                <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
+                    <input type="checkbox" id="eco-steam-toggle"
+                           class="sr-only peer"
+                           ${isEcoSteamEnabled() ? 'checked' : ''}
+                           onchange="window.setEcoSteam(this.checked)">
+                    <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
+                    <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
+                </label>
             </div>
 
             <!-- Steam Flow -->
@@ -7792,6 +7809,8 @@ export async function initializeSettings() {
 
     // Steam-stop mode toggle (Off | Time | Milk Temp). Stages stopAtTemperature and
     // re-renders so the correct dependent field (Duration or Milk target) is revealed.
+    window.setEcoSteam = setEcoSteamEnabled;
+
     window.setSteamStopMode = function(mode) {
         // Milk Temp is unofferable without the probe (button renders disabled —
         // this guard is belt-and-braces against a stale DOM).

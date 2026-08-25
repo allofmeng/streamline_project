@@ -105,9 +105,15 @@ const reatsettingscache = {
 };
 
 
+// True once a shotSettings frame has actually landed. sendShotSettings posts the
+// WHOLE cache, so posting before the first frame would write the all-zero
+// initializer above onto the machine.
+let shotSettingsSeen = false;
+
 export function updateShotSettingsCache(newSettings) {
     if (newSettings) {
         currentShotSettings = { ...currentShotSettings, ...newSettings };
+        shotSettingsSeen = true;
         logger.debug('Shot settings cache updated:', currentShotSettings);
     }
 }
@@ -1149,7 +1155,7 @@ export async function setMachineState(newState) {
     return response;
 }
 
-async function sendShotSettings() {
+async function sendShotSettings(overrides = {}) {
     const payload = {
         steamSetting: Math.round(currentShotSettings.steamSetting),
         targetSteamTemp: Math.round(currentShotSettings.targetSteamTemp),
@@ -1159,6 +1165,7 @@ async function sendShotSettings() {
         targetHotWaterDuration: Math.round(currentShotSettings.targetHotWaterDuration),
         targetShotVolume: Math.round(currentShotSettings.targetShotVolume),
         groupTemp: parseFloat(currentShotSettings.groupTemp.toFixed(1)),
+        ...overrides,
     };
 
     const response = await fetch(`${API_BASE_URL}/machine/shotSettings`, {
@@ -1175,6 +1182,23 @@ async function sendShotSettings() {
         throw new Error(`Failed to set shot settings. Status: ${response.status}, Body: ${errorBody}`);
     }
     return;
+}
+
+/**
+ * Push a steam target to the DE1 WITHOUT touching the stored workflow.
+ *
+ * The wire-level half of eco steam (see eco-steam.js). POST /machine/shotSettings
+ * goes straight to the device in Decaid (de1handler._shotSettingsHandler ->
+ * device.updateShotSettings) and never writes the workflow record, so the user's
+ * configured steam temperature survives the eco round trip -- which is the whole
+ * point: eco changes what the machine is told, not what the user set.
+ *
+ * Everything else in the payload is the machine's own last echo, so the post is
+ * a no-op for every field but the steam target.
+ */
+export async function setMachineSteamTemp(temp) {
+    if (!shotSettingsSeen) throw new Error('No shot settings frame yet; refusing to post a zeroed payload');
+    return sendShotSettings({ targetSteamTemp: Math.round(temp) });
 }
 
 // Last-value-set-by-the-user cache, per main-page control. Kept fresh from

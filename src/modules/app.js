@@ -25,6 +25,7 @@ import { initTimePicker } from './time-picker-modal.js';
 import { openDB, setSetting } from './idb.js';
 import { openContextMenu } from './context-menu.js';
 import { shouldHandleMachineShortcut } from './machine-shortcut.js';
+import { initEcoSteam, noteEcoSteamActivity } from './eco-steam.js';
 
 window.app = { api, ui, chart };
 
@@ -731,6 +732,10 @@ function handleData(data) {
     const isActiveState = state !== MachineState.IDLE &&
                           state !== MachineState.SLEEPING &&
                           state !== MachineState.ERROR;
+    // Using the machine from its own buttons counts as interaction for eco
+    // steam -- without this, a steam pulled from the GHC leaves the tablet
+    // untouched and the boiler drops as if the machine had sat idle.
+    if (isActiveState) noteEcoSteamActivity();
     ui.updateGhcStopButton(isActiveState);
     ui.updateSidebarOverlay(state);
 
@@ -2063,6 +2068,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         initNumpadModal();
         initTimePicker();
         initMobileValueInputs();
+        initEcoSteam();
         logger.info('App DOMContentLoaded: UI initialized.');
 
         // Check URL and load appropriate page if navigating directly to a route
