@@ -1147,6 +1147,21 @@ const SHOT_SETTINGS_KV_FIELDS = [
 // Last value each field arrived with, so a steady stream of identical frames
 // doesn't become a steady stream of KV lookups.
 const lastSeenShotSettings = {};
+// When each field was last actually re-pushed. The seen-check above only
+// suppresses REPEATS of one value, so a machine that ALTERNATES between the
+// drifted value and ours slips past it on every single frame -- one lagging DE1
+// shot-settings echo is enough to start that, and nothing stopped it. decaid
+// gh-678: 190 PUT /workflow in 27 s (~7/s), each one a KV read, a KV write and
+// two BLE writes, with the DE1 reporting 54 C and 75 C in near-perfect
+// alternation (284 frames vs 287) until the BLE link was reset mid-shot and the
+// shot went unrecorded.
+//
+// A genuine drift is still corrected on the FIRST frame that shows it; only a
+// second correction of the same field is made to wait. The clock starts when we
+// actually push -- a check that found nothing to do costs nothing and must not
+// delay the next real one.
+const RESYNC_COOLDOWN_MS = 30000;
+const lastResyncAt = {};
 
 // The boot resync runs once; a shotSettings frame can move these at any time
 // after it (BLE reconnect, Rea restart, the machine's own tablet, another skin)
@@ -1154,15 +1169,25 @@ const lastSeenShotSettings = {};
 // Re-run the same comparison on every frame that actually changes one, so the
 // user's setting is restored instead of silently sitting wrong until reload.
 //
-// Converges rather than loops: our push makes Rea emit a corrected frame, and a
-// machine that refuses to take the value keeps sending the same number, which
-// the seen-check skips.
+// Rate-limited per field: see RESYNC_COOLDOWN_MS. Without that this does not
+// converge -- it only converges if a machine that will not take our value keeps
+// reporting the SAME number, and a DE1 under a fast write stream reports the
+// old one and the new one alternately instead.
 function resyncDriftedShotSettings(data) {
+    const now = Date.now();
     for (const [field, key, push] of SHOT_SETTINGS_KV_FIELDS) {
         const value = data[field];
         if (value === undefined || value === lastSeenShotSettings[field]) continue;
         lastSeenShotSettings[field] = value;
+        if (now - (lastResyncAt[field] ?? 0) < RESYNC_COOLDOWN_MS) continue;
+        // Claimed before the await, not after: at frame rate a dozen more frames
+        // arrive before this resolves, and every one of them would pass the
+        // check above. Released again only when there was nothing to push -- an
+        // outright failure keeps the cooldown, since retrying it at frame rate
+        // is the storm this exists to stop.
+        lastResyncAt[field] = now;
         api.resyncIfDrifted(key, value, push)
+            .then(pushed => { if (pushed == null) delete lastResyncAt[field]; })
             .catch(e => logger.warn(`${field} drift resync failed:`, e));
     }
 }

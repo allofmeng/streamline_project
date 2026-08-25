@@ -206,11 +206,17 @@ function lift(module, patterns) {
     const body = lift('app.js', [
         /const SHOT_SETTINGS_KV_FIELDS = \[[\s\S]*?\r?\n\];/,
         /const lastSeenShotSettings = \{\};/,
+        /const RESYNC_COOLDOWN_MS = .*;/,
+        /const lastResyncAt = \{\};/,
         /function resyncDriftedShotSettings\(data\) \{[\s\S]*?\r?\n\}/,
     ]);
 
-    const build = () => {
+    // `pushes` is what resyncIfDrifted decides to write back; null means it found
+    // nothing to correct. Time is injected so the cooldown can be stepped over
+    // without the test sleeping for it.
+    const build = (pushes = 'corrected') => {
         const checked = [];
+        const clock = { now: 1_000_000 };
         const api = {
             STEAM_DURATION_LAST_VALUE_KEY: 'last-steam-duration',
             HOT_WATER_VOLUME_LAST_VALUE_KEY: 'last-hot-water-volume',
@@ -218,12 +224,15 @@ function lift(module, patterns) {
             setTargetSteamDuration: () => {},
             setTargetHotWaterVolume: () => {},
             setTargetHotWaterTemp: () => {},
-            resyncIfDrifted: async (key, value) => { checked.push([key, value]); },
+            resyncIfDrifted: async (key, value) => { checked.push([key, value]); return pushes; },
         };
-        const fn = new Function('api', 'logger',
-            `${body}\nreturn resyncDriftedShotSettings;`)(api, { warn() {} });
-        return { fn, checked };
+        const fn = new Function('api', 'logger', 'Date',
+            `${body}\nreturn resyncDriftedShotSettings;`)(api, { warn() {} }, { now: () => clock.now });
+        return { fn, checked, clock };
     };
+
+    // The cooldown is released on the microtask that resolves resyncIfDrifted.
+    const settle = () => new Promise(resolve => setImmediate(resolve));
 
     test('only the three KV-backed ShotSettings fields are checked', () => {
         const { fn, checked } = build();
@@ -246,12 +255,45 @@ function lift(module, patterns) {
         assert.deepEqual(checked, [['last-steam-duration', 30]]);
     });
 
-    test('a changed value is checked again', () => {
+    test('a machine alternating between two values is corrected once, not per frame', async () => {
+        // decaid gh-678. The DE1 reported 54 C and 75 C alternately while our
+        // correction was in flight; because each frame differed from the last,
+        // the repeat-check above never fired and every frame became a workflow
+        // PUT -- 190 of them in 27 s, which took the BLE link down mid-shot.
         const { fn, checked } = build();
+        for (let i = 0; i < 20; i++) fn({ targetHotWaterTemp: i % 2 ? 75 : 54 });
+        await settle();
+        assert.deepEqual(checked, [['last-hot-water-temp', 54]]);
+    });
+
+    test('the field is correctable again once the cooldown has passed', async () => {
+        const { fn, checked, clock } = build();
+        fn({ targetHotWaterTemp: 54 });
+        await settle();
+        clock.now += 30_000;
+        fn({ targetHotWaterTemp: 75 });
+        await settle();
+        assert.deepEqual(checked.map(([, v]) => v), [54, 75]);
+    });
+
+    test('a check that corrects nothing does not delay the next one', async () => {
+        // Nothing remembered, or already in agreement: no write went out, so
+        // there is no storm to throttle and a real drift must not have to wait.
+        const { fn, checked } = build(null);
         fn({ targetSteamDuration: 30 });
+        await settle();
         fn({ targetSteamDuration: 45 });
-        fn({ targetSteamDuration: 30 });
-        assert.deepEqual(checked.map(([, v]) => v), [30, 45, 30]);
+        await settle();
+        assert.deepEqual(checked.map(([, v]) => v), [30, 45]);
+    });
+
+    test('each field gets its own cooldown', async () => {
+        const { fn, checked } = build();
+        fn({ targetSteamDuration: 30, targetHotWaterVolume: 120, targetHotWaterTemp: 85 });
+        await settle();
+        fn({ targetSteamDuration: 45, targetHotWaterVolume: 150, targetHotWaterTemp: 90 });
+        await settle();
+        assert.deepEqual(checked.map(([, v]) => v), [30, 120, 85]);
     });
 
     test('absent fields are skipped, zero is not', () => {
