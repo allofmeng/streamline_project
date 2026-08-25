@@ -4869,19 +4869,26 @@ export function renderPluginManagerSettings() {
 // and never exposes it. So this page gates on the account instead of collecting
 // one — and linking happens in the Decent app, since the bridge exposes only a
 // status read (GET /account/decent) and no login endpoint.
+//
+// The controls are built from the plugin's OWN manifest rather than written out
+// here. GET /api/v1/plugins returns PluginManifest.toJson(), which carries the
+// `settings` schema verbatim -- type, description and default
+// (plugin_manifest.dart). Hand-writing the labels meant this page drifted from
+// the plugin: it still offered an "Upload existing shot history" toggle writing
+// DrainHistory, which shot-upload 0.2.1 REMOVED -- reconciliation follows
+// AutoUpload now (doc/Plugins.md, and decaid's own "reconciliation follows
+// AutoUpload, not old DrainHistory" test). The switch did nothing at all.
 export function renderShotUploadSettings() {
     setTimeout(setupShotUploadListeners, 0);
 
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Shot Uploader">Shot Uploader</p>
+                <p class="leading-[1.2]" id="shotupload-title" data-i18n-key="Shot Uploader">Shot Uploader</p>
             </div>
 
             <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
-                <p class="text-[24px] text-[var(--text-primary)] leading-[1.4] opacity-75" data-i18n-key="Uploads your shots to your Decent account so you can see your shot history and charts. Only your own machines are accepted.">
-                    Uploads your shots to your Decent account so you can see your shot history and charts. Only your own machines are accepted.
-                </p>
+                <p id="shotupload-description" class="text-[24px] text-[var(--text-primary)] leading-[1.4] opacity-75"></p>
 
                 <!-- Account gate. One of these three is visible at a time; the controls
                      below stay disabled until the account one says linked. -->
@@ -4891,63 +4898,78 @@ export function renderShotUploadSettings() {
                     </div>
                 </div>
 
-                <div id="shotupload-controls" class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
-                    <div class="content-stretch flex items-center justify-between relative w-full">
-                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Upload shots automatically">Upload shots automatically</p>
-                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Send each shot to your Decent account when it finishes.">
-                                Send each shot to your Decent account when it finishes.
-                            </p>
-                        </div>
-                        <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
-                            <input type="checkbox" id="shotupload-enabled" class="sr-only peer">
-                            <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
-                            <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
-                        </label>
-                    </div>
+                <!-- Filled from the manifest schema by setupShotUploadListeners. -->
+                <div id="shotupload-controls" class="content-stretch flex flex-col gap-[30px] items-start relative w-full"></div>
 
-                    <div class="content-stretch flex items-center justify-between relative w-full">
-                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Upload existing shot history">Upload existing shot history</p>
-                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Upload existing shot history, a few at a time while the machine is idle.">
-                                Upload existing shot history, a few at a time while the machine is idle.
-                            </p>
-                        </div>
-                        <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
-                            <input type="checkbox" id="shotupload-drain" class="sr-only peer">
-                            <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
-                            <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
-                        </label>
-                    </div>
-
-                    <div class="flex items-center gap-4">
-                        <label for="shotupload-min-duration" class="text-[var(--text-primary)] text-[24px]" data-i18n-key="Minimum Shot Duration (seconds):">Minimum Shot Duration (seconds):</label>
-                        <input type="number" id="shotupload-min-duration" class="w-24 p-3 rounded-lg border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[24px] focus:outline-none focus:ring-2 focus:ring-[var(--mimoja-blue)]" min="0" value="5">
-                    </div>
-
-                    <div class="flex items-center gap-[14px] flex-wrap w-full">
-                        <button id="shotupload-upload-now" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[22px] font-bold" data-i18n-key="Upload latest shot">Upload latest shot</button>
-                        <span id="shotupload-status" class="text-[20px] text-[var(--text-primary)] opacity-60"></span>
-                    </div>
+                <div class="flex items-center gap-[14px] flex-wrap w-full">
+                    <button id="shotupload-upload-now" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[22px] font-bold" data-i18n-key="Upload latest shot">Upload latest shot</button>
+                    <span id="shotupload-status" class="text-[20px] text-[var(--text-primary)] opacity-60"></span>
                 </div>
             </div>
         </div>
     `;
 }
 
+// "AutoUpload" -> "Auto Upload". The schema names a setting but never labels it,
+// so the key is split rather than a friendlier label being invented here -- an
+// invented one is exactly what goes stale. The sentence the user actually reads
+// is the manifest's own `description`.
+export function pluginSettingLabel(key) {
+    return String(key)
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+}
+
+// One control per manifest setting, for the two types shot-upload declares.
+// A type we have no control for renders nothing and is logged by the caller,
+// which is the signal to add it -- guessing at string/enum/secure widgets before
+// a plugin here asks for one is how this page drifted in the first place.
+export function renderPluginSettingControl(key, schema) {
+    const id = `shotupload-setting-${key}`;
+    const label = escapeHtml(getTranslation(pluginSettingLabel(key)));
+    const description = schema?.description
+        ? `<p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="${escapeHtml(schema.description)}">${escapeHtml(getTranslation(schema.description))}</p>`
+        : '';
+
+    if (schema?.type === 'boolean') {
+        return `
+            <div class="content-stretch flex items-center justify-between relative w-full">
+                <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                    <p class="leading-[1.2]">${label}</p>
+                    ${description}
+                </div>
+                <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
+                    <input type="checkbox" id="${id}" data-setting-key="${escapeHtml(key)}" data-setting-type="boolean" class="sr-only peer">
+                    <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
+                    <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
+                </label>
+            </div>`;
+    }
+
+    if (schema?.type === 'number') {
+        return `
+            <div class="flex flex-col gap-[8px] w-full">
+                <div class="flex items-center gap-4">
+                    <label for="${id}" class="text-[var(--text-primary)] text-[24px]">${label}</label>
+                    <input type="number" id="${id}" min="0" data-setting-key="${escapeHtml(key)}" data-setting-type="number" class="w-24 p-3 rounded-lg border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[24px] focus:outline-none focus:ring-2 focus:ring-[var(--mimoja-blue)]">
+                </div>
+                ${description}
+            </div>`;
+    }
+
+    return '';
+}
+
 // Every control writes straight through to the plugin's settings -- there is no
-// Save button because there is nothing to type. AutoUpload and DrainHistory are
-// both opt-in and default off in the manifest, which is the whole point of the
-// plugin: it uploads nothing until asked.
+// Save button because there is nothing to type. Which controls exist, and what
+// they say, comes from the manifest; see renderShotUploadSettings.
 function setupShotUploadListeners() {
     const PLUGIN_ID = 'shot-upload.reaplugin';
     const accountEl = document.getElementById('shotupload-account');
     const controlsEl = document.getElementById('shotupload-controls');
     if (!accountEl || !controlsEl) return;
 
-    const enabledToggle = document.getElementById('shotupload-enabled');
-    const drainToggle = document.getElementById('shotupload-drain');
-    const minDurationInput = document.getElementById('shotupload-min-duration');
     const uploadNowBtn = document.getElementById('shotupload-upload-now');
     const statusEl = document.getElementById('shotupload-status');
 
@@ -4971,8 +4993,8 @@ function setupShotUploadListeners() {
     // feature on will offer them before they go and link an account.
     const setControlsEnabled = (enabled) => {
         controlsEl.style.opacity = enabled ? '1' : '0.4';
-        [enabledToggle, drainToggle, minDurationInput, uploadNowBtn]
-            .forEach(el => { if (el) el.disabled = !enabled; });
+        controlsEl.querySelectorAll('input').forEach(el => { el.disabled = !enabled; });
+        if (uploadNowBtn) uploadNowBtn.disabled = !enabled;
     };
 
     const setStatus = (text) => { if (statusEl) statusEl.textContent = text || ''; };
@@ -5009,6 +5031,19 @@ function setupShotUploadListeners() {
             return;
         }
 
+        // The plugin names and explains itself. Both are optional on the wire, so
+        // the static header stands in if either is missing.
+        const titleEl = document.getElementById('shotupload-title');
+        if (titleEl && plugin.name) {
+            titleEl.textContent = getTranslation(plugin.name);
+            titleEl.setAttribute('data-i18n-key', plugin.name);
+        }
+        const descriptionEl = document.getElementById('shotupload-description');
+        if (descriptionEl && plugin.description) {
+            descriptionEl.textContent = getTranslation(plugin.description);
+            descriptionEl.setAttribute('data-i18n-key', plugin.description);
+        }
+
         if (!account.loggedIn) {
             // No login endpoint exists on the bridge, so the Decent app is the only
             // place an account can be linked.
@@ -5023,7 +5058,7 @@ function setupShotUploadListeners() {
         let settings;
         try {
             // Strict: the lenient default returns {} for a failed read, which would
-            // paint both toggles off while uploads are in fact running.
+            // paint the controls at their defaults while uploads are in fact running.
             settings = await getPluginSettings(PLUGIN_ID, { strict: true }) || {};
         } catch (e) {
             logger.warn('Shot upload settings unavailable:', e);
@@ -5034,18 +5069,35 @@ function setupShotUploadListeners() {
         }
         // The page can be left while those awaits are in flight, which drops the
         // form -- same hazard loadVisualizerSettings guards against.
-        if (!document.getElementById('shotupload-enabled')) return;
+        if (!document.getElementById('shotupload-controls')) return;
 
-        if (enabledToggle) enabledToggle.checked = settings.AutoUpload === true;
-        if (drainToggle) drainToggle.checked = settings.DrainHistory === true;
-        if (minDurationInput && settings.LengthThreshold != null) {
-            minDurationInput.value = settings.LengthThreshold;
+        const schema = plugin.settings && typeof plugin.settings === 'object' ? plugin.settings : {};
+        const keys = Object.keys(schema);
+        const controls = keys.map(key => {
+            const html = renderPluginSettingControl(key, schema[key]);
+            if (!html) logger.warn(`Shot upload: no control for setting ${key} of type ${schema[key]?.type}`);
+            return html;
+        }).join('');
+
+        controlsEl.innerHTML = controls || notice(
+            getTranslation('Nothing to configure'),
+            getTranslation('This plugin does not expose any settings.'));
+
+        // Stored value first, manifest default second -- a plugin that has never
+        // been written to has no stored value, and the default is what it is
+        // actually running with.
+        for (const key of keys) {
+            const el = document.getElementById(`shotupload-setting-${key}`);
+            if (!el) continue;
+            const value = settings[key] !== undefined ? settings[key] : schema[key]?.default;
+            if (el.type === 'checkbox') el.checked = value === true;
+            else if (value !== undefined && value !== null) el.value = value;
         }
         setControlsEnabled(true);
 
-        // A setting means nothing while the plugin is unloaded, so turning either
-        // switch on loads it first. Turning off leaves it loaded: the manual
-        // upload button and the status endpoint still work.
+        // A setting means nothing while the plugin is unloaded, so switching one ON
+        // loads it first. Switching off leaves it loaded: the manual upload button
+        // and the status endpoint still work.
         const saveSetting = async (patch, { needsPlugin = false } = {}) => {
             if (needsPlugin && !plugin.loaded) {
                 await enablePlugin(PLUGIN_ID);
@@ -5054,44 +5106,44 @@ function setupShotUploadListeners() {
             await setPluginSettings(PLUGIN_ID, patch);
         };
 
-        enabledToggle?.addEventListener('change', async function () {
-            const on = this.checked;
-            this.disabled = true;
-            try {
-                await saveSetting({ AutoUpload: on }, { needsPlugin: on });
-                ui.showToast(getTranslation(on ? 'Shot upload enabled' : 'Shot upload disabled'), 2000, 'success');
-            } catch (e) {
-                logger.error('Failed to change shot upload setting', e);
-                ui.showToast(`${getTranslation('Failed')}: ${e.message || e}`, 4000, 'error');
-                this.checked = !on;
-            }
-            this.disabled = false;
-        });
+        controlsEl.querySelectorAll('[data-setting-key]').forEach(el => {
+            el.addEventListener('change', async function () {
+                const key = this.dataset.settingKey;
+                const type = this.dataset.settingType;
+                const previous = settings[key] !== undefined ? settings[key] : schema[key]?.default;
 
-        drainToggle?.addEventListener('change', async function () {
-            const on = this.checked;
-            this.disabled = true;
-            try {
-                await saveSetting({ DrainHistory: on }, { needsPlugin: on });
-                ui.showToast(getTranslation(on ? 'History upload enabled' : 'History upload disabled'), 2000, 'success');
-            } catch (e) {
-                logger.error('Failed to change history upload setting', e);
-                ui.showToast(`${getTranslation('Failed')}: ${e.message || e}`, 4000, 'error');
-                this.checked = !on;
-            }
-            this.disabled = false;
-        });
+                let value;
+                if (type === 'boolean') {
+                    value = this.checked;
+                } else {
+                    value = parseFloat(this.value);
+                    // Rejected rather than written: a NaN or a negative would be
+                    // persisted and read back as a broken threshold on every
+                    // later load. The schema carries no bounds, so this keeps the
+                    // one rule the hand-written field already enforced.
+                    if (!isFinite(value) || value < 0) {
+                        this.value = previous ?? '';
+                        return;
+                    }
+                }
 
-        minDurationInput?.addEventListener('change', async function () {
-            const value = parseFloat(this.value);
-            if (!isFinite(value) || value < 0) { this.value = settings.LengthThreshold ?? 5; return; }
-            try {
-                await saveSetting({ LengthThreshold: value });
-                settings.LengthThreshold = value;
-            } catch (e) {
-                logger.error('Failed to save shot upload threshold', e);
-                ui.showToast(`${getTranslation('Failed')}: ${e.message || e}`, 4000, 'error');
-            }
+                this.disabled = true;
+                try {
+                    await saveSetting({ [key]: value }, { needsPlugin: value === true });
+                    settings[key] = value;
+                    if (type === 'boolean') {
+                        ui.showToast(
+                            `${getTranslation(pluginSettingLabel(key))}: ${getTranslation(value ? 'On' : 'Off')}`,
+                            2000, 'success');
+                    }
+                } catch (e) {
+                    logger.error(`Failed to change shot upload setting ${key}`, e);
+                    ui.showToast(`${getTranslation('Failed')}: ${e.message || e}`, 4000, 'error');
+                    if (type === 'boolean') this.checked = previous === true;
+                    else this.value = previous ?? '';
+                }
+                this.disabled = false;
+            });
         });
 
         uploadNowBtn?.addEventListener('click', async function () {
