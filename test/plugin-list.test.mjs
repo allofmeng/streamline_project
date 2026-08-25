@@ -48,11 +48,11 @@ test('an id needing escaping stays intact in the path', () => {
 
 // ── Shot Uploader controls are built from the plugin's manifest ──────────────
 //
-// The page used to hand-write its labels and its control list, and drifted: it
-// still offered an "Upload existing shot history" toggle writing DrainHistory,
-// a setting shot-upload 0.2.1 removed (reconciliation follows AutoUpload now).
-// Reading GET /api/v1/plugins' `settings` schema instead means the page can only
-// ever show what the plugin declares.
+// The page used to hand-write its labels and its control list, so it could not
+// follow a plugin that ships on its own schedule: shot-upload 0.2.0 declares
+// DrainHistory and 0.2.1 removes it. Reading GET /api/v1/plugins' `settings`
+// schema instead means the page shows exactly what the connected Decaid's plugin
+// declares, whichever version that is. The schema below is 0.2.1's.
 
 const shotUpload = (() => {
     const lift = (re, name) => {
@@ -95,10 +95,19 @@ test('every sentence on the page comes from the manifest, not from settings.js',
 });
 
 test('a setting the manifest does not declare gets no control', () => {
-    // DrainHistory is the one that rotted: removed in 0.2.1, still on the page.
+    // Nothing is rendered for a key the schema is silent about -- which is how a
+    // setting removed upstream (DrainHistory, gone in 0.2.1) leaves the page
+    // without this file changing. Against a 0.2.0 manifest the same code draws
+    // it, because there the schema still declares it.
     const html = Object.keys(shotUploadSchema)
         .map(k => shotUpload.renderPluginSettingControl(k, shotUploadSchema[k])).join('');
     assert.ok(!html.includes('DrainHistory'));
+
+    const withIt = shotUpload.renderPluginSettingControl('DrainHistory', {
+        type: 'boolean',
+        description: 'Also upload shots already in your history, a few at a time while the machine is idle (opt-in; off by default)',
+    });
+    assert.ok(withIt.includes('data-setting-key="DrainHistory"'));
 });
 
 test('the label is derived from the key, never invented', () => {

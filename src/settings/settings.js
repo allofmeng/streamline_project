@@ -4873,11 +4873,16 @@ export function renderPluginManagerSettings() {
 // The controls are built from the plugin's OWN manifest rather than written out
 // here. GET /api/v1/plugins returns PluginManifest.toJson(), which carries the
 // `settings` schema verbatim -- type, description and default
-// (plugin_manifest.dart). Hand-writing the labels meant this page drifted from
-// the plugin: it still offered an "Upload existing shot history" toggle writing
-// DrainHistory, which shot-upload 0.2.1 REMOVED -- reconciliation follows
-// AutoUpload now (doc/Plugins.md, and decaid's own "reconciliation follows
-// AutoUpload, not old DrainHistory" test). The switch did nothing at all.
+// (plugin_manifest.dart).
+//
+// Hand-written controls cannot track a plugin that ships on its own schedule.
+// shot-upload 0.2.0 declares DrainHistory; 0.2.1 removes it, because backlog
+// reconciliation follows AutoUpload now (doc/Plugins.md, and decaid's own
+// "reconciliation follows AutoUpload, not old DrainHistory" test). A page with
+// the switch hard-coded is wrong on exactly one of those two versions, whichever
+// way it is written -- and Decaid updates underneath us, so which one that is
+// changes without this file being touched. Reading the schema at runtime means
+// the page shows the toggle on 0.2.0 and drops it on 0.2.1 on its own.
 export function renderShotUploadSettings() {
     setTimeout(setupShotUploadListeners, 0);
 
