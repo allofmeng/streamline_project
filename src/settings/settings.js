@@ -8,7 +8,7 @@ import { loadPage } from '../modules/router.js'; // Singular and correctly forma
 import { logger } from '../modules/logger.js';
 import { isBengleMachine, setMachineModel } from '../modules/machine.js';
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
-import { summarizeFirmwareCatalog, isFirmwareCancellationError } from '../modules/firmware-progress.js';
+import { summarizeFirmwareCatalog, isFirmwareCancellationError, estimateRemainingSeconds, formatDuration } from '../modules/firmware-progress.js';
 import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewComposite } from '../modules/led-color.js';
 import { isCupWarmerOn, readCupWarmerTarget, clampCupWarmerTarget, clampPrewarmMinutes, resolvePrewarm, prewarmWarnings, prewarmShapeSignature, cupWarmerViewMode, formatCurrentMatTemp, getCupWarmerState, setCupWarmerState, patchCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY, PREWARM_MIN_MINUTES, PREWARM_MAX_MINUTES } from '../modules/cup-warmer.js';
@@ -151,6 +151,16 @@ let firmwareCancelRequested = false;
 // because it is working" from "silent because it is dead".
 let firmwareStartedAt = 0;
 let firmwareElapsedTimer = null;
+// When the upload proper began, and the percentage the first event reported.
+// The countdown is measured from here, not from firmwareStartedAt: the erase
+// carries no percentages, so timing the upload from the start of the operation
+// would price minutes of erase into the upload's rate and overstate what is left.
+let firmwareUploadStartedAt = 0;
+let firmwareUploadStartPercent = 0;
+// When the last progress event landed — the countdown ticks down from there
+// between events instead of re-estimating against the clock (see
+// estimateRemainingSeconds).
+let firmwareProgressAt = 0;
 
 // Enhanced cache for settings data with loading states
 let settingsCache = {
@@ -5768,6 +5778,7 @@ function renderFirmwareCheckBlock(summary) {
                     <span class="text-[22px] text-[var(--text-primary)]">${getTranslation('Build')} ${escapeHtml(String(latestLabel ?? latestBuild ?? '—'))}</span>
                 </div>
                 ${releaseNotes ? `<p class="text-[20px] text-[var(--text-secondary)] leading-[1.4]">${escapeHtml(releaseNotes)}</p>` : ''}
+                <p class="text-[20px] font-bold text-[var(--text-primary)] leading-[1.4]">${getTranslation(FIRMWARE_DURATION_NOTE)}</p>
                 <button id="firmware-apply-btn" class="self-start bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[22px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                         ${artifactId ? `onclick="window.applyFirmwareUpdate('${escapeHtml(artifactId)}')"` : 'disabled'}>
                     ${getTranslation('Download & Install')}
@@ -5815,6 +5826,14 @@ async function initFirmwareCheck() {
     paint();
 }
 
+// Said before the update starts, everywhere it can be started from: the manual
+// upload block, the "update available" block, and the install confirm. A flash is
+// ~30 minutes of erase, upload and CRC verification, most of it with the bar
+// barely moving — someone who expected "a few minutes" reads that as a hang and
+// pulls the plug, which is the one thing that turns a slow update into a broken
+// machine. One constant so the number cannot drift between the three places.
+const FIRMWARE_DURATION_NOTE = 'The whole update takes at least 30 minutes. Do not power off the machine or leave this page until it finishes.';
+
 // Phase -> user-facing line. Shared by the live progress callback and the page
 // re-render, so a rejoined update reads identically to one watched throughout.
 function firmwareProgressLabel(progress) {
@@ -5830,14 +5849,26 @@ function firmwareProgressLabel(progress) {
     }[phase] || '';
     // Only while something is actually running: a finished or failed update
     // must not keep a clock next to it.
-    return text && phase !== 'done' ? `${text}${firmwareElapsed()}` : text;
+    return text && phase !== 'done' ? `${text}${firmwareClock(percent)}` : text;
 }
 
-// " — m:ss" since the operation started, or '' when nothing is running.
-function firmwareElapsed(now = Date.now()) {
+// The clock beside the phase. Counts DOWN through the upload — " — 2:10
+// remaining", from the rate the upload is actually running at. Erase and
+// verification report no percentage, so there is nothing to count down from and
+// it falls back to counting up: a bare " — 0:42" reads as time spent, which is
+// still what separates "silent because it is working" from "silent because it
+// is dead". Returns '' when nothing is running.
+function firmwareClock(percent, now = Date.now()) {
+    const remaining = estimateRemainingSeconds({
+        startedAt: firmwareUploadStartedAt,
+        startPercent: firmwareUploadStartPercent,
+        percent,
+        updatedAt: firmwareProgressAt,
+        now,
+    });
+    if (remaining !== null) return ` — ${formatDuration(remaining)} ${getTranslation('remaining')}`;
     if (!firmwareStartedAt) return '';
-    const seconds = Math.max(0, Math.round((now - firmwareStartedAt) / 1000));
-    return ` — ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    return ` — ${formatDuration((now - firmwareStartedAt) / 1000)}`;
 }
 
 export function renderFirmwareUpdateSettings() {
@@ -5907,8 +5938,8 @@ export function renderFirmwareUpdateSettings() {
                 <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.35] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="Select a firmware file… Restart the machine once the update is done.">
                     Select a firmware file… Restart the machine once the update is done.
                 </p>
-                <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.35] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="This may take several minutes. Do not power off the machine during the update.">
-                    This may take several minutes. Do not power off the machine during the update.
+                <p class="font-['Inter:Regular',sans-serif] font-bold leading-[1.35] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="${escapeHtml(FIRMWARE_DURATION_NOTE)}">
+                    ${getTranslation(FIRMWARE_DURATION_NOTE)}
                 </p>
                 <!-- Filled by window.uploadFirmware from the NDJSON progress stream. Hidden
                      via inline display, not the hidden attribute: the flex utility would override it.
@@ -7316,6 +7347,13 @@ export async function initializeSettings() {
         // bar reads as "Erasing…" / "Verifying…" rather than as a hang.
         const showProgress = ({ phase, percent }) => {
             lastFirmwareProgress = { phase, percent };
+            // First real upload tick starts the countdown's clock; every tick
+            // re-anchors it.
+            firmwareProgressAt = Date.now();
+            if (phase === 'uploading' && !firmwareUploadStartedAt) {
+                firmwareUploadStartedAt = firmwareProgressAt;
+                firmwareUploadStartPercent = percent;
+            }
             const panel = document.getElementById('firmware-progress');
             const label = document.getElementById('firmware-progress-label');
             const bar = document.getElementById('firmware-progress-bar');
@@ -7327,6 +7365,9 @@ export async function initializeSettings() {
         firmwareUploadInFlight = true;
         firmwareCancelRequested = false;
         firmwareStartedAt = Date.now();
+        firmwareUploadStartedAt = 0;
+        firmwareUploadStartPercent = 0;
+        firmwareProgressAt = 0;
         // Label only — the bar is the stream's to move. Element looked up per
         // tick for the same reason showProgress does it: the router swaps the
         // page HTML out from under a running update.
@@ -7391,6 +7432,9 @@ export async function initializeSettings() {
             clearInterval(firmwareElapsedTimer);
             firmwareElapsedTimer = null;
             firmwareStartedAt = 0;
+            firmwareUploadStartedAt = 0;
+            firmwareUploadStartPercent = 0;
+            firmwareProgressAt = 0;
             setScreensaverSuppressed(false);
             setFirmwareFlashInFlight(false);
             // The dim we suppressed was the idle->sleeping TRANSITION, and the
@@ -7446,7 +7490,7 @@ export async function initializeSettings() {
     // to double as a deliberate gate.
     window.applyFirmwareUpdate = async function(artifactId) {
         if (!artifactId) return;
-        if (!confirm(getTranslation('Install this firmware update? Restart the machine once the update is done.'))) return;
+        if (!confirm(`${getTranslation(FIRMWARE_DURATION_NOTE)}\n\n${getTranslation('Install this firmware update? Restart the machine once the update is done.')}`)) return;
 
         await runFirmwareOperation((showProgress) => applyFirmware(artifactId, showProgress), {
             onBeforeStart: () => {

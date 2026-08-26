@@ -95,6 +95,54 @@ export function advanceFirmwareState(state, event) {
 /** Starting state for advanceFirmwareState. */
 export const initialFirmwareState = { phase: null, percent: 0, error: null };
 
+// Below this the extrapolation swings wildly from one event to the next — a
+// countdown that jumps by minutes is worse than no countdown.
+const MIN_ETA_PERCENT = 5;
+
+/**
+ * Seconds left in the upload, extrapolated from the rate the bytes sent so far
+ * actually went out at. No fixed guess about how long a flash takes: a DE1 on a
+ * weak BLE link is minutes slower than one sitting next to the tablet, and only
+ * the observed rate knows which one this is.
+ *
+ * Measured from the FIRST `uploading` event rather than from the start of the
+ * operation, so the erase (silent, no percentages) does not drag the rate down;
+ * `startPercent` is where that first event landed, so the percent already done
+ * when the clock started is not credited to zero time.
+ *
+ * The rate is fixed at `updatedAt` — the last event — and the wait since then is
+ * subtracted, so the number falls every second the label repaints. Recomputing
+ * the rate against `now` instead would make it CLIMB between events (same
+ * percent, more elapsed time) and only drop when the next event landed, which is
+ * the opposite of a countdown. It floors at 0:00: the percentage next to it is
+ * what says whether a stalled clock means "nearly there" or "something is wrong".
+ *
+ * Returns null when there is nothing to extrapolate from — before the upload
+ * starts, in the first few percent, and once the bytes are all sent and the
+ * machine is verifying. The caller shows a plain elapsed clock in those
+ * stretches; a made-up countdown there would just be a lie with a colon in it.
+ *
+ * @param {{startedAt: number, startPercent?: number, percent: number|null,
+ *          updatedAt?: number, now?: number}} args
+ * @returns {number|null} whole seconds, or null when not estimable
+ */
+export function estimateRemainingSeconds({ startedAt, startPercent = 0, percent, updatedAt, now = Date.now() }) {
+    if (!startedAt || typeof percent !== 'number') return null;
+    if (percent < MIN_ETA_PERCENT || percent >= 100) return null;
+    const measuredAt = updatedAt || now;
+    const done = percent - startPercent;
+    const elapsed = (measuredAt - startedAt) / 1000;
+    if (done <= 0 || elapsed <= 0) return null;
+    const projected = (elapsed / done) * (100 - percent);
+    return Math.max(0, Math.round(projected - (now - measuredAt) / 1000));
+}
+
+/** Seconds as m:ss. */
+export function formatDuration(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
 /**
  * Reduce a GET /machine/firmware catalog to what the update check displays.
  *

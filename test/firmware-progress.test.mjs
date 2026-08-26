@@ -7,6 +7,8 @@ import {
     advanceFirmwareState,
     initialFirmwareState,
     summarizeFirmwareCatalog,
+    estimateRemainingSeconds,
+    formatDuration,
 } from '../src/modules/firmware-progress.js';
 
 function loadConsumeFirmwareStream() {
@@ -154,4 +156,65 @@ test('an empty catalog does not throw', () => {
     const s = summarizeFirmwareCatalog({ artifacts: [], machine: null, updateAvailable: null, operation: { state: 'idle' } });
     assert.equal(s.status, 'unknown');
     assert.equal(s.latestBuild, null);
+});
+
+// ── Upload countdown ────────────────────────────────────────────────────────
+// The label counts DOWN through the upload. Times are epoch ms; `startedAt` is
+// the first `uploading` event, not the start of the operation (the erase carries
+// no percentages and would skew the rate). 0 is the "not started" sentinel, so
+// these use a real-looking epoch.
+const T0 = 1_700_000_000_000;
+
+test('remaining is extrapolated from the observed upload rate', () => {
+    // 20% took 60s => 3s per percent => 80% left = 240s.
+    const remaining = estimateRemainingSeconds({
+        startedAt: T0, startPercent: 0, percent: 20, updatedAt: T0 + 60_000, now: T0 + 60_000,
+    });
+    assert.equal(remaining, 240);
+});
+
+test('the percent already done when the clock started is not credited to zero time', () => {
+    // First event landed at 10%; 10% -> 30% took 60s => 3s per percent => 70% left.
+    assert.equal(estimateRemainingSeconds({
+        startedAt: T0, startPercent: 10, percent: 30, updatedAt: T0 + 60_000, now: T0 + 60_000,
+    }), 210);
+    // Ignoring startPercent would price 30% into 60s and understate the wait.
+    assert.equal(estimateRemainingSeconds({
+        startedAt: T0, startPercent: 0, percent: 30, updatedAt: T0 + 60_000, now: T0 + 60_000,
+    }), 140);
+});
+
+test('the countdown falls between events instead of climbing', () => {
+    const at = now => estimateRemainingSeconds({
+        startedAt: T0, startPercent: 0, percent: 20, updatedAt: T0 + 60_000, now,
+    });
+    // Same event, three repaints of the 1 Hz label.
+    assert.equal(at(T0 + 60_000), 240);
+    assert.equal(at(T0 + 70_000), 230);
+    assert.equal(at(T0 + 90_000), 210);
+});
+
+test('a stalled stream floors at zero rather than going negative', () => {
+    assert.equal(estimateRemainingSeconds({
+        startedAt: T0, startPercent: 0, percent: 20, updatedAt: T0 + 60_000, now: T0 + 10_000_000,
+    }), 0);
+});
+
+test('no countdown before the upload, in the first few percent, or while verifying', () => {
+    const base = { startedAt: T0, startPercent: 0, updatedAt: T0 + 60_000, now: T0 + 60_000 };
+    assert.equal(estimateRemainingSeconds({ ...base, startedAt: 0, percent: 50 }), null,
+        'nothing to measure from until the first uploading event');
+    assert.equal(estimateRemainingSeconds({ ...base, percent: 4 }), null,
+        'too noisy to show in the first few percent');
+    assert.equal(estimateRemainingSeconds({ ...base, percent: 100 }), null,
+        'the bytes are sent; verification carries no percentage to project');
+    assert.equal(estimateRemainingSeconds({ ...base, percent: null }), null);
+});
+
+test('m:ss formatting pads the seconds', () => {
+    assert.equal(formatDuration(0), '0:00');
+    assert.equal(formatDuration(9), '0:09');
+    assert.equal(formatDuration(65), '1:05');
+    assert.equal(formatDuration(600), '10:00');
+    assert.equal(formatDuration(-5), '0:00');
 });
