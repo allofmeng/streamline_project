@@ -663,9 +663,12 @@ function renderStepCards() {
         const isFlow = step.pump !== 'pressure';
 
         // Header: step number + name input
-        const hCell = mkCell(R.HEADER, col, 'flex items-center justify-center px-[16px] py-[10px] border-r border-b-2 border-[var(--border-color)] bg-[var(--box-color)]');
+        // overflow-hidden + the min-w-0/max-w-full pair below keep a long step name
+        // inside its column: the track is minmax(380px, 1fr), so it does not grow to
+        // fit content — without the cap the name input spilled over the next step.
+        const hCell = mkCell(R.HEADER, col, 'flex items-center justify-center px-[16px] py-[10px] border-r border-b-2 border-[var(--border-color)] bg-[var(--box-color)] overflow-hidden');
         const nameWrapper = document.createElement('div');
-        nameWrapper.className = 'flex items-center gap-[6px]';
+        nameWrapper.className = 'flex items-center gap-[6px] min-w-0 max-w-full';
         const numSpan = document.createElement('span');
         numSpan.className = 'text-[24px] font-bold text-[var(--low-contrast-white)] shrink-0 select-none';
         numSpan.textContent = `${index + 1}.`;
@@ -676,7 +679,10 @@ function renderStepCards() {
         // use. Without it a transparent borderless input reads as static text.
         // It also restores a focus indicator: `outline-none` left this field with
         // no visible focus state at all.
-        nameInput.className = 'text-[24px] font-bold text-[var(--text-primary)] bg-transparent outline-none underline decoration-dashed';
+        // min-w-0 lets the input shrink below its `size` width (a form control's
+        // default min-width is auto, which is what let it push past the column);
+        // max-w-full stops at the cell edge. Short names still size to their text.
+        nameInput.className = 'text-[24px] font-bold text-[var(--text-primary)] bg-transparent outline-none underline decoration-dashed min-w-0 max-w-full';
         nameInput.style.textDecorationColor = 'var(--low-contrast-white)';
         nameInput.style.textUnderlineOffset = '4px';
         nameInput.addEventListener('focus', () => { nameInput.style.textDecorationColor = 'var(--mimoja-blue)'; });
@@ -2011,17 +2017,31 @@ async function saveProfile() {
         // Legacy-field stripping + REA Profile-model adaptation happens at the
         // api.js write boundary (sanitizeProfileForRea), covering every path.
 
+        // A record's id IS the hash of its execution fields — title/author/notes
+        // are hashed separately and are not part of identity. So a rename with no
+        // execution change cannot mint a new record: POST hits the server's
+        // dedup (ProfileController.create returns the existing record untouched)
+        // and the new name is silently dropped. It has to go through PUT, which
+        // keeps the id and rewrites the metadata. A default can't be PUT at all
+        // (the server rejects content edits on defaults), so say so instead of
+        // pretending the rename stuck.
+        if (titleChanged && !execChanged && src.isDefault) {
+            showToast(getTranslation('Change a setting to save a copy'), 3500, 'info');
+            return;
+        }
+
         // Save routing (REA versioning model):
         //  - default + execution change → POST fork (PUT would be rejected); the
         //    default stays as the parent/reset point.
-        //  - new profile or explicit save-as → POST (parentId links the source).
+        //  - new profile, or save-as that actually changes execution → POST
+        //    (parentId links the source).
         //  - otherwise → PUT in place; the server keeps the id on a
-        //    presentation-only change or rehashes it (deleting the old) on a
-        //    user execution change.
+        //    presentation-only change (rename included) or rehashes it (deleting
+        //    the old) on a user execution change.
         let saved;
         if (src?.isDefault && execChanged) {
             saved = await uploadProfileWithParent(editorState.profile, src.id);
-        } else if (!src || titleChanged) {
+        } else if (!src || (titleChanged && execChanged)) {
             saved = await uploadProfileWithParent(editorState.profile, src?.id ?? null);
         } else if (execChanged) {
             // Overwrite of an existing user profile: keep the prior version as a
@@ -2034,7 +2054,8 @@ async function saveProfile() {
             }
             try { await updateProfileVisibility(src.id, 'hidden'); } catch (_) {}
         } else {
-            // Presentation-only change (title/author/notes) → same id, PUT in place.
+            // Presentation-only change (title/author/notes, no execution change)
+            // → same id, PUT in place. Renaming a user profile lands here.
             saved = await updateProfile(src.id, editorState.profile);
         }
 

@@ -12,6 +12,7 @@
 // are English-only; wire into i18n.js if/when the app needs translated help.
 
 import { setupPressAndHold } from './ui.js';
+import { settingsReady } from './settingsSync.js';
 
 // Mirrors isInWebView() in ui.js / app.js — kept local so this module stays
 // dependency-light and copy-able.
@@ -370,7 +371,9 @@ function init() {
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    // Wait for the KV hydrate: init() reads the hide preference and bumps the
+    // launch counter, and this listener runs before app.js's own await lands.
+    document.addEventListener('DOMContentLoaded', () => { settingsReady.then(init); });
 } else {
-    init();
+    settingsReady.then(init);
 }

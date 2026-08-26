@@ -3,6 +3,7 @@ import { initScaling } from './scaling.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
 import { initI18n, getTranslation, fitTelemetry, fitTextToWidth } from './i18n.js';
+import { settingsReady } from './settingsSync.js';
 import { initUnits, formatTemp, fromDisplayTemp } from './units.js';
 import * as history from './history.js';
 import * as shotData from './shotData.js';
@@ -2060,6 +2061,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         chart.initChart();
         wireExpandedChart();
         logger.info('App DOMContentLoaded: Chart initialized.');
+
+        // Preferences come back from Decaid's KV store before anything reads
+        // them — WebView storage does not survive an app update.
+        await settingsReady;
 
         await initI18n();
         await initUnits();

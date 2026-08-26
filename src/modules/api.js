@@ -863,6 +863,19 @@ export async function getKVKeys(namespace) {
     return response.json(); // array of key strings
 }
 
+// Whole namespace in one request. `?full=1` is newer than the plain key list —
+// an older Decaid ignores it and answers with the key array, so fall back to
+// fetching each key rather than failing the caller.
+export async function getKVAll(namespace) {
+    const response = await fetch(`${API_BASE_URL}/store/${encodeURIComponent(namespace)}?full=1`);
+    if (!response.ok) throw new Error(`KV getAll failed: ${response.status}`);
+    const body = await response.json();
+    if (!Array.isArray(body)) return body || {};
+    const out = {};
+    for (const key of body) out[key] = await getKVValue(namespace, key);
+    return out;
+}
+
 export async function getKVValue(namespace, key) {
     const response = await fetch(`${API_BASE_URL}/store/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`);
     if (!response.ok) throw new Error(`KV getValue failed: ${response.status}`);

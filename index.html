@@ -49,6 +49,9 @@
     <link rel="preload" href="src/modules/api.js" as="script">
     <script src="src/modules/plotly-3.1.0.min.js"></script>
     <script src="src/modules/reconnecting-websocket.js" defer></script>
+    <!-- First module in: installs the localStorage→KV mirror and starts the
+         hydrate fetch before anything reads a preference. -->
+    <script src="src/modules/settingsSync.js" type="module"></script>
     <script src="src/modules/router.js" type="module"></script>
     <script src="src/modules/app.js" type="module"></script>
     <script src="src/modules/helpOverlay.js" type="module"></script>

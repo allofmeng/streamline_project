@@ -34,7 +34,7 @@ function executionChanged(orig, edited) {
 }
 
 // Returns what saveProfile would do: 'noop' | 'post-new' | 'fork-default'
-// | 'overwrite' (hide + POST) | 'put-metadata'.
+// | 'overwrite' (hide + POST) | 'put-metadata' | 'blocked-default-rename'.
 // `baseline` is _baselineProfileJson — the editor's copy as it stood on load.
 // `imported` is _hasImportedInSession — a file was uploaded into this session.
 function route(record, edited, baseline = null, imported = false) {
@@ -51,8 +51,9 @@ function route(record, edited, baseline = null, imported = false) {
     const titleChanged = sourceTitle && edited.title.trim() !== sourceTitle;
     const execChanged = !src || executionChanged(sourceProfile, edited);
 
+    if (titleChanged && !execChanged && src.isDefault) return 'blocked-default-rename';
     if (src?.isDefault && execChanged) return 'fork-default';
-    if (!src || titleChanged) return 'post-new';
+    if (!src || (titleChanged && execChanged)) return 'post-new';
     if (execChanged) return 'overwrite';
     return 'put-metadata';
 }
@@ -113,10 +114,25 @@ edited.steps[0].flow = 3;
 assert.strictEqual(route(legacy, edited), 'overwrite',
     'a real execution change on a user profile hides the old record and POSTs');
 
+// A record's id is the hash of its execution fields only, so a rename with no
+// execution change cannot mint a second record: POST would hit the server's
+// content dedup and come back as the untouched original, losing the new name.
 const renamed = asEdited(legacy);
 renamed.title = 'Londinium v2';
-assert.strictEqual(route(legacy, renamed), 'post-new',
-    'renaming is the explicit save-as');
+assert.strictEqual(route(legacy, renamed), 'put-metadata',
+    'a rename with no execution change must PUT in place — POST dedups and drops the new name');
+
+const renamedAndEdited = asEdited(legacy);
+renamedAndEdited.title = 'Londinium v2';
+renamedAndEdited.steps[0].flow = 3;
+assert.strictEqual(route(legacy, renamedAndEdited), 'post-new',
+    'renaming alongside an execution change is still the explicit save-as');
+
+// Defaults reject PUT server-side and dedup on POST, so a rename-only save of a
+// stock default has nowhere to go — it must say so, not report a phantom save.
+assert.strictEqual(route(legacyDefault, { ...asEdited(legacyDefault), title: 'My Londinium' }),
+    'blocked-default-rename',
+    'renaming a default without changing it must be reported, not silently deduped away');
 
 const renoted = asEdited(legacy);
 renoted.notes = 'pulled 18g in';
