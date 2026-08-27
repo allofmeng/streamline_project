@@ -939,7 +939,9 @@ export function renderFlowMultiplierSettings(settings) {
 // after this module runs, so decentApp is resolved on click, not at load.
 function exitToDecentDashboard() {
     const app = window.decentApp;
-    if (app && typeof app.exitToDashboard === 'function') { app.exitToDashboard(); return; }
+    // Gate on __DECENT_HOST__, not on the function: skin-api.js is served to plain
+    // browsers too, where exitToDashboard exists but no-ops on its own host check.
+    if (window.__DECENT_HOST__ && typeof app?.exitToDashboard === 'function') { app.exitToDashboard(); return; }
     console.log('[exit-dashboard] no host exit API', JSON.stringify({
         decentApp: app ? Object.keys(app) : null,
         host: window.__DECENT_HOST__ || null,
@@ -8006,30 +8008,14 @@ export async function initializeSettings() {
                 ui.showToast('Skin set, but the web server did not come back. Restart Decaid.', 0, 'error');
                 return;
             }
-            // A plain reload cannot work here. Decaid binds a FRESH ephemeral port
-            // every time it serves a skin folder (webui_service.dart _serveFresh:
-            // shelf_io.serve(handler, '0.0.0.0', 0), and _usedPorts never lets a
-            // port repeat), so the origin this page is standing on is dead the
-            // moment the server restarts -- location.reload() reloaded nothing.
-            // Nor can the page follow the server: the webview allows navigation
-            // only to the port it was opened with, or to 3000 (skin_view.dart
-            // classifySkinNavigation), and anything else is punted to the system
-            // browser. 3000 is no escape either -- it 307s to the new ephemeral
-            // port, which is the same non-allowed port again.
-            //
-            // So hand control back to the host. Re-entering the skin builds
-            // SkinView against webUIService.port, which is now the new server with
-            // the new skin. A plain browser has no navigation rules and just goes.
-            if (typeof window.decentApp?.exitToDashboard === 'function') {
-                ui.showToast('Skin set. Returning to the dashboard — open the skin again from there.', 6000, 'success');
-                window.decentApp.exitToDashboard();
-                return;
-            }
-            if (window.__DECENT_HOST__) {
-                ui.showToast('Skin set. Restart Decaid to load it.', 0, 'success');
-                return;
-            }
-            window.location.assign(`${window.location.protocol}//${window.location.hostname}:${port}/`);
+            // Straight out to the dashboard. The page cannot reload into the new skin:
+            // Decaid binds a fresh ephemeral port every time it serves a skin folder
+            // (webui_service.dart _serveFresh), so this origin is dead the moment the
+            // server restarts. Re-entering from the launcher builds SkinView against
+            // the current port -- and the launcher only offers "Return to skin" while
+            // the server is up, which is what the status poll above waited for.
+            ui.showToast('Skin set. Returning to the dashboard.', 6000, 'success');
+            exitToDecentDashboard();
         } catch (error) {
             logger.error('Error setting active skin:', error);
             ui.showToast(`Failed to switch skin: ${error.message}`, 5000, 'error');
