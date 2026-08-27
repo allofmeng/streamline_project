@@ -1,7 +1,10 @@
 import { logger } from './logger.js';
 import { getTranslation } from './i18n.js';
 import { hasMachineGFlow, createScaleFlowResolver, createPourPhaseTracker } from './historical-gflow.js';
-import { EXP_TOP_FLOOR, computeExpandedTopYMax, computeExpandedTempRange, pickVisible } from './chart-autoscale.js';
+import { EXP_TOP_FLOOR, computeExpandedTopYMax, computeExpandedTempRange, separateLabelPositions, pickVisible } from './chart-autoscale.js';
+import { createLatestTaskRunner } from './latest-task-runner.js';
+import { loadECharts } from './echarts-loader.js';
+import { destroyChart, getSeriesVisibility, hasChart, onLegendChange, renderChart, resizeChart, selectSeries, setYAxisRange } from './echarts-renderer.js';
 
 // Maps internal trace key → i18n key used for the chart label.
 const LABEL_KEYS = {
@@ -22,27 +25,71 @@ const STEP_MARKER_COLORS = {
     light: '#7c7c7c'
 };
 
-// Function to get or update the chart element reference
-function getChartElement() {
-    const mainPage = document.getElementById('main-page');
-    if (mainPage && mainPage.style.display === 'none') {
-        const subpageHost = document.getElementById('subpage-host');
-        const el = subpageHost?.querySelector('#plotly-chart');
-        if (el) return el;
-    }
-    return document.getElementById('plotly-chart');
-}
-// Plotly only tolerates relayout/update/restyle on a div it has actually drawn
-// into: those paths all read gd._fullLayout, which does not exist before the
-// first newPlot/react, or after a Plotly.purge. Both edges are reachable here —
-// initChart deliberately defers the first draw until there is data and the
-// scaling pass has settled (see initChart), and profile_selector purges the div
-// on teardown. Touching the div in either window threw
-// "Cannot read properties of undefined (reading '_guiEditing')".
-function isPlotted(element) {
-    return !!element && !!element._fullLayout;
+const CHART_REDRAW_INTERVAL_MS = 100;
+const renderQueues = new WeakMap();
+const renderGenerations = new WeakMap();
+let latestMainRender = null;
+let mainRenderDirty = false;
+let currentTheme = localStorage.getItem('theme') || 'light';
+
+async function drawECharts({ element, traces, layout, interactive, mode, generation }) {
+    if (!element.isConnected || renderGenerations.get(element) !== generation) return;
+    const echarts = await loadECharts();
+    if (!element.isConnected || renderGenerations.get(element) !== generation) return;
+    renderChart(echarts, element, traces, layout, interactive, mode);
+    ensureExpandedInteractions(element);
 }
 
+function renderECharts(element, traces, layout, interactive, mode = 'full') {
+    let enqueue = renderQueues.get(element);
+    if (!enqueue) {
+        renderGenerations.set(element, (renderGenerations.get(element) || 0) + 1);
+        enqueue = createLatestTaskRunner(drawECharts, (error) => {
+            logger.error('Chart render failed:', error);
+        });
+        renderQueues.set(element, enqueue);
+    }
+    enqueue({ element, traces, layout, interactive, mode, generation: renderGenerations.get(element) });
+}
+
+async function disposeECharts(element) {
+    const generation = (renderGenerations.get(element) || 0) + 1;
+    renderGenerations.set(element, generation);
+    const enqueue = renderQueues.get(element);
+    renderQueues.delete(element);
+    await enqueue?.dispose();
+    if (renderGenerations.get(element) !== generation) return;
+    try {
+        destroyChart(element);
+    } finally {
+        renderGenerations.delete(element);
+    }
+}
+
+function renderMain(traces, layout, mode = 'full') {
+    latestMainRender = { traces, layout, mode };
+    const element = getChartElement();
+    if (!element || element.offsetParent === null || expandedOpen) {
+        mainRenderDirty = true;
+        return;
+    }
+    renderECharts(element, traces, layout, false, mode);
+    mainRenderDirty = false;
+}
+
+function flushMainRender() {
+    if (mainRenderDirty && latestMainRender && !expandedOpen) {
+        renderMain(latestMainRender.traces, latestMainRender.layout, latestMainRender.mode);
+    }
+}
+
+function getChartElement() {
+    const mainPage = document.getElementById('main-page');
+    if (mainPage?.style.display === 'none') {
+        return document.getElementById('subpage-host')?.querySelector('#plotly-chart') ?? null;
+    }
+    return mainPage?.querySelector('#plotly-chart') ?? null;
+}
 let currentSubstate = 'idle';
 let previousSubstateForShape = 'idle'; // To track step changes for vertical lines
 let lastWeight = 0;
@@ -61,7 +108,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: 'Pressure',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: { color: '#17c29a' },
         hoverinfo: 'name'
@@ -70,7 +117,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: 'Flow',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: { color: '#0358cf' },
         hoverinfo: 'name'
@@ -79,7 +126,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: 'Target Pressure',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: { color: '#bde2d5', dash: 'dot' },
         hoverinfo: 'name'
@@ -88,7 +135,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: 'Target Flow',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: { color: '#cdd9f5', dash: 'dot' },
         hoverinfo: 'name'
@@ -97,7 +144,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: '°C',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: {color: '#ff97a1'},
         hoverinfo: 'name'
@@ -106,7 +153,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: 'Target °C',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: { color: '#F9ebec', dash: 'dot' },
         hoverinfo: 'name'
@@ -115,7 +162,7 @@ const baseChartData = {
         x: [],
         y: [],
         name: 'Weight',
-        type: 'lines',
+        type: 'scatter',
         mode: 'lines',
         line: { color: '#D8BDA8' }, // light mode
         hoverinfo: 'name'
@@ -124,6 +171,7 @@ const baseChartData = {
 
 // Create chartData with initial values
 const chartData = JSON.parse(JSON.stringify(baseChartData));
+const chartTraces = Object.values(chartData);
 
 // ============================================================================
 // Expanded (full-screen) live charts.
@@ -144,27 +192,15 @@ const chartData = JSON.parse(JSON.stringify(baseChartData));
 // The band/axis maths live in chart-autoscale.js (DOM-free, node-tested).
 // ============================================================================
 let expandedOpen = false;      // overlay currently visible
-let expandedInited = false;    // Plotly.newPlot done since last open (containers were 0-size)
 let expandedTopYMax = EXP_TOP_FLOOR;  // damped, monotonic-within-shot top-axis max
 let helpBtnPrevDisplay = '';   // help FAB display value to restore when overlay closes
-// Bumped whenever expandedSeries mutates; drives layout.datarevision. The
-// series arrays are mutated in place, so Plotly.react's reference-equality
-// diff would otherwise treat every re-render as a data no-op and the overlay
-// froze at whatever existed at tap time.
-let expandedDataRev = 0;
-
-// Live series in REAL units (bar / ml·s⁻¹ / g·s⁻¹ / °C), cleared per shot.
-const expandedSeries = {
-    pressure:       { x: [], y: [] },
-    flow:           { x: [], y: [] },
-    targetPressure: { x: [], y: [] },
-    targetFlow:     { x: [], y: [] },
-    gflow:          { x: [], y: [] },
-    groupTemp:      { x: [], y: [] },
-    mixTemp:        { x: [], y: [] },
-    targetTemp:     { x: [], y: [] },
-    targetMixTemp:  { x: [], y: [] },
-};
+let expandedMixTemp = { x: [], y: [] };
+let expandedTargetMixTemp = { x: [], y: [] };
+let expandedTargetTempMin = Infinity;
+let expandedTargetTempMax = -Infinity;
+let expandedTempMin = Infinity;
+let expandedTempMax = -Infinity;
+let expandedLastGroupTemp = 90;
 
 const baseLayout = {
     plot_bgcolor: '#0d0e14',
@@ -240,31 +276,32 @@ const LABEL_X_GAP = 6;     // px between line end and label text
 const LABEL_X_PAD = 10;    // px breathing room past the widest label
 
 let _measureCanvasCtx = null;
+const measuredLabelWidths = new Map();
 function measureTextWidth(text) {
+    if (measuredLabelWidths.has(text)) return measuredLabelWidths.get(text);
     if (!_measureCanvasCtx) {
         const canvas = document.createElement('canvas');
         _measureCanvasCtx = canvas.getContext('2d');
     }
     _measureCanvasCtx.font = LABEL_FONT_CSS;
-    return _measureCanvasCtx.measureText(text).width;
+    const width = _measureCanvasCtx.measureText(text).width;
+    measuredLabelWidths.set(text, width);
+    return width;
 }
 
 // Plot pixel width (between left and right margin). Falls back to a sensible
 // default when the chart element is hidden or hasn't been measured yet —
 // returning a tiny value here would blow up `rangeMaxForLabels`.
 const DEFAULT_PLOT_PX_WIDTH = 1360; // baseline 1460 chart - margin.l(50) - margin.r(50)
+let observedChartSize = { width: 0, height: 0 };
 function getPlotPixelWidth() {
-    const element = getChartElement();
-    const cssWidth = element ? element.clientWidth : 0;
-    const usable = cssWidth - 100; // baseLayout margin.l + margin.r
+    const usable = observedChartSize.width - 100; // baseLayout margin.l + margin.r
     return usable > 200 ? usable : DEFAULT_PLOT_PX_WIDTH;
 }
 
 const DEFAULT_PLOT_PX_HEIGHT = 590; // baseline 650 chart - margin.t(20) - margin.b(40)
 function getPlotPixelHeight() {
-    const element = getChartElement();
-    const cssHeight = element ? element.clientHeight : 0;
-    const usable = cssHeight - 60;
+    const usable = observedChartSize.height - 60;
     return usable > 100 ? usable : DEFAULT_PLOT_PX_HEIGHT;
 }
 
@@ -289,13 +326,14 @@ function applyLabelCollisionAvoidance(annotations) {
     }));
     items.sort((a, b) => a.naturalPxY - b.naturalPxY); // top → bottom
 
-    let prevPxY = -Infinity;
-    for (const item of items) {
-        let desired = Math.max(item.naturalPxY, prevPxY + MIN_LABEL_SEP_PX);
-        if (desired > maxPxY) desired = maxPxY;
-        const shiftDownPx = desired - item.naturalPxY;
-        if (shiftDownPx > 0) item.annotation.yshift = -shiftDownPx;
-        prevPxY = desired;
+    const positions = separateLabelPositions(
+        items.map(item => item.naturalPxY),
+        MIN_LABEL_SEP_PX,
+        maxPxY
+    );
+    for (let i = 0; i < items.length; i++) {
+        const shiftPx = positions[i] - items[i].naturalPxY;
+        if (shiftPx !== 0) items[i].annotation.yshift = -shiftPx;
     }
 }
 
@@ -319,7 +357,7 @@ function rangeMaxForLabels(dataMax, rangeMin = 0) {
 }
 
 function getAnnotations() {
-    const theme = localStorage.getItem('theme') || 'light';
+    const theme = currentTheme;
     const annotations = [];
 
     for (const traceName in chartData) {
@@ -349,7 +387,7 @@ function getAnnotations() {
 }
 
 // Apply current labels + restore default right margin. Use before
-// Plotly.newPlot / Plotly.react. No labels while a shot is live — only once
+// No labels while a shot is live — only once
 // it's done (see isLiveShot below).
 function applyLabelLayout(layout) {
     layout.annotations = isLiveShot ? [] : getAnnotations();
@@ -363,25 +401,25 @@ let isLiveShot = false;
 // Call when a shot finishes to reveal the trace-end labels on the chart that
 // was just live.
 export function finalizeLiveChart() {
+    cancelChartFlush();
+    liveRenderDirty = false;
     isLiveShot = false;
-    const element = getChartElement();
-    if (!isPlotted(element)) return;
-    Plotly.relayout(element, { annotations: getAnnotations() });
+    const theme = currentTheme;
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
+    applyLabelLayout(layout);
+    renderMain(chartTraces, layout);
 }
 
 // Re-measure labels and refresh annotations + x-range so labels stay inside
 // the plot area after the chart width changes (e.g. GHC column toggling).
 export function refreshLabelMargin() {
     const element = getChartElement();
-    // Nothing drawn yet (or purged): there is no layout to refresh, and the
-    // first real draw applies the current labels anyway. streamline:languagechange
-    // fires during initI18n at boot, which is exactly this window.
-    if (!isPlotted(element)) return;
+    if (!element || !hasChart(element)) return;
     // Hidden behind another page (e.g. settings, profile selector) -- skip the
-    // Plotly.relayout below. It's a real, non-cheap layout op with zero
+    // A hidden layout refresh is non-cheap and has zero
     // visible effect while hidden, and every streamline:languagechange fires
     // this unconditionally regardless of which page is actually showing.
-    if (element.offsetParent === null) return;
+    if (element.offsetParent === null && !expandedOpen) return;
 
     // Find current data max across labelled traces.
     let dataMax = 0;
@@ -392,22 +430,18 @@ export function refreshLabelMargin() {
         const lastX = trace.x[trace.x.length - 1];
         if (lastX > dataMax) dataMax = lastX;
     }
+    const theme = currentTheme;
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
+    applyLabelLayout(layout);
     if (dataMax === 0) {
-        // idle / cleared chart — let Plotly autoscale, don't pin a max.
-        Plotly.relayout(element, {
-            annotations: isLiveShot ? [] : getAnnotations(),
-            'xaxis.autorange': true
-        });
+        layout.xaxis = { ...layout.xaxis, autorange: true };
+        renderMain(chartTraces, layout);
         return;
     }
 
     const rangeMax = rangeMaxForLabels(dataMax);
-    Plotly.relayout(element, {
-        annotations: isLiveShot ? [] : getAnnotations(),
-        'xaxis.range': [0, rangeMax],
-        'xaxis.autorange': false
-    });
-    appliedRangeMax = rangeMax;
+    layout.xaxis = { ...layout.xaxis, range: [0, rangeMax], autorange: false };
+    renderMain(chartTraces, layout);
 }
 
 // Helper function to add vertical lines for substate changes and annotations
@@ -438,19 +472,11 @@ let liveProfileFrame = -1; // Track current profileFrame for live data
 // let currentStepIndex = 0; // No longer needed for this logic
 // let stepExitDetected = false; // No longer needed for this logic
 
-// Store pending updates to batch them for better performance
-let pendingUpdates = {
-    shapes: null,
-    annotations: null
-};
-
-// Live chart writes are coalesced to ONE Plotly draw per animation frame.
-// DE1 streams faster than the browser can repaint a growing SVG; calling
-// Plotly.relayout/react on every WebSocket frame backs the redraw queue up and
-// the chart lags behind the real shot. rAF caps work to the display refresh.
-let pendingReact = false;
 let pendingTime = 0;
-let rafHandle = 0;
+let redrawTimer = 0;
+let redrawFrame = 0;
+let lastRedrawAt = 0;
+let liveRenderDirty = false;
 
 function dtickForTime(time) {
     if (time < 15) return 1;
@@ -459,137 +485,121 @@ function dtickForTime(time) {
     return 30;
 }
 
-// The x-range grows continuously — exact label-inflated max, relayouted every
-// flush (v0.1.65 behavior): the right edge glides with the line instead of
-// jumping in steps. Discrete on-demand growth was tried and read as jumpy.
-let appliedRangeMax = null; // last applied range end
-
 function flushChart() {
-    rafHandle = 0;
-    const element = getChartElement();
-    if (!element) { pendingReact = false; return; }
-
-    const theme = localStorage.getItem('theme') || 'light';
-    const dtickValue = dtickForTime(pendingTime);
-    const rangeMax = rangeMaxForLabels(pendingTime);
-
-    // A step marker changed shapes → full react. An un-drawn div has to take
-    // this path too: Plotly.update below cannot create the plot.
-    if (pendingReact || !isPlotted(element)) {
-        pendingReact = false;
-        isLiveShot = true; // live from here on — applyLabelLayout gives Plotly no annotations
-        const layout = theme === 'dark' ? darkLayout : lightLayout;
-        applyLabelLayout(layout);
-        Plotly.react(element, Object.values(chartData), layout);
-        Plotly.relayout(element, {
-            'xaxis.range': [0, rangeMax],
-            'xaxis.autorange': false,
-            'xaxis.dtick': dtickValue
-        });
-        appliedRangeMax = rangeMax;
-        if (expandedOpen) renderExpandedCharts();
+    if (!hasVisibleChart()) {
+        liveRenderDirty = true;
         return;
     }
+    lastRedrawAt = performance.now();
 
-    // Data + x-range in ONE Plotly.update → one SVG redraw per flush.
-    // (extendTraces + relayout was two full redraws; relayout replots
-    // everything anyway, so incremental append bought nothing.)
-    // chartData holds the full arrays, so restyle from it directly — this
-    // also keeps every trace on its own index (7 traces incl. targetTemperature).
-    const traces = Object.values(chartData);
-    Plotly.update(element,
-        { x: traces.map((t) => t.x), y: traces.map((t) => t.y) },
-        {
-            'xaxis.range': [0, rangeMax],
-            'xaxis.autorange': false,
-            'xaxis.dtick': dtickValue
-        },
-        traces.map((_, i) => i)
-    );
-    appliedRangeMax = rangeMax;
-    if (expandedOpen) renderExpandedCharts();
+    const theme = currentTheme;
+    const dtickValue = dtickForTime(pendingTime);
+    const layout = theme === 'dark' ? darkLayout : lightLayout;
+    isLiveShot = true;
+    applyLabelLayout(layout);
+    const { range: _range, ...liveXAxis } = layout.xaxis;
+    layout.xaxis = {
+        ...liveXAxis,
+        autorange: true,
+        dtick: dtickValue
+    };
+    renderMain(chartTraces, layout, 'live');
+    if (expandedOpen) renderExpandedCharts('live');
+    liveRenderDirty = false;
+}
+
+function hasVisibleChart() {
+    if (document.visibilityState === 'hidden') return false;
+    if (expandedOpen) return true;
+    const element = getChartElement();
+    return Boolean(element && element.offsetParent !== null);
+}
+
+function cancelChartFlush() {
+    if (redrawTimer) clearTimeout(redrawTimer);
+    if (redrawFrame) cancelAnimationFrame(redrawFrame);
+    redrawTimer = 0;
+    redrawFrame = 0;
 }
 
 function scheduleChartFlush() {
-    if (rafHandle) return;
-    rafHandle = requestAnimationFrame(flushChart);
+    if (!hasVisibleChart()) {
+        liveRenderDirty = true;
+        return;
+    }
+    if (redrawTimer || redrawFrame) return;
+    redrawTimer = setTimeout(() => {
+        redrawTimer = 0;
+        redrawFrame = requestAnimationFrame(() => {
+            redrawFrame = 0;
+            flushChart();
+        });
+    }, Math.max(0, CHART_REDRAW_INTERVAL_MS - (performance.now() - lastRedrawAt)));
+}
+
+function flushDeferredChart() {
+    if (liveRenderDirty) scheduleChartFlush();
+    else flushMainRender();
 }
 
 // ---- Expanded (full-screen) charts -----------------------------------------
 
 function resetExpandedData() {
-    for (const k in expandedSeries) { expandedSeries[k].x = []; expandedSeries[k].y = []; }
+    expandedMixTemp = { x: [], y: [] };
+    expandedTargetMixTemp = { x: [], y: [] };
     expandedTopYMax = EXP_TOP_FLOOR;
-    expandedDataRev++; // a cleared overlay must also redraw
+    expandedTargetTempMin = Infinity;
+    expandedTargetTempMax = -Infinity;
+    expandedTempMin = Infinity;
+    expandedTempMax = -Infinity;
+    expandedLastGroupTemp = 90;
 }
 
-// Append one live frame (real units). `time` is seconds since shot start.
-function pushExpandedFrame(time, data, gflowY) {
-    const push = (s, v) => {
-        if (typeof v === 'number' && isFinite(v)) { s.x.push(time); s.y.push(v); }
-    };
-    push(expandedSeries.pressure, data.pressure);
-    push(expandedSeries.flow, data.flow);
-    push(expandedSeries.targetPressure, data.targetPressure);
-    push(expandedSeries.targetFlow, data.targetFlow);
-    if (typeof gflowY === 'number' && isFinite(gflowY)) {
-        expandedSeries.gflow.x.push(time); expandedSeries.gflow.y.push(gflowY);
-    }
-    push(expandedSeries.groupTemp, data.groupTemperature);
-    push(expandedSeries.mixTemp, data.mixTemperature);
-    // Only record a target once the machine reports one (>0) — avoids a spurious
-    // 0 °C target dragging the band down.
-    if (typeof data.targetGroupTemperature === 'number' && data.targetGroupTemperature > 0) {
-        expandedSeries.targetTemp.x.push(time);
-        expandedSeries.targetTemp.y.push(data.targetGroupTemperature);
-    }
-    if (typeof data.targetMixTemperature === 'number' && data.targetMixTemperature > 0) {
-        expandedSeries.targetMixTemp.x.push(time);
-        expandedSeries.targetMixTemp.y.push(data.targetMixTemperature);
-    }
-    expandedDataRev++;
+function includeExpandedTemp(value) {
+    if (!Number.isFinite(value)) return;
+    expandedTempMin = Math.min(expandedTempMin, value);
+    expandedTempMax = Math.max(expandedTempMax, value);
 }
 
-// Anchor both targets' PREVIOUS value at a step boundary, so a pump-mode swap
-// draws as a vertical step instead of a diagonal. The live path wrote this to
-// chartData only, while the historical rebuild carried it (plotHistoricalShot
-// pushes the same anchor into tempChartData) -- so the same profile stepped
-// vertically once loaded from history and ramped diagonally while pouring.
-function pushExpandedTargetAnchor(time, prevPressure, prevFlow) {
-    expandedSeries.targetPressure.x.push(time);
-    expandedSeries.targetPressure.y.push(prevPressure);
-    expandedSeries.targetFlow.x.push(time);
-    expandedSeries.targetFlow.y.push(prevFlow);
-    expandedDataRev++;
+function includeExpandedTargetTemp(value) {
+    if (!Number.isFinite(value) || value <= 0) return;
+    expandedTargetTempMin = Math.min(expandedTargetTempMin, value);
+    expandedTargetTempMax = Math.max(expandedTargetTempMax, value);
 }
 
-// Mirror the current chartData (populated by a historical-shot load) into the
-// expanded series. chartData stores temperatures scaled to /10 of °C, so ×10
-// recovers real °C. `mixSeries` / `mixTargetSeries` carry the Mix Temp and Mix
-// Target lines (real °C) separately: the main chart deliberately has no mix
-// traces, so they must not enter chartData (that would corrupt the main chart's
-// extendTraces index map).
+function pushExpandedFrame(time, data) {
+    if (Number.isFinite(data.groupTemperature)) {
+        expandedLastGroupTemp = data.groupTemperature;
+        includeExpandedTemp(data.groupTemperature);
+    }
+    includeExpandedTargetTemp(data.targetGroupTemperature);
+    if (Number.isFinite(data.mixTemperature)) {
+        expandedMixTemp.x.push(time);
+        expandedMixTemp.y.push(data.mixTemperature / 10);
+        includeExpandedTemp(data.mixTemperature);
+    }
+    if (Number.isFinite(data.targetMixTemperature) && data.targetMixTemperature > 0) {
+        expandedTargetMixTemp.x.push(time);
+        expandedTargetMixTemp.y.push(data.targetMixTemperature / 10);
+        includeExpandedTemp(data.targetMixTemperature);
+    }
+}
+
 function rebuildExpandedFromChartData(mixSeries = null, mixTargetSeries = null) {
     resetExpandedData();
-    const copy = (dst, src) => { dst.x = (src.x || []).slice(); dst.y = (src.y || []).slice(); };
-    copy(expandedSeries.pressure, chartData.pressure);
-    copy(expandedSeries.flow, chartData.flow);
-    copy(expandedSeries.targetPressure, chartData.targetPressure);
-    copy(expandedSeries.targetFlow, chartData.targetFlow);
-    copy(expandedSeries.gflow, chartData.weight);
-    expandedSeries.groupTemp.x = (chartData.groupTemperature.x || []).slice();
-    expandedSeries.groupTemp.y = (chartData.groupTemperature.y || []).map(v => v * 10);
-    expandedSeries.targetTemp.x = (chartData.targetTemperature.x || []).slice();
-    expandedSeries.targetTemp.y = (chartData.targetTemperature.y || []).map(v => v * 10);
+    for (const value of chartData.groupTemperature.y) includeExpandedTemp(value * 10);
+    if (chartData.groupTemperature.y.length) {
+        expandedLastGroupTemp = chartData.groupTemperature.y.at(-1) * 10;
+    }
+    for (const value of chartData.targetTemperature.y) includeExpandedTargetTemp(value * 10);
     if (mixSeries) {
-        expandedSeries.mixTemp.x = mixSeries.x.slice();
-        expandedSeries.mixTemp.y = mixSeries.y.slice();
+        expandedMixTemp = { x: mixSeries.x.slice(), y: mixSeries.y.map(value => value / 10) };
+        for (const value of mixSeries.y) includeExpandedTemp(value);
     }
     if (mixTargetSeries) {
-        expandedSeries.targetMixTemp.x = mixTargetSeries.x.slice();
-        expandedSeries.targetMixTemp.y = mixTargetSeries.y.slice();
+        expandedTargetMixTemp = { x: mixTargetSeries.x.slice(), y: mixTargetSeries.y.map(value => value / 10) };
+        for (const value of mixTargetSeries.y) includeExpandedTemp(value);
     }
-    expandedDataRev++;
     if (expandedOpen) renderExpandedCharts();
 }
 
@@ -603,165 +613,131 @@ function expandedAxisColors(theme) {
     };
 }
 
-function expandedLayout(theme, yRange, isTemp) {
+function expandedTemperatureRange() {
+    const targets = Number.isFinite(expandedTargetTempMin)
+        ? [expandedTargetTempMin, expandedTargetTempMax]
+        : [];
+    const temperatures = Number.isFinite(expandedTempMin)
+        ? [expandedTempMin, expandedTempMax, expandedLastGroupTemp]
+        : [];
+    return computeExpandedTempRange(targets, temperatures);
+}
+
+function expandedTemperatureTicks(range) {
+    const values = [];
+    const text = [];
+    for (let value = Math.ceil(range[0] / 2) * 2; value <= range[1]; value += 2) {
+        values.push(value / 10);
+        text.push(`${value}°`);
+    }
+    return { values, text };
+}
+
+function expandedShapes(theme) {
+    return ((theme === 'dark' ? darkLayout : lightLayout).shapes || []).flatMap(shape => [
+        { ...shape, xref: 'x', yref: 'y domain', line: { ...shape.line } },
+        { ...shape, xref: 'x2', yref: 'y2 domain', line: { ...shape.line } }
+    ]);
+}
+
+function expandedLayout(theme, topRange, tempRange) {
     const c = expandedAxisColors(theme);
+    const ticks = expandedTemperatureTicks(tempRange);
     return {
         paper_bgcolor: c.paper,
         plot_bgcolor: c.paper,
         font: { color: c.font, size: 18 },
-        // Overlay geometry. The legend is the chart's key and it is read at
-        // arm's length from the machine, so it runs at font 26 rather than the
-        // 15 used in the embedded charts. margin.t 88 is explicit room for that
-        // taller legend row plus clear air above it (stated outright, so
-        // Plotly's margin auto-expand does not have to guess and shift the plot
-        // area between renders). The top chart's margin.b 48 is the matched
-        // pair to the larger legend: the two chart containers touch, so the
-        // temperature chart's legend sits directly under the top chart's x-axis
-        // tick labels and at the old 20 it overlapped them. Shrinking either
-        // value on its own brings the overlap back.
-        margin: { l: 70, r: 28, t: 88, b: isTemp ? 52 : 48, pad: 0 },
+        margin: { l: 70, r: 28, t: 88, b: 52, pad: 0 },
         xaxis: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
-            fixedrange: true, autorange: true, zeroline: false,
-            title: isTemp ? { text: 'seconds', font: { size: 15 } } : undefined,
+            fixedrange: true, autorange: true, zeroline: false, domain: [0, 1], anchor: 'y'
         },
         yaxis: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
-            fixedrange: true, range: yRange, zeroline: false,
-            ticksuffix: isTemp ? '°' : '',
+            fixedrange: true, range: topRange, zeroline: false, domain: [0.46, 1], anchor: 'x'
         },
-        // Step-boundary markers, mirrored from whichever layout the main chart is
-        // currently drawing. addStepMarker() writes into `theme === 'dark' ?
-        // darkLayout : lightLayout`, so reading back through the same expression
-        // gives the overlay exactly the markers the main chart has -- including
-        // after a mid-shot theme switch, which leaves the other layout empty.
-        // Copied, not shared: lightLayout and darkLayout spread the same
-        // baseLayout and so alias ONE shapes array until the first clearChart()
-        // reassigns them, and Plotly writes bookkeeping onto the shape objects it
-        // is handed. Three plots sharing them would cross-contaminate.
-        // yref 'paper' is per-plot, so each chart gets a full-height line.
-        shapes: ((theme === 'dark' ? darkLayout : lightLayout).shapes || [])
-            .map((sh) => ({ ...sh, line: { ...sh.line } })),
+        xaxis2: {
+            gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
+            fixedrange: true, autorange: true, zeroline: false, domain: [0, 1], anchor: 'y2', matches: 'x',
+            title: { text: 'seconds', font: { size: 15 } }
+        },
+        yaxis2: {
+            gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
+            fixedrange: true, range: tempRange.map(value => value / 10), zeroline: false,
+            domain: [0, 0.30], anchor: 'x2', tickvals: ticks.values, ticktext: ticks.text
+        },
+        shapes: expandedShapes(theme),
         showlegend: true,
-        // y 1.07 with yanchor 'bottom': the gap below the legend is (y - 1) x the
-        // plot height, so 1.07 keeps the legend close to the chart it labels now
-        // that it is taller. The air above it comes from margin.t instead.
-        legend: { orientation: 'h', y: 1.07, yanchor: 'bottom', x: 0, xanchor: 'left', font: { size: 26 } },
-        autosize: true,
-        // Data arrays are mutated in place, so Plotly.react's reference diff
-        // sees "unchanged" — datarevision is Plotly's documented remedy and is
-        // what makes the overlay LIVE. (newPlot ignores it harmlessly.)
-        datarevision: expandedDataRev,
+        legend: { orientation: 'h', y: 1.04, yanchor: 'bottom', x: 0, xanchor: 'left', font: { size: 26 } },
+        legend2: { orientation: 'h', y: 0.37, yanchor: 'bottom', x: 0, xanchor: 'left', font: { size: 26 } },
+        autosize: true
     };
 }
 
 function expandedTopTraces() {
-    const s = expandedSeries;
     return [
-        { x: s.pressure.x, y: s.pressure.y, name: getTranslation('Pressure (bar)'), mode: 'lines', line: { color: '#17c29a', width: 3 }, hoverinfo: 'skip' },
-        { x: s.flow.x, y: s.flow.y, name: getTranslation('Flow (ml/s)'), mode: 'lines', line: { color: '#0358cf', width: 3 }, hoverinfo: 'skip' },
-        { x: s.gflow.x, y: s.gflow.y, name: getTranslation('GFlow (g/s)'), mode: 'lines', line: { color: '#C7A58D', width: 3 }, hoverinfo: 'skip' },
-        { x: s.targetPressure.x, y: s.targetPressure.y, name: getTranslation('Target Pressure'), mode: 'lines', line: { color: '#8fd3bf', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
-        { x: s.targetFlow.x, y: s.targetFlow.y, name: getTranslation('Target Flow'), mode: 'lines', line: { color: '#7fa8ec', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
+        { ...chartData.pressure, name: getTranslation('Pressure (bar)'), line: { color: '#17c29a', width: 3 }, hoverinfo: 'skip' },
+        { ...chartData.flow, name: getTranslation('Flow (ml/s)'), line: { color: '#0358cf', width: 3 }, hoverinfo: 'skip' },
+        { ...chartData.weight, name: getTranslation('GFlow (g/s)'), line: { color: '#C7A58D', width: 3 }, hoverinfo: 'skip' },
+        { ...chartData.targetPressure, name: getTranslation('Target Pressure'), line: { color: '#8fd3bf', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
+        { ...chartData.targetFlow, name: getTranslation('Target Flow'), line: { color: '#7fa8ec', dash: 'dot', width: 2 }, hoverinfo: 'skip' }
     ];
 }
 
 function expandedTempTraces() {
-    const s = expandedSeries;
     const traces = [
-        { x: s.groupTemp.x, y: s.groupTemp.y, name: `${getTranslation('Group')} °C`, mode: 'lines', line: { color: '#ff97a1', width: 3 }, hoverinfo: 'skip' },
-        // Amber, CVD-validated against the group pink (worst ΔE 14.7, ≥12 req);
-        // solid 3px = "actual" convention (targets are the dotted ones).
-        { x: s.mixTemp.x, y: s.mixTemp.y, name: `${getTranslation('Mix')} °C`, mode: 'lines', line: { color: '#d9822b', width: 3 }, hoverinfo: 'skip' },
-        // Two targets now, so "Target °C" would be ambiguous — say which is which.
-        { x: s.targetTemp.x, y: s.targetTemp.y, name: getTranslation('Group Target °C'), mode: 'lines', line: { color: '#f0b8bd', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
+        { ...chartData.groupTemperature, name: `${getTranslation('Group')} °C`, line: { color: '#ff97a1', width: 3 }, hoverinfo: 'skip', xaxis: 'x2', yaxis: 'y2', legend: 'legend2' },
+        { ...expandedMixTemp, name: `${getTranslation('Mix')} °C`, type: 'scatter', mode: 'lines', line: { color: '#d9822b', width: 3 }, hoverinfo: 'skip', xaxis: 'x2', yaxis: 'y2', legend: 'legend2' },
+        { ...chartData.targetTemperature, name: getTranslation('Group Target °C'), line: { color: '#f0b8bd', dash: 'dot', width: 2 }, hoverinfo: 'skip', xaxis: 'x2', yaxis: 'y2', legend: 'legend2' }
     ];
-    // Mix target: the amber lightened toward white the same way the group target
-    // is a lightened group pink, thin + dashed = the "target, not measurement"
-    // convention. Dashed (not dotted) so the two pale target lines stay apart on
-    // form as well as hue. Older shots have no targetMixTemperature — omit the
-    // trace entirely rather than draw an empty/zero line.
-    if (s.targetMixTemp.y.length) {
+    if (expandedTargetMixTemp.y.length) {
         traces.push({
-            x: s.targetMixTemp.x, y: s.targetMixTemp.y, name: getTranslation('Mix Target °C'), mode: 'lines',
+            ...expandedTargetMixTemp, name: getTranslation('Mix Target °C'), type: 'scatter', mode: 'lines',
             line: { color: '#e8b480', dash: 'dash', width: 2 }, hoverinfo: 'skip',
+            xaxis: 'x2', yaxis: 'y2', legend: 'legend2'
         });
     }
     return traces;
 }
 
-// Plotly's legend has no notion of "last one standing": a single click always
-// toggles just the clicked trace. So after a double-click isolates one line,
-// clicking that same line hides it too and leaves an empty chart the user has
-// to click their way out of. Read as a toggle it is also backwards — the click
-// that turned everything else off should be the click that turns it back on.
-//
-// Cancel that one case (returning false from plotly_legendclick suppresses
-// Plotly's own handling) and restore every trace instead. Every other legend
-// click keeps stock behaviour, including double-click-to-isolate.
-function keepOneTraceVisible(gd) {
-    gd.on('plotly_legendclick', (ev) => {
-        const visible = gd.data.map(t => t.visible ?? true);
-        const soleSurvivor = visible[ev.curveNumber] === true
-            && visible.filter(v => v === true).length === 1;
-        if (!soleSurvivor) return true;
-        Plotly.restyle(gd, 'visible', true);
-        return false;
-    });
-}
+const expandedInteractionElements = new WeakSet();
 
-// The y-arrays behind the top chart's traces, in the SAME order
-// expandedTopTraces() emits them — Plotly reports visibility by trace index, so
-// the two orders have to agree (test/chart-autoscale.test.mjs pins that).
 function expandedTopSeriesYs() {
-    const s = expandedSeries;
-    return [s.pressure.y, s.flow.y, s.gflow.y, s.targetPressure.y, s.targetFlow.y];
+    return [
+        chartData.pressure.y,
+        chartData.flow.y,
+        chartData.weight.y,
+        chartData.targetPressure.y,
+        chartData.targetFlow.y
+    ];
 }
 
-// Rescale the top axis to the traces still shown. GFlow can reach three digits
-// (a scale drop-out spikes g/s) and it shares one axis with pressure in bar and
-// flow in ml/s, so it drags the ceiling to ~300 and squashes everything else
-// into the bottom few percent. Hiding it from the legend has to give that room
-// back.
-//
-// prevYMax 0 makes computeExpandedTopYMax snap instead of easing: its 2-units-
-// per-call climb-down exists to stop a live axis flickering, but a legend click
-// is a deliberate request and 300 -> 12 would take ~144 frames to walk down.
-function rescaleExpandedTop(gd) {
-    if (!gd?._fullLayout) return;
-    const flags = gd.data?.map(t => t.visible ?? true);
-    expandedTopYMax = computeExpandedTopYMax(pickVisible(expandedTopSeriesYs(), flags), 0);
-    Plotly.relayout(gd, { 'yaxis.range': [0, expandedTopYMax] });
+function rescaleExpandedTop(element) {
+    const visibility = getSeriesVisibility(element, 5);
+    if (!visibility) return;
+    expandedTopYMax = computeExpandedTopYMax(pickVisible(expandedTopSeriesYs(), visibility), 0);
+    setYAxisRange(element, [0, expandedTopYMax]);
 }
 
-function renderExpandedCharts() {
+function ensureExpandedInteractions(element) {
+    if (element.id !== 'expanded-chart' || expandedInteractionElements.has(element) || !hasChart(element)) return;
+    const topNames = expandedTopTraces().map(trace => trace.name);
+    onLegendChange(element, event => {
+        if (!topNames.some(name => event.selected[name] !== false)) selectSeries(element, topNames);
+        rescaleExpandedTop(element);
+    });
+    expandedInteractionElements.add(element);
+}
+
+function renderExpandedCharts(mode = 'full') {
     if (!expandedOpen) return;
-    const topEl = document.getElementById('expanded-flow-chart');
-    const tempEl = document.getElementById('expanded-temp-chart');
-    if (!topEl || !tempEl) return;
-    const theme = localStorage.getItem('theme') || 'light';
-    const cfg = { displayModeBar: false, responsive: true, staticPlot: false };
-    expandedTopYMax = computeExpandedTopYMax(
-        pickVisible(expandedTopSeriesYs(), topEl.data?.map(t => t.visible ?? true)),
-        expandedTopYMax
-    );
-    const topLayout = expandedLayout(theme, [0, expandedTopYMax], false);
-    const tempLayout = expandedLayout(theme,
-        computeExpandedTempRange(expandedSeries.targetTemp.y, expandedSeries.groupTemp.y,
-                                 expandedSeries.mixTemp.y, expandedSeries.targetMixTemp.y), true);
-    if (!expandedInited) {
-        Plotly.newPlot(topEl, expandedTopTraces(), topLayout, cfg);
-        Plotly.newPlot(tempEl, expandedTempTraces(), tempLayout, cfg);
-        keepOneTraceVisible(topEl);
-        keepOneTraceVisible(tempEl);
-        // Fires after Plotly has applied a legend toggle or isolate (and after
-        // keepOneTraceVisible's restore), which is when the axis has to follow.
-        topEl.on('plotly_restyle', () => rescaleExpandedTop(topEl));
-        expandedInited = true;
-    } else {
-        Plotly.react(topEl, expandedTopTraces(), topLayout, cfg);
-        Plotly.react(tempEl, expandedTempTraces(), tempLayout, cfg);
-    }
+    const element = document.getElementById('expanded-chart');
+    if (!element) return;
+    const theme = currentTheme;
+    const visibility = getSeriesVisibility(element, 5);
+    expandedTopYMax = computeExpandedTopYMax(pickVisible(expandedTopSeriesYs(), visibility), expandedTopYMax);
+    const layout = expandedLayout(theme, [0, expandedTopYMax], expandedTemperatureRange());
+    renderECharts(element, [...expandedTopTraces(), ...expandedTempTraces()], layout, true, mode);
 }
 
 export function isExpandedChartOpen() { return expandedOpen; }
@@ -770,7 +746,6 @@ export function openExpandedChart() {
     const overlay = document.getElementById('expanded-chart-overlay');
     if (!overlay) return;
     expandedOpen = true;
-    expandedInited = false; // containers were display:none (0-size) — force a fresh plot
     overlay.style.display = 'flex';
     // The help FAB floats above everything (z-8000, outside the scaled container);
     // tuck it away for a clean full-screen view, remembering its prior state.
@@ -778,12 +753,10 @@ export function openExpandedChart() {
     if (help) { helpBtnPrevDisplay = help.style.display; help.style.display = 'none'; }
     // Plot after the browser has laid the containers out at real size.
     requestAnimationFrame(() => {
+        const element = document.getElementById('expanded-chart');
+        if (element) observeChartElement(element);
         renderExpandedCharts();
-        requestAnimationFrame(() => {
-            const t = document.getElementById('expanded-flow-chart');
-            const b = document.getElementById('expanded-temp-chart');
-            try { if (t) Plotly.Plots.resize(t); if (b) Plotly.Plots.resize(b); } catch (e) { /* not yet plotted */ }
-        });
+        requestAnimationFrame(() => resizeChart(element));
     });
 }
 
@@ -793,10 +766,11 @@ export function closeExpandedChart() {
     if (overlay) overlay.style.display = 'none';
     const help = document.getElementById('help-overlay-btn');
     if (help) help.style.display = helpBtnPrevDisplay;
-    const t = document.getElementById('expanded-flow-chart');
-    const b = document.getElementById('expanded-temp-chart');
-    try { if (t) Plotly.purge(t); if (b) Plotly.purge(b); } catch (e) { /* nothing to purge */ }
-    expandedInited = false;
+    const element = document.getElementById('expanded-chart');
+    if (element) void disposeECharts(element).catch(error => logger.error('Chart cleanup failed:', error));
+    const mainElement = getChartElement();
+    if (mainElement) observeChartElement(mainElement);
+    flushMainRender();
 }
 
 export function setCurrentProfile(profile) {
@@ -848,28 +822,13 @@ function handleProfileFrameChange(currentFrame, time, profile, theme) {
     return stepMarkerAdded;
 }
 
-// Function to apply pending updates to the chart
-function applyPendingUpdates() {
-    if (pendingUpdates.shapes || pendingUpdates.annotations) {
-        const element = getChartElement();
-        if (isPlotted(element)) {
-            Plotly.relayout(element, {
-                shapes: pendingUpdates.shapes,
-                annotations: pendingUpdates.annotations
-            });
-        }
-        // Reset pending updates
-        pendingUpdates = { shapes: null, annotations: null };
-    }
-}
-
 export function updateChart(shotStartTime, data, weight, weightFlow = null, filterToPouring = true) {
     if (data && data.state && data.state.substate) {
         currentSubstate = data.state.substate;
     }
 
     const time = (new Date(data.timestamp) - shotStartTime) / 1000;
-    const theme = localStorage.getItem('theme') || 'light';
+    const theme = currentTheme;
     let stepMarkerAdded = false;
 
     // New logic: Add vertical line and annotation at the start of each step based on profileFrame
@@ -879,11 +838,6 @@ export function updateChart(shotStartTime, data, weight, weightFlow = null, filt
             stepMarkerAdded = true;
             // logger.debug(`updateChart: step marker added at time=${time.toFixed(2)}s`);
         }
-    } else if (currentProfile && currentProfile.steps) {
-        // Log when profileFrame is missing (helps debug late-arriving profileFrame data)
-        logger.debug(`updateChart: NO profileFrame (is ${data.profileFrame}), time=${time.toFixed(2)}s, liveProfileFrame=${liveProfileFrame}, substate=${data.state.substate}`);
-    } else if (!currentProfile) {
-        logger.debug(`updateChart: NO currentProfile set, time=${time.toFixed(2)}s, substate=${data.state.substate}`);
     }
 
 
@@ -924,9 +878,6 @@ export function updateChart(shotStartTime, data, weight, weightFlow = null, filt
         chartData.targetPressure.y.push(lastTargetPressureY);
         chartData.targetFlow.x.push(time);
         chartData.targetFlow.y.push(lastTargetFlowY);
-        // Must land before pushExpandedFrame() below pushes the NEW target, or
-        // the anchor sorts after it and the step draws backwards.
-        pushExpandedTargetAnchor(time, lastTargetPressureY, lastTargetFlowY);
     }
 
     chartData.pressure.x.push(time);
@@ -939,22 +890,24 @@ export function updateChart(shotStartTime, data, weight, weightFlow = null, filt
     chartData.targetFlow.y.push(targetFlowY);
     chartData.groupTemperature.x.push(time);
     chartData.groupTemperature.y.push(groupTemperatureY);
+    if (Number.isFinite(data.targetGroupTemperature) && data.targetGroupTemperature > 0) {
+        chartData.targetTemperature.x.push(time);
+        chartData.targetTemperature.y.push(data.targetGroupTemperature / 10);
+    }
     chartData.weight.x.push(time);
     chartData.weight.y.push(weightY);
 
     lastTargetPressureY = targetPressureY;
     lastTargetFlowY = targetFlowY;
 
-    // Points live in chartData; the actual Plotly draw happens once per
-    // animation frame in flushChart(). A step marker forces a full react.
     pendingTime = time;
-    if (stepMarkerAdded) pendingReact = true;
+    isLiveShot = true;
     // Mirror this frame into the expanded (full-screen) charts, in real units.
-    pushExpandedFrame(time, data, weightY);
+    pushExpandedFrame(time, data);
     scheduleChartFlush();
 }
 
-// Reset all chart data/tracking/layout state WITHOUT touching Plotly. Callers
+// Reset all chart data/tracking/layout state without touching the renderer. Callers
 // that redraw themselves right after (plotHistoricalShot) use this to avoid
 // painting an empty chart just to overwrite it.
 function resetChartState() {
@@ -976,9 +929,9 @@ function resetChartState() {
 
     // Cancel a queued flush so a stale draw from the previous shot can't land
     // on the freshly cleared chart.
-    if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = 0; }
-    pendingReact = false;
-    appliedRangeMax = null;
+    cancelChartFlush();
+    lastRedrawAt = 0;
+    liveRenderDirty = false;
     isLiveShot = false;
     resetExpandedData();
 
@@ -993,7 +946,7 @@ function resetChartState() {
 export function clearChart() {
     resetChartState();
 
-    const theme = localStorage.getItem('theme') || 'light';
+    const theme = currentTheme;
     const layout = theme === 'dark' ? darkLayout : lightLayout;
 
     const element = getChartElement();
@@ -1001,8 +954,10 @@ export function clearChart() {
         console.error('clearChart: chartElement not found in DOM');
         return;
     }
-    Plotly.react(element, Object.values(chartData), layout);
-    Plotly.relayout(element, { 'xaxis.autorange': true });
+    applyLabelLayout(layout);
+    layout.xaxis = { ...layout.xaxis, autorange: true };
+    renderMain(chartTraces, layout);
+    if (expandedOpen) renderExpandedCharts();
 }
 
 export function plotHistoricalShot(measurements, workflow = null) {
@@ -1012,7 +967,7 @@ export function plotHistoricalShot(measurements, workflow = null) {
     }
 
     // Reset state only — we render once at the end, so skip clearChart's two
-    // throwaway Plotly redraws of an empty chart.
+    // throwaway redraws of an empty chart.
     resetChartState();
 
     let shotStartTime = null;
@@ -1082,7 +1037,7 @@ export function plotHistoricalShot(measurements, workflow = null) {
     // If workflow is provided, use step exit conditions for vertical lines
     if (workflow && workflow.profile && workflow.profile.steps) {
         const steps = workflow.profile.steps;
-        const theme = localStorage.getItem('theme') || 'light';
+        const theme = currentTheme;
         const layout = theme === 'dark' ? darkLayout : lightLayout;
 
         for (const dataPoint of measurements) {
@@ -1258,7 +1213,7 @@ export function plotHistoricalShot(measurements, workflow = null) {
         dtickValue = 30;
     }
 
-    const theme = localStorage.getItem('theme') || 'light';
+    const theme = currentTheme;
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     applyLabelLayout(layout);
 
@@ -1267,21 +1222,18 @@ export function plotHistoricalShot(measurements, workflow = null) {
         console.error('plotHistoricalShot: chartElement not found in DOM');
         return;
     }
-    Plotly.react(element, Object.values(chartData), layout, {displayModeBar: false});
-
     if (maxTime > 0) {
         const rangeMax = rangeMaxForLabels(maxTime);
-        Plotly.relayout(element, {
-            'xaxis.range': [0, rangeMax],
-            'xaxis.autorange': false,
-            'xaxis.dtick': dtickValue
-        });
+        layout.xaxis = {
+            ...layout.xaxis,
+            range: [0, rangeMax],
+            autorange: false,
+            dtick: dtickValue
+        };
     } else {
-        Plotly.relayout(element, {
-            'xaxis.autorange': true,
-            'xaxis.dtick': dtickValue
-        });
+        layout.xaxis = { ...layout.xaxis, autorange: true, dtick: dtickValue };
     }
+    renderMain(chartTraces, layout);
 }
 
 // Helper function to check if exit condition is met
@@ -1404,7 +1356,7 @@ export function plotProfile(profile) {
         currentTime = nextTime;
     }
 
-    const theme = localStorage.getItem('theme') || 'light';
+    const theme = currentTheme;
     const layout = JSON.parse(JSON.stringify(theme === 'dark' ? darkLayout : lightLayout));
     layout.annotations = [];
     layout.shapes = []; // Clear shapes for profile plot
@@ -1431,7 +1383,7 @@ export function plotProfile(profile) {
 
     // Sparser Y-axis ticks (0, 2, 4, 6, 8, 10) instead of every 1 unit
     layout.yaxis.dtick = 2;
-    const plotData = JSON.parse(JSON.stringify(Object.values(chartData)));
+    const plotData = JSON.parse(JSON.stringify(chartTraces));
 
     const targetPressureTrace = plotData.find(trace => trace.name === 'Target Pressure');
     if (targetPressureTrace) {
@@ -1455,7 +1407,8 @@ export function plotProfile(profile) {
         console.error('plotProfile: chartElement not found in DOM');
         return;
     }
-    Plotly.react(element, plotData, layout, {displayModeBar: false});
+    rebuildExpandedFromChartData();
+    renderMain(plotData, layout);
 }
 
 // Function to update chart colors based on theme
@@ -1475,111 +1428,117 @@ function updateChartColors(theme) {
     chartData.weight.line.color = isDark ? '#695f57' : baseChartData.weight.line.color;
 }
 
-export function initChart() {
-    console.log('initChart: Starting chart initialization');
+let chartWindowResizeTimeout = 0;
+let chartElementResizeTimeout = 0;
+let observedChartElement = null;
+let chartResizeObserver = null;
+let chartLifecycleBound = false;
 
+function resizeChartElement(element) {
+    if (!element || element.offsetParent === null || !element.clientHeight || !element.clientWidth) return;
+    if (!resizeChart(element)) return;
+    if (!expandedOpen) refreshLabelMargin();
+}
+
+function handleChartWindowResize() {
+    clearTimeout(chartWindowResizeTimeout);
+    chartWindowResizeTimeout = setTimeout(() => resizeChartElement(getChartElement()), 100);
+}
+
+function handleChartElementResize(entries) {
+    const size = entries[0]?.contentRect;
+    if (size) observedChartSize = { width: size.width, height: size.height };
+    clearTimeout(chartElementResizeTimeout);
+    chartElementResizeTimeout = setTimeout(() => resizeChartElement(observedChartElement), 100);
+}
+
+function handleChartStorage(event) {
+    if (event.key === 'theme') setTheme(event.newValue || 'light');
+}
+
+function handleChartLanguageChange() {
+    measuredLabelWidths.clear();
+    refreshLabelMargin();
+    if (expandedOpen) renderExpandedCharts();
+}
+
+function handleChartVisibilityChange() {
+    if (document.visibilityState === 'visible') flushDeferredChart();
+}
+
+function ensureChartLifecycle() {
+    if (!chartLifecycleBound) {
+        if (!window.ResizeObserver) window.addEventListener('resize', handleChartWindowResize);
+        window.addEventListener('storage', handleChartStorage);
+        document.addEventListener('streamline:languagechange', handleChartLanguageChange);
+        document.addEventListener('streamline:mainpagevisible', flushDeferredChart);
+        document.addEventListener('visibilitychange', handleChartVisibilityChange);
+        chartLifecycleBound = true;
+    }
+    if (!chartResizeObserver && window.ResizeObserver) {
+        chartResizeObserver = new window.ResizeObserver(handleChartElementResize);
+    }
+}
+
+function observeChartElement(element) {
+    if (!chartResizeObserver || observedChartElement === element) return;
+    if (observedChartElement) chartResizeObserver.unobserve(observedChartElement);
+    observedChartElement = element;
+    observedChartSize = { width: element.clientWidth, height: element.clientHeight };
+    chartResizeObserver.observe(element);
+}
+
+export function initChart() {
     const element = getChartElement();
     if (!element) {
         console.error('initChart: chartElement is not found in the DOM');
         return;
     }
 
-    console.log('initChart: chartElement found, offsetParent:', element.offsetParent !== null);
-    console.log('initChart: chartElement visibility:', window.getComputedStyle ? window.getComputedStyle(element).visibility : 'unknown');
-    console.log('initChart: chartElement display:', window.getComputedStyle ? window.getComputedStyle(element).display : 'unknown');
-
-    const theme = localStorage.getItem('theme') || 'light';
+    currentTheme = localStorage.getItem('theme') || 'light';
+    const theme = currentTheme;
     updateChartColors(theme); // Apply theme-specific colors
 
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     applyLabelLayout(layout);
+    ensureChartLifecycle();
+    observeChartElement(element);
 
-    // No Plotly.newPlot here: the CSS scaling pass (initScaling) hasn't run
+    // No initial render here: the CSS scaling pass (initScaling) hasn't run
     // yet at this point during boot, so drawing now would measure the
     // pre-scale container size and need a later resize to fix -- wasted
     // render at boot, and nothing currently corrects it automatically. The
     // first real draw (plotHistoricalShot / clearChart / plotProfile, all of
-    // which call Plotly.react and work fine as an initial draw) happens once
+    // which work fine as an initial draw) happens once
     // there's actual data to show, by which point scaling has settled.
 
-    let resizeTimeout;
-    console.log('initChart: Adding resize event listener');
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-            const resizeElement = getChartElement();
-            console.log('initChart: Window resize event, checking chart visibility');
-            if (resizeElement && resizeElement.offsetParent !== null) {
-                console.log('initChart: Chart element is visible, attempting resize');
-                try {
-                    Plotly.Plots.resize(resizeElement);
-                    // Recompute label range against the now-visible width — fixes
-                    // bogus ranges left over from a live tick that fired while
-                    // the chart was hidden (clientWidth = 0).
-                    refreshLabelMargin();
-                    console.log('initChart: Chart resized successfully');
-                } catch (error) {
-                    console.warn('Could not resize chart, element may not be visible:', error);
-                }
-            } else {
-                console.log('initChart: Chart element not visible or not found, skipping resize');
-            }
-        }, 100);
-    });
-    
-    // The window-resize handler above fires before scaling.js has written the new
-    // canvas height, so on a screen taller than 16:10 the container grows after
-    // Plotly has already measured it and the plot keeps its old height with white
-    // space below. Observing the container catches the real size change.
-    //
-    // Plots.resize() is not enough here: Plotly writes the computed width/height
-    // back into the layout object we pass it, so after the first draw autosize is
-    // off and the plot is pinned to whatever height it was born at. Setting the
-    // size explicitly from the container is what actually moves it.
-    const chartEl = getChartElement();
-    if (chartEl && window.ResizeObserver) {
-        let roTimeout;
-        new ResizeObserver(() => {
-            clearTimeout(roTimeout);
-            roTimeout = setTimeout(() => {
-                if (chartEl.offsetParent === null) return;   // hidden (subpage open)
-                if (!chartEl.clientHeight || !chartEl.clientWidth) return;
-                if (!isPlotted(chartEl)) return;             // nothing drawn to resize yet
-                try {
-                    Plotly.relayout(chartEl, { width: chartEl.clientWidth, height: chartEl.clientHeight });
-                    refreshLabelMargin();
-                } catch (e) { /* not plotted yet */ }
-            }, 100);
-        }).observe(chartEl);
+}
+
+export async function cleanupSubpageChart(root) {
+    if (!root) return;
+    cancelChartFlush();
+    clearTimeout(chartElementResizeTimeout);
+    chartElementResizeTimeout = 0;
+    if (observedChartElement && root.contains(observedChartElement)) {
+        chartResizeObserver?.unobserve(observedChartElement);
+        observedChartElement = null;
+        observedChartSize = { width: 0, height: 0 };
     }
-
-    // Listen for theme changes to update the chart when the theme changes
-    window.addEventListener('storage', (event) => {
-        if (event.key === 'theme') {
-            const newTheme = event.newValue || 'light';
-            setTheme(newTheme);
-        }
-    });
-
-    // Re-render labels and grow the plot range when the UI language changes —
-    // translated label widths differ, so range padding must follow.
-    document.addEventListener('streamline:languagechange', () => {
-        refreshLabelMargin();
-    });
-
-    console.log('initChart: Chart initialization completed');
+    await Promise.all([...root.querySelectorAll('#plotly-chart')].map(disposeECharts));
 }
 
 export function setTheme(theme) {
+    currentTheme = theme;
     updateChartColors(theme); // Apply theme-specific colors
 
     const layoutUpdate = theme === 'dark' ? darkLayout : lightLayout;
     applyLabelLayout(layoutUpdate);
-    const data = Object.values(chartData);
+    const data = chartTraces;
     const element = getChartElement();
     if (!element) {
         console.error('setTheme: chartElement not found in DOM');
         return;
     }
-    Plotly.react(element, data, layoutUpdate);
+    renderMain(data, layoutUpdate);
+    if (expandedOpen) renderExpandedCharts();
 }

@@ -31,6 +31,27 @@ export function pickVisible(seriesYs, visibleFlags) {
     return seriesYs.filter((_, i) => (visibleFlags[i] ?? true) === true);
 }
 
+export function separateLabelPositions(positions, minSeparation, maxPosition, minPosition = 0) {
+    if (positions.length < 2) return positions.slice();
+    const result = positions.slice();
+    for (let i = 1; i < result.length; i++) {
+        result[i] = Math.max(result[i], result[i - 1] + minSeparation);
+    }
+    if (result[result.length - 1] > maxPosition) {
+        result[result.length - 1] = maxPosition;
+        for (let i = result.length - 2; i >= 0; i--) {
+            result[i] = Math.min(result[i], result[i + 1] - minSeparation);
+        }
+    }
+    if (result[0] < minPosition) {
+        result[0] = minPosition;
+        for (let i = 1; i < result.length; i++) {
+            result[i] = Math.max(result[i], result[i - 1] + minSeparation);
+        }
+    }
+    return result;
+}
+
 // Damped top-axis max. `seriesYs` is a list of y-arrays (real units); `prevYMax`
 // is the previous damped value the caller stored. Grows instantly so peaks stay
 // visible; eases back down at most 2 units per call, and only once the need has

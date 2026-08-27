@@ -1,7 +1,7 @@
 import { init as initProfileManager, unhideProfile,availableProfiles, assignProfile, setActiveProfile, getActiveProfileId, translateProfileTitle, deleteOrHideProfile, loadAssignments, handleProfileUpload , verifyProfileChange, renameProfile, applyWorkflowToMainPageUI, withSavedBrewTemp } from './profileManager.js';
 import { openDB } from './idb.js';
 import { logger } from './logger.js';
-import { initResizablePanels, showToast, initFullscreenHandler, updateProfileName } from './ui.js';
+import { initResizablePanels, showToast, initFullscreenHandler, updateProfileName, setupPressAndHold } from './ui.js';
 import { sendProfile, getWorkflow, updateWorkflow, callPluginEndpoint, getPluginSettings, setPluginSettings, verifyVisualizerCredentials, deleteProfile, updateProfileVisibility, API_BASE_URL } from './api.js';
 import { initChart, plotProfile } from './chart.js';
 import { translatePage, getTranslation } from './i18n.js';
@@ -10,6 +10,19 @@ import { openContextMenu, closeContextMenu } from './context-menu.js';
 
 // Visualizer credentials storage
 let cachedVisualizerCredentials = null;
+const initializedProfileRoots = new WeakSet();
+let profilesUpdatedListenerInstalled = false;
+
+function handleProfilesUpdated() {
+    logger.info('Received profiles-updated event, re-rendering profile list.');
+    renderProfiles();
+}
+
+function ensureProfilesUpdatedListener() {
+    if (profilesUpdatedListenerInstalled) return;
+    document.addEventListener('profiles-updated', handleProfilesUpdated);
+    profilesUpdatedListenerInstalled = true;
+}
 
 /**
  * Check if Visualizer credentials are configured
@@ -680,6 +693,7 @@ function renderProfiles() {
             div.setAttribute('role', 'option');
             div.setAttribute('aria-selected', (key === selectedProfileKey) ? 'true' : 'false');
             div.setAttribute('aria-label', displayTitle);
+            div.tabIndex = -1;
 
             const leftSide = document.createElement('div');
             leftSide.className = 'flex items-baseline gap-2 min-w-0';
@@ -712,6 +726,7 @@ function renderProfiles() {
                     await unhideProfileEntry(key);
                     renderProfiles();
                 });
+                unhideButton.addEventListener('pointerdown', (e) => e.stopPropagation());
                 div.appendChild(unhideButton);
             } else {
                 div.classList.add('text-[var(--text-primary)]');
@@ -720,44 +735,9 @@ function renderProfiles() {
                 }
             }
 
-            // ── Long-press → context menu ─────────────────────────────────
-            {
-                let lpTimer = null;
-                let lpFired = false;
-                let lpStartX = 0, lpStartY = 0;
-
-                const lpStart = (e) => {
-                    const pt = e.touches ? e.touches[0] : e;
-                    lpStartX = pt.clientX; lpStartY = pt.clientY;
-                    lpFired = false;
-                    clearTimeout(lpTimer);
-                    lpTimer = setTimeout(() => {
-                        lpFired = true;
-                        // Select the profile first so context menu actions act on it
-                        div.click();
-                        showProfileContextMenu(key, profileRecord, div);
-                    }, LONG_PRESS_DURATION);
-                };
-                const lpCancel = (e) => {
-                    const pt = e.touches ? e.touches[0] : e;
-                    if (pt) {
-                        const dx = pt.clientX - lpStartX, dy = pt.clientY - lpStartY;
-                        if (Math.hypot(dx, dy) > 10) clearTimeout(lpTimer);
-                    } else {
-                        clearTimeout(lpTimer);
-                    }
-                };
-                const lpUp = () => clearTimeout(lpTimer);
-
-                div.addEventListener('pointerdown',  lpStart);
-                div.addEventListener('pointermove',  lpCancel);
-                div.addEventListener('pointerup',    lpUp);
-                div.addEventListener('pointercancel',lpUp);
-            }
-
-            div.addEventListener('click', (e) => {
+            const selectItem = () => {
                 console.log('renderProfiles: Profile item clicked:', profile.title);
-                const clickedItem = e.currentTarget;
+                const clickedItem = div;
 
                 const allItems = clickedItem.parentElement.querySelectorAll('[data-profile-key]');
                 for(const item of allItems) {
@@ -782,7 +762,26 @@ function renderProfiles() {
 
                 clickedItem.setAttribute('aria-selected', 'true');
                 updateSelectedProfileView(clickedItem);
+            };
+
+            const overflowButton = document.createElement('button');
+            overflowButton.type = 'button';
+            overflowButton.className = 'profile-context-trigger w-[56px] h-[56px] flex-shrink-0 flex items-center justify-center rounded-[8px] text-[var(--text-primary)] hover:bg-white/15';
+            overflowButton.setAttribute('aria-label', `${getTranslation('More actions')} ${displayTitle}`);
+            overflowButton.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+            overflowButton.style.touchAction = 'manipulation';
+            overflowButton.addEventListener('pointerdown', (event) => event.stopPropagation());
+            overflowButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                selectItem();
+                showProfileContextMenu(key, profileRecord, overflowButton);
             });
+            div.appendChild(overflowButton);
+
+            setupPressAndHold(div, selectItem, () => {
+                selectItem();
+                showProfileContextMenu(key, profileRecord, div);
+            }, { touchAction: 'pan-y' });
 
             container.appendChild(div);
         };
@@ -1349,6 +1348,12 @@ function filterProfiles(searchTerm) {
 export async function initializeProfileSelector() {
     console.log('initializeProfileSelector: Starting initialization');
 
+    const pageRoot =
+        document.querySelector('div[role="dialog"][aria-labelledby="page_title"]')
+        || document.getElementById('profile-editor-grid');
+    if (!pageRoot || initializedProfileRoots.has(pageRoot)) return;
+    initializedProfileRoots.add(pageRoot);
+
     // Reset the selected profile key to ensure first profile gets selected on page load
     selectedProfileKey = null;
 
@@ -1358,16 +1363,13 @@ export async function initializeProfileSelector() {
     // Suppress browser-default selection/long-press/drag/callout across the whole
     // profile-selector page. Delegated listeners on the root also cover items
     // added later by renderProfiles() / filterProfiles().
-    const pageRoot =
-        document.querySelector('div[role="dialog"][aria-labelledby="page_title"]')
-        || document.getElementById('profile-editor-grid');
     suppressBrowserActions(pageRoot);
 
     // Fetching the profiles is the long pole and needs nothing from the DOM, so
     // start it before touching the chart. This used to run second, behind an
-    // unconditional 50ms setTimeout and a Plotly init the list does not depend
+    // unconditional 50ms setTimeout and a chart init the list does not depend
     // on -- roughly 80ms of dead time before the request was even issued here,
-    // and far worse on a tablet where Plotly init is CPU-bound.
+    // and far worse on a tablet where chart init is CPU-bound.
     const profilePromise = initProfileManager();
 
     // The router injects the page HTML and awaits a requestAnimationFrame before
@@ -1484,14 +1486,7 @@ export async function initializeProfileSelector() {
         }
     }
 
-    // Listen for profile updates from the manager
-    // We'll handle potential duplicate listeners by checking if one already exists
-    // For now, we'll just add the listener - the event system should handle multiple similar listeners gracefully
-    document.addEventListener('profiles-updated', () => {
-        logger.info('Received profiles-updated event, re-rendering profile list.');
-        console.log('initializeProfileSelector: profiles-updated event received, re-rendering profiles');
-        renderProfiles();
-    });
+    ensureProfilesUpdatedListener();
 
     console.log('initializeProfileSelector: Initializing resizable panels');
     initResizablePanels('separator');
@@ -1706,10 +1701,6 @@ document.addEventListener('DOMContentLoaded', initializeProfileSelector);
 document.addEventListener('dynamic-content-loaded', (event) => {
     // Check if this event is for profile selector
     if (event.detail.pageUrl && (event.detail.pageUrl.includes('profile_selector.html') || event.detail.pageUrl.endsWith('profile_selector.html'))) {
-        if (window.Plotly && document.getElementById('plotly-chart')) {
-         const chartDiv = document.getElementById('plotly-chart');
-         Plotly.purge(chartDiv);
-         }
         initializeProfileSelector();
     }
 });

@@ -31,7 +31,6 @@
     <link href="src/css/app.css" rel="stylesheet" type="text/css" />
     <link href="src/css/dark-mode.css" rel="stylesheet" type="text/css" />
     <link href="src/css/main.css" rel="stylesheet" type="text/css" />
-    <script src="src/modules/plotly-basic-3.1.0.min.js"></script>
     <script src="src/modules/reconnecting-websocket.js" defer></script>
     <!-- First module in: installs the localStorage→KV mirror and starts the
          hydrate fetch before anything reads a preference. -->
@@ -249,7 +248,7 @@
                         </div>
                     </div>
 
-                    <!-- Plotly Chart (tap to open full-screen expanded charts) -->
+                    <!-- Shot chart (tap to open full-screen expanded charts) -->
                     <div id="chart-wrap" class="relative w-full">
                         <div id="plotly-chart" class="w-full h-[650px] border border-l-0 border-r-0 border-[var(--border-color)]" role="img" aria-label="Shot extraction graph"></div>
                         <button id="chart-expand-btn" aria-label="Expand charts to full screen"

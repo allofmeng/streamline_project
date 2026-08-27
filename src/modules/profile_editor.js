@@ -5,6 +5,8 @@ import { openNotesModal } from './notes-modal.js';
 import { getTranslation } from './i18n.js';
 import { callPluginEndpoint, getPluginSettings } from './api.js';
 import { validateProfileStructure } from './profileManager.js';
+import { loadECharts } from './echarts-loader.js';
+import { renderChart } from './echarts-renderer.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -1637,7 +1639,7 @@ function renderReviewGraph() {
     if (editorState.activeTab !== 2) return;
     const profile = editorState.profile;
     const graphDiv = document.getElementById('review-graph');
-    if (!graphDiv || typeof Plotly === 'undefined') return;
+    if (!graphDiv) return;
 
     const isDark = (localStorage.getItem('theme') || 'light') === 'dark';
     const stepMarkerColor = isDark ? '#7f8bbb' : '#7c7c7c';
@@ -1716,7 +1718,9 @@ function renderReviewGraph() {
         yaxis: { gridcolor: '#E0E0E0', linecolor: '#959595', tickcolor: '#959595', range: [0, 10], dtick: 1, fixedrange: true },
     };
 
-    Plotly.react(graphDiv, traces, layout, { responsive: true, displayModeBar: false });
+    void loadECharts().then(echarts => {
+        if (graphDiv.isConnected && editorState.activeTab === 2) renderChart(echarts, graphDiv, traces, layout);
+    });
 }
 
 function renderReviewTab() {
