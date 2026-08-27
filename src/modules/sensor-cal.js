@@ -33,7 +33,6 @@ export const SENSOR_CAL_TARGETS = [
         kind: 'offset',
         unit: '°C',
         readingKey: 'groupTemperature',
-        help: 'Flush at your brew temperature, capture while it runs, then enter what your thermometer read at the group head.',
     },
     {
         id: 'pressure',
@@ -41,7 +40,6 @@ export const SENSOR_CAL_TARGETS = [
         kind: 'ratio',
         unit: 'bar',
         readingKey: 'pressure',
-        help: 'Hold a steady pressure, capture while it runs, then enter what your external gauge read.',
     },
     {
         id: 'flow',
@@ -49,7 +47,6 @@ export const SENSOR_CAL_TARGETS = [
         kind: 'ratio',
         unit: 'ml/s',
         readingKey: 'flow',
-        help: 'Hold a steady flow into a measuring vessel, capture while it runs, then enter the rate you worked out.',
     },
 ];
 
