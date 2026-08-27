@@ -18,30 +18,38 @@ export const SENSOR_CAL_MAX = 32767.9999;
 // `kind` is how the firmware folds a write in: 'ratio' multiplies (flow,
 // pressure), 'offset' adds (temperature). It also says how to read the
 // stored value — a multiplier around 1.0, or a °C offset around 0.0.
+//
+// `readingKey` is the snapshot field the DE1's OWN SENSOR reports, which is
+// what `de1ReportedValue` means. It is deliberately not the matching
+// target* field: those are frame setpoints, and in a frame that controls
+// the other variable they carry that frame's LIMITER — a flow-controlled
+// step reports its maximum pressure in targetPressure while the group sits
+// well below it. Correcting against a limiter writes a multiplier the
+// sensor error never justified.
 export const SENSOR_CAL_TARGETS = [
     {
         id: 'temperature',
         label: 'Temperature',
         kind: 'offset',
         unit: '°C',
-        targetKey: 'targetGroupTemperature',
-        help: 'Run a flush at your brew temperature, then enter what your thermometer reads at the group head.',
+        readingKey: 'groupTemperature',
+        help: 'Flush at your brew temperature, capture while it runs, then enter what your thermometer read at the group head.',
     },
     {
         id: 'pressure',
         label: 'Pressure',
         kind: 'ratio',
         unit: 'bar',
-        targetKey: 'targetPressure',
-        help: 'Run a profile that holds a steady pressure, then enter what your external gauge reads.',
+        readingKey: 'pressure',
+        help: 'Hold a steady pressure, capture while it runs, then enter what your external gauge read.',
     },
     {
         id: 'flow',
         label: 'Flow',
         kind: 'ratio',
         unit: 'ml/s',
-        targetKey: 'targetFlow',
-        help: 'Run a steady flow into a measuring vessel, then enter the rate you worked out.',
+        readingKey: 'flow',
+        help: 'Hold a steady flow into a measuring vessel, capture while it runs, then enter the rate you worked out.',
     },
 ];
 
@@ -96,19 +104,43 @@ export function formatCalValue(kind, value) {
 }
 
 /**
- * What the machine is aiming for right now — the `de1ReportedValue` half of
- * a correction, so the user only ever types the measured half. This is
- * de1app's "Goal" column: it reads it off the static espresso setpoint,
- * while a profile-driven skin reads the live per-step target instead.
+ * What the DE1's sensor is reporting right now — the `de1ReportedValue`
+ * half of a correction, so the user only ever types the measured half.
  * @returns {number|null} null when there is no frame yet (machine asleep or
  *   disconnected) or the field is missing. 0 while idle, which
  *   correctionBlocked() refuses.
  */
-export function snapshotGoal(target, snapshot) {
+export function snapshotReading(target, snapshot) {
     if (!target || !snapshot || typeof snapshot !== 'object') return null;
-    const value = snapshot[target.targetKey];
+    const value = snapshot[target.readingKey];
     return Number.isFinite(value) ? value : null;
 }
+
+// A capture averages the frames seen in this window rather than trusting one
+// snapshot tick, which lands wherever the pump happened to be in its cycle.
+export const SENSOR_CAL_SAMPLE_WINDOW_MS = 5000;
+
+/**
+ * Mean of the samples inside the window, newest-anchored at `now`.
+ * @param {Array<{value: number, at: number}>} samples
+ * @returns {number|null} null when the window holds nothing usable — the
+ *   caller must refuse to capture rather than invent a reading.
+ */
+export function averageReadings(samples, now, windowMs = SENSOR_CAL_SAMPLE_WINDOW_MS) {
+    if (!Array.isArray(samples)) return null;
+    const fresh = samples.filter(
+        (s) => s && Number.isFinite(s.value) && Number.isFinite(s.at) && now - s.at <= windowMs,
+    );
+    if (fresh.length === 0) return null;
+    return fresh.reduce((sum, s) => sum + s.value, 0) / fresh.length;
+}
+
+// ponytail: one hard band, no warn-then-confirm tier. A DE1 pressure or flow
+// sensor that is out by a third is broken hardware or a mis-capture, not a
+// calibration job, and the arithmetic would write the number regardless.
+// Widen it if a real sensor is ever found outside — do not remove it.
+export const SENSOR_CAL_RATIO_MIN = 0.75;
+export const SENSOR_CAL_RATIO_MAX = 1.33;
 
 /**
  * Why this correction cannot be sent, or '' when it can. A ratio correction
@@ -118,11 +150,15 @@ export function snapshotGoal(target, snapshot) {
  * and capturing an idle machine reads exactly 0.00 bar / 0.00 ml/s.
  */
 export function correctionBlocked(kind, de1ReportedValue, measuredValue) {
-    // An idle machine targets nothing, so every goal reads 0. Correcting
+    // An idle machine reports nothing, so a capture there reads 0. Correcting
     // against it would divide by zero (ratio) or shove the whole reading
     // into the offset (temperature).
-    if (de1ReportedValue === 0) return 'The machine is not targeting anything — run it first';
+    if (de1ReportedValue === 0) return 'The machine was not running when this was captured — capture again while it runs';
     if (kind !== 'ratio') return '';
     if (measuredValue === 0) return 'A measured zero cannot be calibrated';
+    const ratio = measuredValue / de1ReportedValue;
+    if (ratio < SENSOR_CAL_RATIO_MIN || ratio > SENSOR_CAL_RATIO_MAX) {
+        return `That is ${ratio.toFixed(2)}x what the machine reported — check the capture and the measurement`;
+    }
     return '';
 }

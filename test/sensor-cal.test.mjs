@@ -7,11 +7,13 @@ import {
     absoluteSetCorrection,
     formatCalValue,
     sensorCalTarget,
-    snapshotGoal,
+    snapshotReading,
+    averageReadings,
     correctionBlocked,
     SENSOR_CAL_TARGETS,
     SENSOR_CAL_MIN,
     SENSOR_CAL_MAX,
+    SENSOR_CAL_SAMPLE_WINDOW_MS,
 } from '../src/modules/sensor-cal.js';
 
 // --- input parsing ----------------------------------------------------------
@@ -100,23 +102,61 @@ test('sensorCalTarget: the three firmware targets, and nothing else', () => {
     assert.equal(sensorCalTarget('nope'), null);
 });
 
-// --- live capture (the "DE1 now" column) ------------------------------------
+// --- live capture (the "DE1 reads" column) ----------------------------------
 
-test('snapshotGoal: reads what the machine is targeting, not what it senses', () => {
+// de1ReportedValue means what the DE1's SENSOR reported. The target* fields
+// are frame setpoints, and in a frame controlling the other variable they
+// carry that frame's limiter — reading them here writes a correction the
+// sensor error never justified.
+test('snapshotReading: reads the sensor, never the frame setpoint', () => {
     const frame = { groupTemperature: 90.3, targetGroupTemperature: 92,
-                    pressure: 8.9, targetPressure: 9, flow: 2.1, targetFlow: 2 };
-    assert.equal(snapshotGoal(sensorCalTarget('temperature'), frame), 92);
-    assert.equal(snapshotGoal(sensorCalTarget('pressure'), frame), 9);
-    assert.equal(snapshotGoal(sensorCalTarget('flow'), frame), 2);
+                    pressure: 6.1, targetPressure: 10, flow: 2.1, targetFlow: 8 };
+    assert.equal(snapshotReading(sensorCalTarget('temperature'), frame), 90.3);
+    assert.equal(snapshotReading(sensorCalTarget('pressure'), frame), 6.1);
+    assert.equal(snapshotReading(sensorCalTarget('flow'), frame), 2.1);
+});
+
+test('snapshotReading: no target* field is ever the source', () => {
+    for (const target of SENSOR_CAL_TARGETS) {
+        assert.ok(!target.readingKey.startsWith('target'), `${target.id} reads ${target.readingKey}`);
+    }
 });
 
 // No frame yet = machine asleep or disconnected. Capture has to say so
 // rather than quietly hand a correction a 0 for what the DE1 reported.
-test('snapshotGoal: no frame or missing field reads null, never 0', () => {
-    assert.equal(snapshotGoal(sensorCalTarget('flow'), null), null);
-    assert.equal(snapshotGoal(sensorCalTarget('flow'), {}), null);
-    assert.equal(snapshotGoal(sensorCalTarget('flow'), { targetFlow: null }), null);
-    assert.equal(snapshotGoal(null, { targetFlow: 2 }), null);
+test('snapshotReading: no frame or missing field reads null, never 0', () => {
+    assert.equal(snapshotReading(sensorCalTarget('flow'), null), null);
+    assert.equal(snapshotReading(sensorCalTarget('flow'), {}), null);
+    assert.equal(snapshotReading(sensorCalTarget('flow'), { flow: null }), null);
+    assert.equal(snapshotReading(null, { flow: 2 }), null);
+});
+
+// One 1 Hz frame lands wherever the pump was in its cycle, so a capture
+// averages the window instead of trusting a single tick.
+test('averageReadings: means the samples inside the window', () => {
+    const now = 10_000;
+    const samples = [
+        { value: 8.8, at: now - 3000 },
+        { value: 9.0, at: now - 2000 },
+        { value: 9.2, at: now - 1000 },
+    ];
+    assert.equal(averageReadings(samples, now).toFixed(4), '9.0000');
+});
+
+test('averageReadings: drops samples older than the window', () => {
+    const now = 10_000;
+    const samples = [
+        { value: 2, at: now - (SENSOR_CAL_SAMPLE_WINDOW_MS + 1) },
+        { value: 9, at: now - 500 },
+    ];
+    assert.equal(averageReadings(samples, now), 9);
+});
+
+test('averageReadings: an empty or unusable window is null, not 0', () => {
+    assert.equal(averageReadings([], 10_000), null);
+    assert.equal(averageReadings(null, 10_000), null);
+    assert.equal(averageReadings([{ value: 9, at: 0 }], 10_000), null);
+    assert.equal(averageReadings([{ value: NaN, at: 9_900 }], 10_000), null);
 });
 
 // --- zero guards ------------------------------------------------------------
@@ -132,4 +172,29 @@ test('correctionBlocked: a measured zero is refused only where it multiplies', (
     assert.ok(correctionBlocked('ratio', 9, 0).length > 0);
     assert.equal(correctionBlocked('offset', 92, 0), '');
     assert.equal(correctionBlocked('ratio', 9, 9.5), '');
+});
+
+// --- sanity band -------------------------------------------------------------
+
+// The arithmetic will happily write any multiplier. A pressure or flow
+// sensor out by a third is broken hardware or a mis-capture, and either way
+// the user should be stopped before the firmware folds it in.
+test('correctionBlocked: refuses ratio corrections outside the sanity band', () => {
+    // the limiter bug this guards: captured 10 bar (a frame's pressure
+    // maximum) against a gauge reading the 6.1 bar the group actually held
+    assert.ok(correctionBlocked('ratio', 10, 6.1).length > 0);
+    // and its flow twin: an 8 ml/s frame limiter against 2.05 measured
+    assert.ok(correctionBlocked('ratio', 8, 2.05).length > 0);
+    assert.ok(correctionBlocked('ratio', 9, 4.5).length > 0);
+    assert.ok(correctionBlocked('ratio', 9, 18).length > 0);
+});
+
+test('correctionBlocked: a plausible few-percent correction passes', () => {
+    assert.equal(correctionBlocked('ratio', 9, 9.5), '');
+    assert.equal(correctionBlocked('ratio', 9, 8.5), '');
+    assert.equal(correctionBlocked('ratio', 2.1, 2.4), '');
+});
+
+test('correctionBlocked: the band does not apply to the temperature offset', () => {
+    assert.equal(correctionBlocked('offset', 92, 20), '');
 });

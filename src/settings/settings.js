@@ -13,7 +13,7 @@ import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensave
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewComposite } from '../modules/led-color.js';
 import { isCupWarmerOn, readCupWarmerTarget, clampCupWarmerTarget, clampPrewarmMinutes, resolvePrewarm, prewarmWarnings, prewarmShapeSignature, cupWarmerViewMode, formatCurrentMatTemp, getCupWarmerState, setCupWarmerState, patchCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY, PREWARM_MIN_MINUTES, PREWARM_MAX_MINUTES } from '../modules/cup-warmer.js';
 import { clampCalWeight, calActionState, CAL_WEIGHT_DEFAULT_G, CAL_WEIGHT_MIN_G, CAL_WEIGHT_MAX_G } from '../modules/loadcell-cal.js';
-import { SENSOR_CAL_TARGETS, sensorCalTarget, parseSensorCalInput, previewCalibration, absoluteSetCorrection, formatCalValue, snapshotGoal, correctionBlocked } from '../modules/sensor-cal.js';
+import { SENSOR_CAL_TARGETS, sensorCalTarget, parseSensorCalInput, previewCalibration, absoluteSetCorrection, formatCalValue, snapshotReading, averageReadings, correctionBlocked, SENSOR_CAL_SAMPLE_WINDOW_MS } from '../modules/sensor-cal.js';
 import { APP_VERSION, SKIN_ID } from '../version.js';
 import { openNotesModal } from '../modules/notes-modal.js';
 import { openDB, getSetting, setSetting, addEmails, getAllEmails, getLatestEmailTimestamp } from '../modules/idb.js';
@@ -30,14 +30,12 @@ const SETTINGS_NUMPAD_CONFIGS = {
     waterAlertInput:         { title: 'WATER ALERT LEVEL',   unit: 'mm',   min: 0,   max: 30,   fieldType: 'settings-water-alert' },
     calibFanInput:           { title: 'FAN THRESHOLD',       unit: '%',    min: 0,   max: 100,  fieldType: 'settings-calib-fan' },
     calibWeightInput:        { title: 'CALIBRATION WEIGHT',  unit: 'g',    min: 1,   max: 10000,fieldType: 'settings-calib-weight' },
-    // DE1 sensor calibration: one pair per target. The temperature pair is
-    // entered in the display unit (the '°C' unit makes attachSettingsNumpad
-    // convert min/max), flow and pressure have no alternate unit.
-    'sensor-cal-temperature-reported': { title: 'DE1 REPORTED TEMP', unit: '°C',   min: 0, max: 200, fieldType: 'settings-sensor-cal-temp-reported' },
+    // DE1 sensor calibration: only the measured half is typed — the DE1's own
+    // reading is captured off the machine. The temperature box is entered in
+    // the display unit (the '°C' unit makes attachSettingsNumpad convert
+    // min/max), flow and pressure have no alternate unit.
     'sensor-cal-temperature-measured': { title: 'MEASURED TEMP',     unit: '°C',   min: 0, max: 200, fieldType: 'settings-sensor-cal-temp-measured' },
-    'sensor-cal-pressure-reported':    { title: 'DE1 REPORTED BAR',  unit: 'bar',  min: 0, max: 20,  fieldType: 'settings-sensor-cal-pressure-reported' },
     'sensor-cal-pressure-measured':    { title: 'MEASURED BAR',      unit: 'bar',  min: 0, max: 20,  fieldType: 'settings-sensor-cal-pressure-measured' },
-    'sensor-cal-flow-reported':        { title: 'DE1 REPORTED FLOW', unit: 'ml/s', min: 0, max: 20,  fieldType: 'settings-sensor-cal-flow-reported' },
     'sensor-cal-flow-measured':        { title: 'MEASURED FLOW',     unit: 'ml/s', min: 0, max: 20,  fieldType: 'settings-sensor-cal-flow-measured' },
     steamCalibTempInput:     { title: 'STEAM TEMPERATURE',   unit: '°C',   min: 135, max: 170,  fieldType: 'settings-steam-calib-temp' },
     steamTempInput:          { title: 'STEAM TEMPERATURE',   unit: '°C',   min: 0,   max: 170,  fieldType: 'settings-steam-temp' },
@@ -4583,7 +4581,7 @@ export function renderCalibSteamSettings() {
 // value it already holds — see sensor-cal.js), so every leg here is
 // read -> preview -> write -> re-read, and a successful write clears the two
 // inputs: they are one observation, and re-sending them corrects twice.
-let sensorCal = {};             // target id -> {current, factory, reported, measured, busy, error}
+let sensorCal = {};             // target id -> {current, factory, captured, capturedAt, samples, measured, busy, error}
 let sensorCalLoading = false;   // the initial three-target read is in flight
 let sensorCalLoaded = false;    // ponytail: read once per session, refreshed
                                 // after each write. Re-read on reconnect if
@@ -4596,7 +4594,10 @@ function sensorCalRerender() {
 
 function sensorCalEntry(id) {
     if (!sensorCal[id]) {
-        sensorCal[id] = { current: null, factory: null, goal: null, measured: '', busy: false, error: '' };
+        sensorCal[id] = {
+            current: null, factory: null, captured: null, capturedAt: 0,
+            samples: [], measured: '', busy: false, error: '',
+        };
     }
     return sensorCal[id];
 }
@@ -4620,9 +4621,10 @@ async function sensorCalRead(id) {
 }
 
 async function initSensorCal() {
-    // The goal column is fed by the snapshot socket, which nobody has opened
+    // The live column is fed by the snapshot socket, which nobody has opened
     // if the app booted straight onto this page (a reload while in Settings).
     ensureMachineSnapshotSocket();
+    sensorCalStartLive();
     if (sensorCalLoaded || sensorCalLoading) return;
     sensorCalLoading = true;
     sensorCalLoadError = '';
@@ -4641,32 +4643,36 @@ async function initSensorCal() {
 const SENSOR_CAL_INPUT = "text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border border-[#c9c9c9] rounded-[10px] h-[60px] w-[130px]";
 const SENSOR_CAL_SMALL_BTN = "h-[56px] px-[28px] rounded-[56px] text-[22px] font-bold";
 
-// The live "Goal" column, repainted off the snapshot socket's last frame
-// while this page is open. This is the de1ReportedValue half of every
-// correction, so the user only types what they measured — de1app reads it
-// off the static espresso setpoint, and a profile-driven skin reads the
-// machine's live per-step target instead.
+// The live "DE1 reads" column, repainted off the snapshot socket's last
+// frame while this page is open, and the rolling sample window a capture
+// averages. This is the sensor's OWN reading — the de1ReportedValue half of
+// every correction — so the user only types what their instrument said.
 let sensorCalLiveTimer = null;
 
-function sensorCalGoal(target) {
-    return snapshotGoal(target, getLastMachineSnapshot());
+function sensorCalLiveReading(target) {
+    return snapshotReading(target, getLastMachineSnapshot());
 }
 
-function sensorCalGoalText(target, goal) {
-    if (goal === null) return '—';
-    const shown = target.id === 'temperature' ? tempInputValue(goal) : goal;
+function sensorCalReadingText(target, value) {
+    if (value === null || value === undefined) return '—';
+    const shown = target.id === 'temperature' ? tempInputValue(value) : value;
     const unit = target.id === 'temperature' ? tempUnitLabel() : target.unit;
     return `${Number(shown).toFixed(target.kind === 'offset' ? 1 : 2)} ${unit}`;
 }
 
-// Only the rows the user is not mid-measurement on follow the machine: once
-// a measurement is typed, that row's goal is frozen (see sensorCalInput) so
-// the pair that gets written is the pair that was on screen.
+// Every tick feeds the sample window and repaints the live cell. A captured
+// row keeps its own number on screen — that is the pair being written.
 function sensorCalPaintLive() {
+    const now = Date.now();
     SENSOR_CAL_TARGETS.forEach((target) => {
-        const el = document.getElementById(`sensor-cal-goal-${target.id}`);
-        if (!el || sensorCalEntry(target.id).goal !== null) return;
-        el.textContent = sensorCalGoalText(target, sensorCalGoal(target));
+        const entry = sensorCalEntry(target.id);
+        const reading = sensorCalLiveReading(target);
+        if (reading !== null) {
+            entry.samples.push({ value: reading, at: now });
+            entry.samples = entry.samples.filter((sample) => now - sample.at <= SENSOR_CAL_SAMPLE_WINDOW_MS);
+        }
+        const el = document.getElementById(`sensor-cal-live-${target.id}`);
+        if (el) el.textContent = sensorCalReadingText(target, reading);
     });
 }
 
@@ -4684,29 +4690,38 @@ function sensorCalStopLive() {
 function sensorCalRow(target) {
     const entry = sensorCalEntry(target.id);
     const stored = Number.isFinite(entry.current);
-    // Frozen once a measurement is in the box, live until then.
-    const goal = entry.goal !== null ? entry.goal : sensorCalGoal(target);
+    // The captured reading is the de1ReportedValue half. It is taken while
+    // the machine runs, never read at Apply time — by then the user has
+    // walked back to Settings and the machine reports nothing.
+    const captured = entry.captured;
+    const live = sensorCalLiveReading(target);
     const measured = parseSensorCalInput(entry.measured);
     const unit = target.id === 'temperature' ? tempUnitLabel() : target.unit;
-    const filled = stored && goal !== null && measured !== null && !entry.busy;
+    const canCapture = live !== null && !entry.busy;
+    const filled = stored && captured !== null && measured !== null && !entry.busy;
     const blocked = filled
-        ? correctionBlocked(target.kind, goal, sensorCalToCelsius(target.id, measured))
+        ? correctionBlocked(target.kind, captured, sensorCalToCelsius(target.id, measured))
         : '';
     const preview = filled && !blocked
-        ? previewCalibration(target.kind, entry.current, goal, sensorCalToCelsius(target.id, measured))
+        ? previewCalibration(target.kind, entry.current, captured, sensorCalToCelsius(target.id, measured))
         : null;
     const ready = filled && !blocked && Number.isFinite(preview);
     const suffix = target.kind === 'offset' ? ' °C' : '';
+    // Floats never come back bit-identical from the machine, so an exact
+    // comparison would leave Factory lit on a value that already is factory.
     const canFactory = stored && Number.isFinite(entry.factory) && !entry.busy
-        && entry.current !== entry.factory;
+        && Math.abs(entry.current - entry.factory) > 1e-6;
 
     let status = `<span class="text-[var(--text-secondary)]" data-i18n-key="${target.help}">${target.help}</span>`;
     if (entry.error) status = `<span class="text-red-500">${escapeHtml(entry.error)}</span>`;
-    else if (blocked) status = `<span class="text-red-500" data-i18n-key="${blocked}">${blocked}</span>`;
-    else if (goal === null) status = `<span class="text-[var(--text-secondary)]" data-i18n-key="Waiting for a reading from the machine…">Waiting for a reading from the machine…</span>`;
+    else if (blocked) status = `<span class="text-red-500">${escapeHtml(blocked)}</span>`;
     else if (entry.busy) status = `<span style="color:#959595" data-i18n-key="Writing…">Writing…</span>`;
     else if (Number.isFinite(preview)) {
         status = `<span style="color:#0ca581;font-weight:700">${formatCalValue(target.kind, entry.current)}${suffix} &rarr; ${formatCalValue(target.kind, preview)}${suffix}</span>`;
+    } else if (captured !== null) {
+        status = `<span class="text-[var(--text-secondary)]" data-i18n-key="Captured. Now enter what your instrument measured.">Captured. Now enter what your instrument measured.</span>`;
+    } else if (live === null) {
+        status = `<span class="text-[var(--text-secondary)]" data-i18n-key="Waiting for a reading from the machine…">Waiting for a reading from the machine…</span>`;
     }
 
     return `
@@ -4721,7 +4736,10 @@ function sensorCalRow(target) {
                 <p class="text-[24px] text-[var(--text-secondary)]">${formatCalValue(target.kind, entry.factory)}${suffix}</p>
             </td>
             <td class="py-[20px] px-[10px] text-center align-middle">
-                <p id="sensor-cal-goal-${target.id}" class="text-[24px] ${entry.goal !== null ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}">${sensorCalGoalText(target, goal)}</p>
+                <p id="sensor-cal-live-${target.id}" class="text-[24px] text-[var(--text-secondary)]">${sensorCalReadingText(target, live)}</p>
+                ${captured !== null ? `<p class="text-[24px] font-bold text-[var(--text-primary)]">${sensorCalReadingText(target, captured)}</p>` : ''}
+                <button class="${SENSOR_CAL_SMALL_BTN} mt-[10px] bg-[var(--box-color)] border-2 border-[#385a92] text-[var(--text-primary)] ${canCapture ? '' : 'opacity-40'}" ${canCapture ? '' : 'disabled'}
+                        onclick="window.sensorCalCapture('${target.id}')" data-i18n-key="Capture">Capture</button>
             </td>
             <td class="py-[20px] px-[10px] align-middle">
                 <div class="flex items-center justify-center">
@@ -4747,7 +4765,6 @@ function sensorCalRow(target) {
 }
 
 export function renderSensorCalSettings() {
-    sensorCalStartLive();
     let body;
     if (sensorCalLoading) {
         body = `<p class="${CAL_BODY}" data-i18n-key="Reading calibration from the machine…">Reading calibration from the machine…</p>`;
@@ -4762,7 +4779,7 @@ export function renderSensorCalSettings() {
                             <th class="pb-[10px] font-normal" data-i18n-key="Sensor">Sensor</th>
                             <th class="pb-[10px] font-normal text-center" data-i18n-key="Saved">Saved</th>
                             <th class="pb-[10px] font-normal text-center" data-i18n-key="Factory">Factory</th>
-                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Goal">Goal</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="DE1 reads">DE1 reads</th>
                             <th class="pb-[10px] font-normal text-center" data-i18n-key="You measured">You measured</th>
                             <th></th>
                         </tr>
@@ -4779,8 +4796,8 @@ export function renderSensorCalSettings() {
 
             <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
 
-            <p class="${CAL_BODY}" data-i18n-key="Run the machine at the goal shown, then enter what your own instrument measured. Applying corrects the machine by the difference — each measurement is applied once.">
-                Run the machine at the goal shown, then enter what your own instrument measured. Applying corrects the machine by the difference — each measurement is applied once.
+            <p class="${CAL_BODY}" data-i18n-key="Run the machine, and while it holds steady press Capture to take the DE1's own reading. Then enter what your instrument measured. Applying corrects the machine by the difference — each measurement is applied once.">
+                Run the machine, and while it holds steady press Capture to take the DE1's own reading. Then enter what your instrument measured. Applying corrects the machine by the difference — each measurement is applied once.
             </p>
 
             <div class="w-full">${body}</div>
@@ -7375,16 +7392,31 @@ export async function initializeSettings() {
     };
 
     // --- DE1 sensor calibration handlers ---
-    // One number to type. Entering it freezes the goal that was on screen,
-    // so the pair written is the pair the user was looking at even if the
-    // profile steps on to a different target a second later.
-    window.sensorCalInput = function(id, value) {
+    // Capture takes the DE1's own reading WHILE the machine runs, averaged
+    // over the sample window so one noisy frame cannot set the correction.
+    // It has to happen here and not at Apply time: by the time the user has
+    // read their gauge and walked back to this page the machine is idle and
+    // reports 0.
+    window.sensorCalCapture = function(id) {
         const target = sensorCalTarget(id);
+        const entry = sensorCalEntry(id);
+        if (!target || entry.busy) return;
+        const averaged = averageReadings(entry.samples, Date.now());
+        const value = averaged !== null ? averaged : sensorCalLiveReading(target);
+        if (value === null) {
+            entry.error = 'No reading from the machine yet';
+        } else {
+            entry.captured = value;
+            entry.capturedAt = Date.now();
+            entry.error = '';
+        }
+        sensorCalRerender();
+    };
+
+    window.sensorCalInput = function(id, value) {
         const entry = sensorCalEntry(id);
         entry.measured = value;
         entry.error = '';
-        if (parseSensorCalInput(value) === null) entry.goal = null;
-        else if (entry.goal === null) entry.goal = sensorCalGoal(target);
         sensorCalRerender();
     };
 
@@ -7392,20 +7424,20 @@ export async function initializeSettings() {
         const target = sensorCalTarget(id);
         const entry = sensorCalEntry(id);
         if (!target || entry.busy) return;
-        const goal = entry.goal;
+        const captured = entry.captured;
         const measured = parseSensorCalInput(entry.measured);
-        if (goal === null || measured === null) return;
-        const blocked = correctionBlocked(target.kind, goal, sensorCalToCelsius(id, measured));
+        if (captured === null || measured === null) return;
+        const blocked = correctionBlocked(target.kind, captured, sensorCalToCelsius(id, measured));
         if (blocked) { entry.error = blocked; sensorCalRerender(); return; }
         entry.busy = true; entry.error = ''; sensorCalRerender();
         try {
-            await setSensorCalibration(id, goal, sensorCalToCelsius(id, measured));
+            await setSensorCalibration(id, captured, sensorCalToCelsius(id, measured));
             // The 202 is the BLE write ack, not a settled value — read it back
             // rather than paint the preview as fact.
             await sensorCalRead(id);
-            // One observation, spent. Leaving the number in the box invites a
+            // One observation, spent. Leaving the pair on screen invites a
             // second Apply, which corrects a second time.
-            entry.goal = null; entry.measured = '';
+            entry.captured = null; entry.capturedAt = 0; entry.measured = '';
             ui.showToast(`${target.label} calibration updated`, 3000, 'success');
         } catch (error) {
             logger.error(`Sensor calibration (${id}) failed:`, error);
@@ -7437,7 +7469,7 @@ export async function initializeSettings() {
             const { de1ReportedValue, measuredValue } = absoluteSetCorrection(current, entry.factory);
             await setSensorCalibration(id, de1ReportedValue, measuredValue);
             await sensorCalRead(id);
-            entry.goal = null; entry.measured = '';
+            entry.captured = null; entry.capturedAt = 0; entry.measured = '';
             ui.showToast(`${target.label} reset to factory`, 3000, 'success');
         } catch (error) {
             logger.error(`Sensor calibration factory reset (${id}) failed:`, error);
