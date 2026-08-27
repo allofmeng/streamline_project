@@ -1,13 +1,87 @@
 import { logger } from './logger.js';
 
 const DB_NAME = 'shot_history';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const SHOTS_STORE_NAME = 'shots';
+const SHOT_SUMMARIES_STORE_NAME = 'shot_summaries';
 const SETTINGS_STORE_NAME = 'settings';
 const EMAILS_STORE_NAME = 'decent_emails';
+const SUMMARY_SEED_SIZE = 20;
+const SUMMARY_BACKFILL_SIZE = 100;
 
 let db;
 let openPromise = null;
+let summaryBackfillNeeded = false;
+
+function seedShotSummaries(shotsStore, summariesStore) {
+    let count = 0;
+    const request = shotsStore.index('by_timestamp').openCursor(null, 'prev');
+    request.onsuccess = event => {
+        const cursor = event.target.result;
+        if (!cursor || count >= SUMMARY_SEED_SIZE) return;
+        summariesStore.put(toShotSummary(cursor.value));
+        count += 1;
+        cursor.continue();
+    };
+}
+
+function repairMissingSummarySeed() {
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SHOTS_STORE_NAME, SHOT_SUMMARIES_STORE_NAME], 'readwrite');
+        const shotsStore = transaction.objectStore(SHOTS_STORE_NAME);
+        const summariesStore = transaction.objectStore(SHOT_SUMMARIES_STORE_NAME);
+        let needed = false;
+        let shotCount;
+        let summaryCount;
+        const repair = () => {
+            if (shotCount === undefined || summaryCount === undefined) return;
+            needed = summaryCount < shotCount;
+            if (!needed || summaryCount > 0) return;
+            const cursor = shotsStore.index('by_timestamp').openCursor(null, 'prev');
+            let seeded = 0;
+            cursor.onsuccess = event => {
+                const current = event.target.result;
+                if (!current || seeded >= SUMMARY_SEED_SIZE) return;
+                summariesStore.put(toShotSummary(current.value));
+                seeded += 1;
+                current.continue();
+            };
+        };
+        const shotsCountRequest = shotsStore.count();
+        const summariesCountRequest = summariesStore.count();
+        shotsCountRequest.onsuccess = () => { shotCount = shotsCountRequest.result; repair(); };
+        summariesCountRequest.onsuccess = () => { summaryCount = summariesCountRequest.result; repair(); };
+        transaction.oncomplete = () => resolve(needed);
+        transaction.onerror = event => reject(event.target.error);
+    });
+}
+
+function backfillShotSummaries(afterKey = null) {
+    if (!db) return;
+    const transaction = db.transaction([SHOTS_STORE_NAME, SHOT_SUMMARIES_STORE_NAME], 'readwrite');
+    const shotsStore = transaction.objectStore(SHOTS_STORE_NAME);
+    const summariesStore = transaction.objectStore(SHOT_SUMMARIES_STORE_NAME);
+    const range = afterKey === null ? null : IDBKeyRange.lowerBound(afterKey, true);
+    const request = shotsStore.openCursor(range);
+    let count = 0;
+    let lastKey = null;
+    request.onsuccess = event => {
+        const cursor = event.target.result;
+        if (!cursor || count >= SUMMARY_BACKFILL_SIZE) return;
+        summariesStore.put(toShotSummary(cursor.value));
+        lastKey = cursor.key;
+        count += 1;
+        cursor.continue();
+    };
+    transaction.oncomplete = () => {
+        if (count === SUMMARY_BACKFILL_SIZE) setTimeout(() => backfillShotSummaries(lastKey), 0);
+    };
+    transaction.onerror = event => logger.error('Error backfilling shot summaries:', event.target.error);
+}
+
+function scheduleSummaryBackfill() {
+    requestAnimationFrame(() => requestAnimationFrame(() => backfillShotSummaries()));
+}
 
 export function openDB() {
     logger.debug('openDB called.');
@@ -44,7 +118,7 @@ export function openDB() {
             reject('Error opening IndexedDB.');
         };
 
-        request.onsuccess = (event) => {
+        request.onsuccess = async (event) => {
             logger.debug('IndexedDB open request.onsuccess event fired.');
             db = event.target.result;
 
@@ -57,8 +131,18 @@ export function openDB() {
             };
 
             logger.info('IndexedDB opened successfully.');
+            if (!summaryBackfillNeeded) {
+                summaryBackfillNeeded = await repairMissingSummarySeed().catch(error => {
+                    logger.error('Error repairing shot summary seed:', error);
+                    return false;
+                });
+            }
             openPromise = null; // Clear promise on success
             resolve(db);
+            if (summaryBackfillNeeded) {
+                summaryBackfillNeeded = false;
+                scheduleSummaryBackfill();
+            }
         };
 
         request.onupgradeneeded = (event) => {
@@ -79,15 +163,27 @@ export function openDB() {
                 logger.info('Creating by_timestamp index on shots store');
                 shotsStore.createIndex('by_timestamp', 'timestamp');
             }
+            let shotSummariesStore;
+            if (!tempDb.objectStoreNames.contains(SHOT_SUMMARIES_STORE_NAME)) {
+                shotSummariesStore = tempDb.createObjectStore(SHOT_SUMMARIES_STORE_NAME, { keyPath: 'id' });
+            } else {
+                shotSummariesStore = upgradeTransaction.objectStore(SHOT_SUMMARIES_STORE_NAME);
+            }
+            if (!shotSummariesStore.indexNames.contains('by_timestamp')) {
+                shotSummariesStore.createIndex('by_timestamp', 'timestamp');
+            }
+            if (event.oldVersion > 0 && event.oldVersion < 9) {
+                seedShotSummaries(shotsStore, shotSummariesStore);
+                summaryBackfillNeeded = true;
+            }
             if (!tempDb.objectStoreNames.contains(SETTINGS_STORE_NAME)) {
                 logger.info('Creating settings object store');
                 tempDb.createObjectStore(SETTINGS_STORE_NAME, { keyPath: 'id' });
             }
-            if (tempDb.objectStoreNames.contains(EMAILS_STORE_NAME)) {
-                tempDb.deleteObjectStore(EMAILS_STORE_NAME);
+            if (!tempDb.objectStoreNames.contains(EMAILS_STORE_NAME)) {
+                logger.info('Creating decent_emails object store');
+                tempDb.createObjectStore(EMAILS_STORE_NAME, { keyPath: 'emailid' });
             }
-            logger.info('Creating decent_emails object store');
-            tempDb.createObjectStore(EMAILS_STORE_NAME, { keyPath: 'emailid' });
         };
     });
     return openPromise;
@@ -129,9 +225,9 @@ export function addShot(shot) {
         if (!db) {
             return reject('DB not open');
         }
-        const transaction = db.transaction([SHOTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(SHOTS_STORE_NAME);
-        store.put(shot);
+        const transaction = db.transaction([SHOTS_STORE_NAME, SHOT_SUMMARIES_STORE_NAME], 'readwrite');
+        transaction.objectStore(SHOTS_STORE_NAME).put(shot);
+        transaction.objectStore(SHOT_SUMMARIES_STORE_NAME).put(toShotSummary(shot));
 
         transaction.oncomplete = () => {
             logger.info('Shot added to IndexedDB');
@@ -155,10 +251,10 @@ export function addShots(shotsArray) {
         if (!shotsArray || shotsArray.length === 0) {
             return resolve();
         }
-        const transaction = db.transaction([SHOTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(SHOTS_STORE_NAME);
+        const transaction = db.transaction([SHOT_SUMMARIES_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(SHOT_SUMMARIES_STORE_NAME);
         for (const shot of shotsArray) {
-            store.put(shot);
+            store.put(toShotSummary(shot));
         }
 
         transaction.oncomplete = () => {
@@ -170,6 +266,60 @@ export function addShots(shotsArray) {
             logger.error('Error bulk-adding shots to IndexedDB:', event.target.error);
             reject('Error bulk-adding shots.');
         };
+    });
+}
+
+function toShotSummary(shot) {
+    const { measurements, ...summary } = shot;
+    return summary;
+}
+
+function getShotSummaryPage(storeName, limit, offset) {
+    return new Promise((resolve, reject) => {
+        if (!db) return reject('DB not open');
+        if (limit <= 0) return resolve([]);
+        const transaction = db.transaction([storeName], 'readonly');
+        const request = transaction.objectStore(storeName)
+            .index('by_timestamp')
+            .openCursor(null, 'prev');
+        const summaries = [];
+        let advanced = offset === 0;
+
+        request.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (!cursor || summaries.length >= limit) return resolve(summaries);
+            if (!advanced) {
+                advanced = true;
+                cursor.advance(offset);
+                return;
+            }
+            summaries.push(storeName === SHOTS_STORE_NAME ? toShotSummary(cursor.value) : cursor.value);
+            if (summaries.length >= limit) return resolve(summaries);
+            cursor.continue();
+        };
+        request.onerror = (event) => {
+            logger.error('Error getting latest shot summaries from IndexedDB:', event.target.error);
+            reject('Error getting shot summaries.');
+        };
+    });
+}
+
+export function getLatestShotSummaries(limit, offset = 0) {
+    return getShotSummaryPage(SHOT_SUMMARIES_STORE_NAME, limit, offset);
+}
+
+export function getLatestCachedShotSummaries(limit, offset = 0) {
+    return getShotSummaryPage(SHOTS_STORE_NAME, limit, offset);
+}
+
+export function getShotSummaryCount() {
+    return new Promise((resolve, reject) => {
+        if (!db) return reject('DB not open');
+        const request = db.transaction([SHOT_SUMMARIES_STORE_NAME], 'readonly')
+            .objectStore(SHOT_SUMMARIES_STORE_NAME)
+            .count();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = (event) => reject(event.target.error);
     });
 }
 
@@ -272,9 +422,9 @@ export function deleteShot(id) {
         if (!db) {
             return reject('DB not open');
         }
-        const transaction = db.transaction([SHOTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(SHOTS_STORE_NAME);
-        store.delete(id);
+        const transaction = db.transaction([SHOTS_STORE_NAME, SHOT_SUMMARIES_STORE_NAME], 'readwrite');
+        transaction.objectStore(SHOTS_STORE_NAME).delete(id);
+        transaction.objectStore(SHOT_SUMMARIES_STORE_NAME).delete(id);
 
         transaction.oncomplete = () => {
             logger.info('Shot deleted from IndexedDB');
@@ -293,9 +443,9 @@ export function clearShots() {
         if (!db) {
             return reject('DB not open');
         }
-        const transaction = db.transaction([SHOTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(SHOTS_STORE_NAME);
-        store.clear();
+        const transaction = db.transaction([SHOTS_STORE_NAME, SHOT_SUMMARIES_STORE_NAME], 'readwrite');
+        transaction.objectStore(SHOTS_STORE_NAME).clear();
+        transaction.objectStore(SHOT_SUMMARIES_STORE_NAME).clear();
 
         transaction.oncomplete = () => {
             logger.info('Shot history cleared from IndexedDB');
