@@ -1,5 +1,5 @@
 import { isEcoSteamEnabled, setEcoSteamEnabled } from '../modules/eco-steam.js';
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
+import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, getWebuiServerStatus, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation } from '../modules/i18n.js';
@@ -7975,18 +7975,19 @@ export async function initializeSettings() {
         });
     };
 
-    // Wait for the restarted WebUI server to serve the skin again. A failed fetch
-    // just means "still restarting"; ok means the new skin's files are being served.
+    // Wait for the restarted WebUI server and report the port it came back on.
+    // It probed window.location.origin before, which is exactly the port that just
+    // died -- so this always timed out and the switch appeared to do nothing.
     async function waitForSkinServer(timeoutMs = 20000) {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
             await new Promise(r => setTimeout(r, 500));
             try {
-                const res = await fetch(`${window.location.origin}/?skinProbe=${Date.now()}`, { cache: 'no-store' });
-                if (res.ok) return true;
+                const status = await getWebuiServerStatus();
+                if (status?.serving && status.port) return status.port;
             } catch (e) { /* server still down */ }
         }
-        return false;
+        return null;
     }
 
     window.setActiveSkin = async function(skinId) {
@@ -8000,11 +8001,35 @@ export async function initializeSettings() {
             await stopWebuiServer();
             await startWebuiServer();
             ui.showToast('Loading new skin...', 0, 'info');
-            if (await waitForSkinServer()) {
-                window.location.reload();
+            const port = await waitForSkinServer();
+            if (!port) {
+                ui.showToast('Skin set, but the web server did not come back. Restart Decaid.', 0, 'error');
                 return;
             }
-            ui.showToast('Skin set, but the web server did not come back. Refresh the page manually.', 0, 'error');
+            // A plain reload cannot work here. Decaid binds a FRESH ephemeral port
+            // every time it serves a skin folder (webui_service.dart _serveFresh:
+            // shelf_io.serve(handler, '0.0.0.0', 0), and _usedPorts never lets a
+            // port repeat), so the origin this page is standing on is dead the
+            // moment the server restarts -- location.reload() reloaded nothing.
+            // Nor can the page follow the server: the webview allows navigation
+            // only to the port it was opened with, or to 3000 (skin_view.dart
+            // classifySkinNavigation), and anything else is punted to the system
+            // browser. 3000 is no escape either -- it 307s to the new ephemeral
+            // port, which is the same non-allowed port again.
+            //
+            // So hand control back to the host. Re-entering the skin builds
+            // SkinView against webUIService.port, which is now the new server with
+            // the new skin. A plain browser has no navigation rules and just goes.
+            if (typeof window.decentApp?.exitToDashboard === 'function') {
+                ui.showToast('Skin set. Returning to the dashboard — open the skin again from there.', 6000, 'success');
+                window.decentApp.exitToDashboard();
+                return;
+            }
+            if (window.__DECENT_HOST__) {
+                ui.showToast('Skin set. Restart Decaid to load it.', 0, 'success');
+                return;
+            }
+            window.location.assign(`${window.location.protocol}//${window.location.hostname}:${port}/`);
         } catch (error) {
             logger.error('Error setting active skin:', error);
             ui.showToast(`Failed to switch skin: ${error.message}`, 5000, 'error');

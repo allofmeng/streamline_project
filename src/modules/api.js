@@ -2804,6 +2804,14 @@ export async function startWebuiServer() {
     return response.json();
 }
 
+// { serving, path, port, ip }. The port changes on every restart: Decaid binds a
+// fresh one each time it serves a skin folder (webui_service.dart _serveFresh).
+export async function getWebuiServerStatus() {
+    const response = await fetch(`${API_BASE_URL}/webui/server/status`);
+    if (!response.ok) throw new Error(`Failed to read WebUI server status: ${response.status} ${response.statusText}`);
+    return response.json();
+}
+
 export async function updateSkins() {
     const response = await fetch(`${API_BASE_URL}/webui/skins/update`, { method: 'POST' });
     if (!response.ok) throw new Error(`Failed to update skins: ${response.status} ${response.statusText}`);
