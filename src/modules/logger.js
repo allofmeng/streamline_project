@@ -2,7 +2,7 @@ const noop = () => {};
 
 export const logger = {
     debug: noop, // Start with a no-op function for debug
-    info: console.info.bind(console, '[INFO]'),
+    info: noop,
     warn: console.warn.bind(console, '[WARN]'),
     error: console.error.bind(console, '[ERROR]'),
 };

@@ -31,32 +31,14 @@
     <link href="src/css/app.css" rel="stylesheet" type="text/css" />
     <link href="src/css/dark-mode.css" rel="stylesheet" type="text/css" />
     <link href="src/css/main.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/numpad-modal.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/time-picker-modal.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/notes-modal.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/context-menu.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/help-overlay.css" rel="stylesheet" type="text/css" />
-    <link rel="stylesheet" href="src/vendor/easymde.min.css">
-    <script src="src/vendor/easymde.min.js"></script>
-    <script src="src/vendor/iro.min.js"></script>
-    <link rel="preload" href="src/modules/ui.js" as ="script"/>
-    <link rel="preload" href="src/settings/settings.js" as ="script"/>
-    <link rel="preload" href="src/profiles/profile_selector.html" as="document">
-    <link rel="preload" href="src/settings/settings.html" as="document">
-    <link rel="preload" href="src/modules/profile_selector.js" as="script">
-    <link rel="preload" href="src/modules/plotly-3.1.0.min.js" as="script">
-    <link rel="preload" href="src/modules/router.js" as="script">
-    <link rel="preload" href="src/modules/api.js" as="script">
-    <script src="src/modules/plotly-3.1.0.min.js"></script>
+    <script src="src/modules/plotly-basic-3.1.0.min.js"></script>
     <script src="src/modules/reconnecting-websocket.js" defer></script>
     <!-- First module in: installs the localStorage→KV mirror and starts the
          hydrate fetch before anything reads a preference. -->
     <script src="src/modules/settingsSync.js" type="module"></script>
-    <script src="src/modules/router.js" type="module"></script>
     <script src="src/modules/app.js" type="module"></script>
-    <script src="src/modules/helpOverlay.js" type="module"></script>
 </head>
-<body class="bg-[var(--bgmain-color)] min-h-screen ">
+<body class="bg-[var(--bgmain-color)] min-h-screen">
     <div id="scaling-container" class=" text-clip">
         <div id="scaled-content" class="">
         <div id="main-page">
@@ -385,8 +367,7 @@
                 <div style="color:var(--text-primary); font-size:30px; font-weight:600; font-family:'Inter',sans-serif;">Live Charts</div>
                 <div style="width:140px;" aria-hidden="true"></div>
             </div>
-            <div id="expanded-flow-chart" style="width:100%; height:657px;" role="img" aria-label="Pressure, flow and GFlow"></div>
-            <div id="expanded-temp-chart" style="width:100%; height:447px;" role="img" aria-label="Temperature versus target"></div>
+            <div id="expanded-chart" style="width:100%; height:1104px;" role="img" aria-label="Pressure, flow, GFlow and temperature charts"></div>
         </div>
         </div>
     </div>

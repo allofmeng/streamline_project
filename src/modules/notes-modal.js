@@ -1,3 +1,7 @@
+import { loadEasyMDE, loadStyle } from './vendor-loader.js';
+
+loadStyle('src/css/notes-modal.css').catch(() => {});
+
 // ─── Notes Modal ───────────────────────────────────────────────────────────
 // Full-screen markdown editor modal using EasyMDE.
 // Appended inside #scaled-content so it shares the 1920x1200 design space.
@@ -157,32 +161,41 @@ function applyInverseScale() {
     }
 }
 
-function initEasyMDE() {
-    if (easyMDE) return;
+async function initEasyMDE() {
+    if (easyMDE) return easyMDE;
 
     const textarea = document.getElementById('notes-modal-textarea');
-    if (!textarea) return;
+    if (!textarea) return null;
 
-    easyMDE = new EasyMDE({
-        element: textarea,
-        spellChecker: false,
-        status: false,
-        autoDownloadFontAwesome: true,
-        placeholder: 'Write your notes here\u2026',
-        toolbar: [
-            'bold', 'italic', 'heading', '|',
-            'unordered-list', 'ordered-list', '|',
-            'link', 'quote', 'horizontal-rule', '|',
-            'preview', 'side-by-side',
-        ],
-        autosave: {
-            enabled: true,
-            uniqueId: 'profile-notes-autosave',
-            delay: 5000,
-        },
-        minHeight: '100%',
-        maxHeight: '100%',
-    });
+    try {
+        const EasyMDE = await loadEasyMDE();
+        if (!textarea.isConnected || !overlayEl?.classList.contains('active')) return null;
+        easyMDE = new EasyMDE({
+            element: textarea,
+            spellChecker: false,
+            status: false,
+            autoDownloadFontAwesome: false,
+            placeholder: 'Write your notes here\u2026',
+            toolbar: [
+                'bold', 'italic', 'heading', '|',
+                'unordered-list', 'ordered-list', '|',
+                'link', 'quote', 'horizontal-rule', '|',
+                'preview', 'side-by-side',
+            ],
+            autosave: {
+                enabled: true,
+                uniqueId: 'profile-notes-autosave',
+                delay: 5000,
+            },
+            minHeight: '100%',
+            maxHeight: '100%',
+        });
+        return easyMDE;
+    } catch (error) {
+        console.error('EasyMDE failed to load; using the plain notes editor.', error);
+        textarea.focus();
+        return null;
+    }
 }
 
 // ── Open / Close ────────────────────────────────────────────────────────────
@@ -191,6 +204,9 @@ export function openNotesModal(currentText, onConfirm, options = {}) {
     buildModal();
     onConfirmCallback = onConfirm;
     overlayEl.classList.add('active');
+    const textarea = document.getElementById('notes-modal-textarea');
+    if (easyMDE) easyMDE.value(currentText || '');
+    else if (textarea) textarea.value = currentText || '';
 
     // Update title if provided
     const titleEl = overlayEl.querySelector('.notes-modal-title');
@@ -220,23 +236,27 @@ export function openNotesModal(currentText, onConfirm, options = {}) {
     // then compute inverse scale and init EasyMDE
     requestAnimationFrame(() => {
         applyInverseScale();
-        setTimeout(() => {
-            initEasyMDE();
-            easyMDE.value(currentText || '');
-            easyMDE.codemirror.refresh();
-            easyMDE.codemirror.focus();
+        setTimeout(async () => {
+            const editor = await initEasyMDE();
+            if (editor) {
+                editor.codemirror.refresh();
+                editor.codemirror.focus();
+            } else {
+                document.getElementById('notes-modal-textarea')?.focus();
+            }
         }, 350);
     });
 }
 
 function handleConfirm() {
-    if (onConfirmCallback && easyMDE) {
+    if (onConfirmCallback) {
         const subjectInputEl = document.getElementById('notes-modal-subject-input');
+        const value = easyMDE?.value() ?? document.getElementById('notes-modal-textarea')?.value ?? '';
         const showingSubject = subjectContainerEl && subjectContainerEl.style.display !== 'none';
         if (showingSubject && subjectInputEl) {
-            onConfirmCallback({ subject: subjectInputEl.value, body: easyMDE.value() });
+            onConfirmCallback({ subject: subjectInputEl.value, body: value });
         } else {
-            onConfirmCallback(easyMDE.value());
+            onConfirmCallback(value);
         }
     }
     closeModal();
