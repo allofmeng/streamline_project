@@ -10,8 +10,7 @@ import * as shotData from './shotData.js';
 import * as profileManager from './profileManager.js';
 import * as api from './api.js';
 import { loadPage, initRouter, isSubPage } from './router.js';
-import { initWaterTankSocket, isTankBelowRefillLevel } from './waterTank.js';
-import { shouldShowTankWarning } from './tank-warning.js';
+import { initWaterTankSocket } from './waterTank.js';
 import { logger, setDebug } from './logger.js';
 import { deriveScreensaverAction, isMachineAsleep, isScreensaverSuppressed } from './screensaver-policy.js';
 import { createMachineLinkWatcher, machineFromDevicesPayload } from './machine-link.js';
@@ -609,22 +608,10 @@ function handleData(data) {
             }
         }
 
-        // Tank-level warning, independent of the machine's own `needsWater`
-        // state (that's a hard block that only fires once the machine actively
-        // tries to heat/pull). It wins over Heating text -- isHeatingState()
-        // never returns true for state === 'needsWater' -- but NOT over an
-        // operation in progress: replacing "steam" here tore down the steam
-        // elapsed timer in ui.updateMachineStatus, which then restarted at 0
-        // (issue #60). shouldShowTankWarning holds that rule, plus the
-        // refill-kit exemption.
-        if (shouldShowTankWarning({
-            state,
-            tankLow: isTankBelowRefillLevel(),
-            refillKitPresent: isRefillKitPresent(),
-            refillKitSetting: getCachedRefillKitSetting(),
-        })) {
-            statusString = formatStateString(MachineState.NEEDS_WATER);
-        }
+        // No tank-level warning here on purpose: "Out of water" now means the
+        // DE1's own needsWater state and nothing else. The level-vs-threshold
+        // heuristic used to overwrite statusString while decaid still reported
+        // idle, so the skin and the machine disagreed.
     }
 
     // Detect DE1 reconnection
@@ -744,6 +731,7 @@ function handleData(data) {
     // Pass detailed status information to match the enhanced updateMachineStatus function
     ui.updateMachineStatus({
         status: statusString,
+        state: state,
         substate: substate,
         stepName: formatStateString(substate), // Use formatted substate as step name
         timeValue: data.elapsedTime, // Use elapsed time from data if available

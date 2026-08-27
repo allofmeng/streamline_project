@@ -2225,7 +2225,7 @@ function heatingStatusParts(raw) {
 }
 
 export function updateMachineStatus(data) {
-    const { status, substate, stepName, timeValue, isClickable,  isHeating, isHeatingFromTimeToReady, steamTemperature } = data;
+    const { status, state, substate, stepName, timeValue, isClickable,  isHeating, isHeatingFromTimeToReady, steamTemperature } = data;
     // Steam boiler is considered ready at/above 130°C. Below that it still needs
     // warming, which is the only time we surface a steam "Heating" message.
     const STEAM_HEATER_READY_C = 130;
@@ -2271,11 +2271,11 @@ export function updateMachineStatus(data) {
     const isHotWaterState = status?.toLowerCase().includes('hotwater') ||
                             status?.toLowerCase().includes('hot water') ||
                             substate?.toLowerCase().includes('hotwater');
-    //needswater state
-    const isNeedsWaterState = status?.toLowerCase().includes('needs water') ||
-                                status?.toLowerCase().includes('need')||
-                                status?.toLowerCase().includes('out of water')||
-                             substate?.toLowerCase().includes('needs water');
+    // "Out of water" is the DE1's own needsWater state, nothing else. Gate on the
+    // raw state from the snapshot: the old text match ran on the display string
+    // and `includes('need')` caught anything with "need" in it, so the skin could
+    // sit on "Out of water" while decaid reported another state entirely.
+    const isNeedsWaterState = state === 'needsWater';
     // pouringDone is the post-action tail (e.g. steam auto-purge). DE1 keeps
     // state='steam' during this window but the user-visible action is over —
     // exit the steam counter immediately rather than counting through the purge.

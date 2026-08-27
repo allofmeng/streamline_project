@@ -408,7 +408,7 @@ function updateSettingsContentArea(category) {
     if (category !== 'ledstrip') { ledFlushDirty(); ledClearPreview(); }
     // Leaving the Load Cells page → hand the scale WS back to the main page.
     if (category !== 'calib_loadcell' && calWsClaimed) calReleaseScaleWs();
-    if (category !== 'calib_sensors') sensorCalStopLive();
+    if (category !== 'calib_sensors') { sensorCalStopLive(); sensorCalWarningAck = false; }
     // Leaving the Cup Warmer page → stop its ~5 s revalidate poll.
     if (category !== 'cupwarmer' && cupWarmerPollTimer !== null) stopCupWarmerPoll();
     const contentArea = document.getElementById('settings-content-area');
@@ -419,7 +419,7 @@ function updateSettingsContentArea(category) {
         // on first paint no matter what the value is.
         const slider = contentArea.querySelector('#brightness-slider');
         if (slider) syncBrightnessSliderFill(slider, slider.value);
-        if (category === 'appearance') {
+        if (category === 'theme') {
             setTimeout(() => {
                 ui.initThemeToggle();
             }, 100);
@@ -448,6 +448,10 @@ function updateSettingsContentArea(category) {
         }
         if (category === 'calib_sensors') {
             setTimeout(initSensorCal, 0);
+            // Re-checked on every render of this page: initSensorCal()'s own
+            // re-render replaces the dialog element, so a single show-on-entry
+            // would be wiped the moment the calibration read lands.
+            if (!sensorCalWarningAck) setTimeout(sensorCalShowWarning, 0);
         }
         // Step 4's live readout needs the scale WS — claim it on every render
         // of the page at step 4 (idempotent), so returning to a resumed wizard
@@ -464,7 +468,7 @@ const settingsTree = {
     'quickadjustments': {
         name: 'Quick Adjustments',
         subcategories: [
-            { id: 'flowmultiplier', name: 'Flow Estimation', settingsCategory: 'flowmultiplier' },
+            { id: 'flowmultiplier', name: 'Flow calibration', settingsCategory: 'flowmultiplier', i18nKey: 'Flow calibration' },
             { id: 'steam', name: 'Steam', settingsCategory: 'steam' },
             { id: 'hotwater', name: 'Hot Water', settingsCategory: 'hotwater' },
             { id: 'watertank', name: 'Water Tank', settingsCategory: 'watertank' },
@@ -511,7 +515,8 @@ const settingsTree = {
     'skin': {
         name: 'Skin',
         subcategories: [
-            { id: 'skin1', name: 'Theme & Updates', settingsCategory: 'appearance' }
+            { id: 'theme', name: 'Theme', settingsCategory: 'theme', i18nKey: 'Theme' },
+            { id: 'skin1', name: 'Skin Settings', settingsCategory: 'appearance', i18nKey: 'Skin Settings' }
         ]
     },
     'language': {
@@ -765,6 +770,8 @@ export function renderSettingsContent(category) {
             return renderMainDescalingSettings();
         case 'maint_airpurge':
             return renderMainAirPurgeSettings();
+        case 'theme':
+            return renderThemeSettings();
         case 'skin':
         case 'appearance':
             return renderSkinSettings();
@@ -834,13 +841,13 @@ export function renderSettingsContent(category) {
     }
 }
 
-// Render Flow Estimation settings
+// Render Flow Multiplier settings
 export function renderFlowMultiplierSettings(settings) {
     if (!settings) {
         return `
             <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
                 <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                    <p class="leading-[1.2]" data-i18n-key="Flow Estimation Settings">Flow Estimation Settings</p>
+                    <p class="leading-[1.2]" data-i18n-key="Flow Multiplier Settings">Flow Multiplier Settings</p>
                 </div>
                 <div class="text-red-500 p-4 text-[24px]" data-i18n-key="Failed to load flow multiplier settings">Failed to load flow multiplier settings</div>
             </div>
@@ -850,7 +857,7 @@ export function renderFlowMultiplierSettings(settings) {
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Flow Estimation Settings">Flow Estimation Settings</p>
+                <p class="leading-[1.2]" data-i18n-key="Flow Multiplier Settings">Flow Multiplier Settings</p>
             </div>
 
             <!-- Divider -->
@@ -926,6 +933,19 @@ export function renderFlowMultiplierSettings(settings) {
             </div>
         </div>
     `;
+}
+
+// Host exit, moved off the old floating home button. The host can inject its API
+// after this module runs, so decentApp is resolved on click, not at load.
+function exitToDecentDashboard() {
+    const app = window.decentApp;
+    if (app && typeof app.exitToDashboard === 'function') { app.exitToDashboard(); return; }
+    console.log('[exit-dashboard] no host exit API', JSON.stringify({
+        decentApp: app ? Object.keys(app) : null,
+        host: window.__DECENT_HOST__ || null,
+        ua: navigator.userAgent,
+    }));
+    window.app?.ui?.showToast?.('No dashboard exit API in this host', 3000, 'error');
 }
 
 // Render REA settings form matching design
@@ -1047,6 +1067,20 @@ export function renderReaSettingsForm(settings) {
                 </div>
             </div>
             ` : ''}
+
+            <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
+
+            <div class="flex flex-col items-start relative w-full max-w-full">
+                <div class="flex flex-col gap-[30px] items-start relative w-full max-w-full">
+                    <div class="flex items-center justify-between relative w-full max-w-full">
+                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Go to Dashboard">Go to Dashboard</p>
+                        </div>
+                        <button type="button" class="bg-[#385a92] h-[62.88px] px-[48px] rounded-[2617.374px] text-white text-[24px] font-bold"
+                                onclick="window.exitToDecentDashboard()" data-i18n-key="Go">Go</button>
+                    </div>
+                </div>
+            </div>
 
         </div>
     `;
@@ -4581,12 +4615,17 @@ export function renderCalibSteamSettings() {
 // value it already holds — see sensor-cal.js), so every leg here is
 // read -> preview -> write -> re-read, and a successful write clears the two
 // inputs: they are one observation, and re-sending them corrects twice.
-let sensorCal = {};             // target id -> {current, factory, captured, capturedAt, samples, measured, busy, error}
+let sensorCal = {};             // target id -> {current, previous, captured, capturedAt, samples, measured, busy, error}
 let sensorCalLoading = false;   // the initial three-target read is in flight
 let sensorCalLoaded = false;    // ponytail: read once per session, refreshed
                                 // after each write. Re-read on reconnect if
                                 // anyone ever calibrates across a swap.
 let sensorCalLoadError = '';
+// Re-armed every time the page is left, so the danger warning is shown once
+// per visit rather than once per session: a bad write here can leave the
+// machine unusable, and the page re-renders on every keystroke, so the modal
+// is re-opened after each render until it is acknowledged.
+let sensorCalWarningAck = false;
 
 function sensorCalRerender() {
     updateSettingsContentArea('calib_sensors');
@@ -4595,7 +4634,7 @@ function sensorCalRerender() {
 function sensorCalEntry(id) {
     if (!sensorCal[id]) {
         sensorCal[id] = {
-            current: null, factory: null, captured: null, capturedAt: 0,
+            current: null, previous: null, captured: null, capturedAt: 0,
             samples: [], measured: '', busy: false, error: '',
         };
     }
@@ -4610,14 +4649,46 @@ function sensorCalToCelsius(id, value) {
     return id === 'temperature' ? fromDisplayTemp(value) : value;
 }
 
+// The machine's factory baseline is deliberately NOT read here. Decaid's
+// ?source=factory answers with the CURRENT calibration on this firmware
+// (v1357): the request and the response filter are byte-identical to
+// de1app's, and a mismatched command would time out rather than return, so
+// what comes back is a command-3-tagged packet carrying current data. A
+// column fed by that is a duplicate of Saved wearing a different name.
+//
+// The undo value is ours instead: whatever the calibration was immediately
+// before the last write made from this page, kept in IndexedDB so it
+// survives a reload. It cannot know about changes made from de1app or
+// another skin -- hence "Previous", not "Factory".
+const SENSOR_CAL_PREV_KEY = (id) => `sensorCalPrevious:${id}`;
+
 async function sensorCalRead(id) {
     const entry = sensorCalEntry(id);
-    const [current, factory] = await Promise.all([
-        getSensorCalibration(id, 'current'),
-        getSensorCalibration(id, 'factory'),
-    ]);
+    const current = await getSensorCalibration(id, 'current');
     entry.current = current?.measuredValue ?? null;
-    entry.factory = factory?.measuredValue ?? null;
+}
+
+async function sensorCalLoadPrevious(id) {
+    const entry = sensorCalEntry(id);
+    try {
+        const stored = await getSetting(SENSOR_CAL_PREV_KEY(id));
+        entry.previous = Number.isFinite(stored) ? stored : null;
+    } catch (error) {
+        // A missing store is not worth failing the page over -- it only
+        // costs the undo button.
+        logger.warn(`No stored previous calibration for ${id}:`, error);
+        entry.previous = null;
+    }
+}
+
+async function sensorCalRememberPrevious(id, value) {
+    const entry = sensorCalEntry(id);
+    entry.previous = Number.isFinite(value) ? value : null;
+    try {
+        await setSetting(SENSOR_CAL_PREV_KEY(id), entry.previous);
+    } catch (error) {
+        logger.warn(`Could not store previous calibration for ${id}:`, error);
+    }
 }
 
 async function initSensorCal() {
@@ -4629,7 +4700,10 @@ async function initSensorCal() {
     sensorCalLoading = true;
     sensorCalLoadError = '';
     try {
-        await Promise.all(SENSOR_CAL_TARGETS.map((t) => sensorCalRead(t.id)));
+        await Promise.all(SENSOR_CAL_TARGETS.flatMap((t) => [
+            sensorCalRead(t.id),
+            sensorCalLoadPrevious(t.id),
+        ]));
         sensorCalLoaded = true;
     } catch (error) {
         logger.error('Failed to read sensor calibration:', error);
@@ -4708,13 +4782,16 @@ function sensorCalRow(target) {
     const ready = filled && !blocked && Number.isFinite(preview);
     const suffix = target.kind === 'offset' ? ' °C' : '';
     // Floats never come back bit-identical from the machine, so an exact
-    // comparison would leave Factory lit on a value that already is factory.
-    const canFactory = stored && Number.isFinite(entry.factory) && !entry.busy
-        && Math.abs(entry.current - entry.factory) > 1e-6;
+    // comparison would leave Restore lit on a value already restored.
+    const canRestore = stored && Number.isFinite(entry.previous) && !entry.busy
+        && Math.abs(entry.current - entry.previous) > 1e-6;
 
-    let status = `<span class="text-[var(--text-secondary)]" data-i18n-key="${target.help}">${target.help}</span>`;
+    // Default is blank, not guidance: the row shows only what is happening
+    // right now. The cell keeps a min-height so rows do not jump as this
+    // fills and empties.
+    let status = '&nbsp;';
     if (entry.error) status = `<span class="text-red-500">${escapeHtml(entry.error)}</span>`;
-    else if (blocked) status = `<span class="text-red-500">${escapeHtml(blocked)}</span>`;
+    else if (blocked) status = `<span class="text-red-500" data-i18n-key="${blocked}">${escapeHtml(blocked)}</span>`;
     else if (entry.busy) status = `<span style="color:#959595" data-i18n-key="Writing…">Writing…</span>`;
     else if (Number.isFinite(preview)) {
         status = `<span style="color:#0ca581;font-weight:700">${formatCalValue(target.kind, entry.current)}${suffix} &rarr; ${formatCalValue(target.kind, preview)}${suffix}</span>`;
@@ -4733,7 +4810,7 @@ function sensorCalRow(target) {
                 <p class="text-[24px] font-bold text-[var(--text-primary)]">${formatCalValue(target.kind, entry.current)}${suffix}</p>
             </td>
             <td class="py-[20px] px-[10px] text-center align-middle">
-                <p class="text-[24px] text-[var(--text-secondary)]">${formatCalValue(target.kind, entry.factory)}${suffix}</p>
+                <p class="text-[24px] text-[var(--text-secondary)]">${formatCalValue(target.kind, entry.previous)}${suffix}</p>
             </td>
             <td class="py-[20px] px-[10px] text-center align-middle">
                 <p id="sensor-cal-live-${target.id}" class="text-[24px] text-[var(--text-secondary)]">${sensorCalReadingText(target, live)}</p>
@@ -4747,21 +4824,48 @@ function sensorCalRow(target) {
                            class="${SENSOR_CAL_INPUT}"
                            value="${escapeHtml(entry.measured)}"
                            onchange="window.sensorCalInput('${target.id}', this.value)">
-                    <span class="ml-2 text-nowrap text-[22px] text-[#959595]">${unit}</span>
+                    <span class="ml-2 text-nowrap text-[22px] ">${unit}</span>
                 </div>
             </td>
             <td class="py-[20px] pl-[10px] align-middle">
                 <div class="flex flex-col items-stretch" style="gap:10px">
                     <button class="${SENSOR_CAL_SMALL_BTN} bg-[#385a92] text-white ${ready ? '' : 'opacity-40'}" ${ready ? '' : 'disabled'}
                             onclick="window.sensorCalApply('${target.id}')" data-i18n-key="Apply">Apply</button>
-                    <button class="${SENSOR_CAL_SMALL_BTN} bg-[var(--box-color)] border-2 border-[#385a92] text-[var(--text-primary)] ${canFactory ? '' : 'opacity-40'}" ${canFactory ? '' : 'disabled'}
-                            onclick="window.sensorCalFactoryReset('${target.id}')" data-i18n-key="Factory">Factory</button>
+                    <button class="${SENSOR_CAL_SMALL_BTN} bg-[var(--box-color)] border-2 border-[#385a92] text-[var(--text-primary)] ${canRestore ? '' : 'opacity-40'}" ${canRestore ? '' : 'disabled'}
+                            onclick="window.sensorCalRestorePrevious('${target.id}')" data-i18n-key="Restore">Restore</button>
                 </div>
             </td>
         </tr>
         <tr>
-            <td colspan="6" class="pb-[20px] text-[22px] leading-[1.4]">${status}</td>
+            <td colspan="6" class="pb-[20px] text-[22px] leading-[1.4]" style="min-height:32px">${status}</td>
         </tr>`;
+}
+
+// Opening is guarded on .open: the dialog is re-rendered with the page, and
+// showModal() on an already-open dialog throws InvalidStateError.
+function sensorCalShowWarning() {
+    const dlg = document.getElementById('sensor-cal-warning-modal');
+    if (dlg && !dlg.open) dlg.showModal();
+}
+
+function sensorCalWarningModal() {
+    return `
+            <dialog id="sensor-cal-warning-modal" class="modal">
+                <div class="modal-box bg-[var(--box-color)] max-w-2xl">
+                    <h3 class="font-bold text-[28px] text-[var(--text-primary)] mb-2" data-i18n-key="Sensor Calibration">Sensor Calibration</h3>
+                    <p class="text-[24px] text-[var(--text-primary)] leading-[1.4] break-words" data-i18n-key="Bad calibration settings might make your espresso machine unuseable.  Only proceed if you have been told to or have read the relevant manual sections and know what you are doing.">Bad calibration settings might make your espresso machine unuseable.  Only proceed if you have been told to or have read the relevant manual sections and know what you are doing.</p>
+                    <div class="modal-action">
+                        <button class="border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] h-[62px] rounded-[67.5px] border px-[32px] text-[24px] font-bold transition-colors duration-200 hover:bg-[var(--mimoja-blue)] hover:text-white"
+                                onclick="window.sensorCalWarningCancel()" data-i18n-key="Cancel">
+                            Cancel
+                        </button>
+                        <button class="bg-[#385a92] h-[62px] px-[32px] rounded-[67.5px] text-white text-[24px] font-bold"
+                                onclick="window.sensorCalWarningProceed()" data-i18n-key="Ok">
+                            Ok
+                        </button>
+                    </div>
+                </div>
+            </dialog>`;
 }
 
 export function renderSensorCalSettings() {
@@ -4778,9 +4882,9 @@ export function renderSensorCalSettings() {
                         <tr class="text-[22px] text-[var(--text-secondary)] text-left">
                             <th class="pb-[10px] font-normal" data-i18n-key="Sensor">Sensor</th>
                             <th class="pb-[10px] font-normal text-center" data-i18n-key="Saved">Saved</th>
-                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Factory">Factory</th>
-                            <th class="pb-[10px] font-normal text-center" data-i18n-key="DE1 reads">DE1 reads</th>
-                            <th class="pb-[10px] font-normal text-center" data-i18n-key="You measured">You measured</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Previous">Previous</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="DE1 Reading">DE1 Reading</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Measured">Measured</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -4796,11 +4900,8 @@ export function renderSensorCalSettings() {
 
             <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
 
-            <p class="${CAL_BODY}" data-i18n-key="Run the machine, and while it holds steady press Capture to take the DE1's own reading. Then enter what your instrument measured. Applying corrects the machine by the difference — each measurement is applied once.">
-                Run the machine, and while it holds steady press Capture to take the DE1's own reading. Then enter what your instrument measured. Applying corrects the machine by the difference — each measurement is applied once.
-            </p>
-
             <div class="w-full">${body}</div>
+            ${sensorCalWarningModal()}
         </div>
     `;
 }
@@ -4955,6 +5056,35 @@ function maybeCheckLatestReleases() {
     }
 }
 
+// Render theme settings
+export function renderThemeSettings() {
+    return `
+        <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
+            <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
+                <p class="leading-[1.2]" data-i18n-key="Theme Settings">Theme Settings</p>
+            </div>
+
+            <div class="content-stretch flex flex-col items-start relative w-full">
+                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Theme">Theme</p>
+                        </div>
+                        <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
+                            <input type="checkbox" id="theme-toggle" class="sr-only peer">
+                            <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
+                            <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
+                        </label>
+                    </div>
+                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full pr-[220px]" data-i18n-key="Toggle between light and dark themes">
+                        Toggle between light and dark themes
+                    </p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 // Render skin settings
 export function renderSkinSettings() {
     const activeSkin = settingsCache.skinInfo;
@@ -4986,32 +5116,12 @@ export function renderSkinSettings() {
                 <p class="leading-[1.2]" data-i18n-key="Skin Settings">Skin Settings</p>
             </div>
 
-            <div class="content-stretch flex flex-col items-start relative w-full">
-                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
-                    <div class="content-stretch flex items-center justify-between relative w-full">
-                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Theme">Theme</p>
-                        </div>
-                        <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
-                            <input type="checkbox" id="theme-toggle" class="sr-only peer">
-                            <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
-                            <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
-                        </label>
-                    </div>
-                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full pr-[220px]" data-i18n-key="Toggle between light and dark themes">
-                        Toggle between light and dark themes
-                    </p>
-                </div>
-            </div>
-
-            <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
-
             <div class="content-stretch flex flex-col gap-[24px] items-start relative w-full">
                 <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
                     <p class="leading-[1.2]" data-i18n-key="Active Skin">Active Skin</p>
                 </div>
-                <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="Tap a skin to make it active. Tap reload to apply.">
-                    Tap a skin to make it active. Tap reload to apply.
+                <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="Tap a skin to make it active.">
+                    Tap a skin to make it active.
                 </p>
                 <div class="grid grid-cols-2 gap-[14px] w-full">
                     ${(allSkins.length > 0 ? allSkins : (activeSkin ? [activeSkin] : [])).map(s => {
@@ -6705,7 +6815,7 @@ function getCategoryTitle(category) {
     switch(category) {
         case 'rea': return 'Decaid Settings';
         case 'quickadjustments': return 'Quick Adjustments';
-        case 'flowmultiplier': return 'Flow Estimation Settings';
+        case 'flowmultiplier': return 'Flow Multiplier Settings';
         case 'steam': return 'Steam Settings';
         case 'hotwater': return 'Hot Water Settings';
         case 'watertank': return 'Water Tank Settings';
@@ -6877,6 +6987,7 @@ export async function initializeSettings() {
 
     // Expose update functions to global scope for inline event handlers
     window.updateReaSetting = updateReaSetting;
+    window.exitToDecentDashboard = exitToDecentDashboard;
     window.updateDe1Setting = updateDe1Setting;
     window.updateDe1AdvancedSetting = updateDe1AdvancedSetting;
     window.setScreensaverEnabled = function(enabled) {
@@ -7413,6 +7524,21 @@ export async function initializeSettings() {
         sensorCalRerender();
     };
 
+    // Acknowledging is per visit, not per session -- sensorCalWarningAck is
+    // re-armed on leaving the page.
+    window.sensorCalWarningProceed = function() {
+        sensorCalWarningAck = true;
+        document.getElementById('sensor-cal-warning-modal')?.close();
+    };
+
+    // Declining leaves the page entirely rather than sitting on a live
+    // calibration screen the user just said they did not want. Reuses the
+    // settings sub-nav so the highlighted menu item follows.
+    window.sensorCalWarningCancel = function() {
+        document.getElementById('sensor-cal-warning-modal')?.close();
+        document.querySelector('.settings-subnav-btn[data-category="calib_defaultload"]')?.click();
+    };
+
     window.sensorCalInput = function(id, value) {
         const entry = sensorCalEntry(id);
         entry.measured = value;
@@ -7429,12 +7555,15 @@ export async function initializeSettings() {
         if (captured === null || measured === null) return;
         const blocked = correctionBlocked(target.kind, captured, sensorCalToCelsius(id, measured));
         if (blocked) { entry.error = blocked; sensorCalRerender(); return; }
+        // Captured BEFORE the write: this is what Restore puts back.
+        const priorValue = entry.current;
         entry.busy = true; entry.error = ''; sensorCalRerender();
         try {
             await setSensorCalibration(id, captured, sensorCalToCelsius(id, measured));
             // The 202 is the BLE write ack, not a settled value — read it back
             // rather than paint the preview as fact.
             await sensorCalRead(id);
+            await sensorCalRememberPrevious(id, priorValue);
             // One observation, spent. Leaving the pair on screen invites a
             // second Apply, which corrects a second time.
             entry.captured = null; entry.capturedAt = 0; entry.measured = '';
@@ -7448,13 +7577,16 @@ export async function initializeSettings() {
         }
     };
 
-    // Decaid exposes no reset command — read the factory value and land on it
-    // absolutely, which is a correction away from wherever we are right now.
-    // Pressing it twice is a no-op (see absoluteSetCorrection).
-    window.sensorCalFactoryReset = async function(id) {
+    // Restore puts back the calibration as it was immediately before the last
+    // Apply made from this page. It lands on that value absolutely -- a
+    // correction away from wherever we are now -- because Decaid's PUT only
+    // ever corrects, never sets. Doing it twice is a no-op (see
+    // absoluteSetCorrection), and the stored value is dropped afterwards:
+    // once you are back, there is nothing further to undo.
+    window.sensorCalRestorePrevious = async function(id) {
         const target = sensorCalTarget(id);
         const entry = sensorCalEntry(id);
-        if (!target || entry.busy || !Number.isFinite(entry.factory)) return;
+        if (!target || entry.busy || !Number.isFinite(entry.previous)) return;
         entry.busy = true; entry.error = ''; sensorCalRerender();
         try {
             const live = await getSensorCalibration(id, 'current');
@@ -7466,15 +7598,16 @@ export async function initializeSettings() {
             if (target.kind === 'ratio' && current === 0) {
                 throw new Error('Stored multiplier is 0 — the machine cannot be corrected from it');
             }
-            const { de1ReportedValue, measuredValue } = absoluteSetCorrection(current, entry.factory);
+            const { de1ReportedValue, measuredValue } = absoluteSetCorrection(current, entry.previous);
             await setSensorCalibration(id, de1ReportedValue, measuredValue);
             await sensorCalRead(id);
+            await sensorCalRememberPrevious(id, null);
             entry.captured = null; entry.capturedAt = 0; entry.measured = '';
-            ui.showToast(`${target.label} reset to factory`, 3000, 'success');
+            ui.showToast(`${target.label} restored`, 3000, 'success');
         } catch (error) {
-            logger.error(`Sensor calibration factory reset (${id}) failed:`, error);
+            logger.error(`Sensor calibration restore (${id}) failed:`, error);
             entry.error = error.message;
-            ui.showToast(`Reset failed: ${error.message}`, 5000, 'error');
+            ui.showToast(`Restore failed: ${error.message}`, 5000, 'error');
         } finally {
             entry.busy = false; sensorCalRerender();
         }
@@ -7842,27 +7975,36 @@ export async function initializeSettings() {
         });
     };
 
+    // Wait for the restarted WebUI server to serve the skin again. A failed fetch
+    // just means "still restarting"; ok means the new skin's files are being served.
+    async function waitForSkinServer(timeoutMs = 20000) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 500));
+            try {
+                const res = await fetch(`${window.location.origin}/?skinProbe=${Date.now()}`, { cache: 'no-store' });
+                if (res.ok) return true;
+            } catch (e) { /* server still down */ }
+        }
+        return false;
+    }
+
     window.setActiveSkin = async function(skinId) {
         if (!skinId) return;
         try {
             ui.showToast('Switching skin...', 0, 'info');
             await setDefaultSkin(skinId);
+            // Confirm the bridge really took the new default before restarting it.
+            const active = await getDefaultSkin();
+            if (active?.id && active.id !== skinId) throw new Error(`bridge kept "${active.id}" active`);
             await stopWebuiServer();
             await startWebuiServer();
-            ui.showToast('Skin applied. Refresh the page to load the new skin.', 0, 'success');
-            // Show a persistent refresh banner
-            const existing = document.getElementById('skin-refresh-banner');
-            if (!existing) {
-                const banner = document.createElement('div');
-                banner.id = 'skin-refresh-banner';
-                banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:20000;background:#385a92;color:white;display:flex;align-items:center;justify-content:center;gap:24px;padding:20px 32px;font-size:24px;font-family:Inter,sans-serif;';
-                banner.innerHTML = `
-                    <span>Skin changed — refresh the page to apply.</span>
-                    <button onclick="location.reload()" style="background:white;color:#385a92;border:none;border-radius:40px;padding:10px 32px;font-size:22px;font-weight:bold;cursor:pointer;">Refresh Now</button>
-                    <button onclick="document.getElementById('skin-refresh-banner').remove()" style="background:transparent;color:white;border:2px solid white;border-radius:40px;padding:10px 32px;font-size:22px;cursor:pointer;">Later</button>
-                `;
-                document.body.appendChild(banner);
+            ui.showToast('Loading new skin...', 0, 'info');
+            if (await waitForSkinServer()) {
+                window.location.reload();
+                return;
             }
+            ui.showToast('Skin set, but the web server did not come back. Refresh the page manually.', 0, 'error');
         } catch (error) {
             logger.error('Error setting active skin:', error);
             ui.showToast(`Failed to switch skin: ${error.message}`, 5000, 'error');

@@ -1,6 +1,5 @@
 import { REA_PORT, WS_PROTOCOL } from './api.js';
 import { logger } from './logger.js';
-import { nextTankWarning } from './tank-warning.js';
 import { createSocketSlot } from './socket-slot.js';
 // Note: This assumes ReconnectingWebSocket is globally available as it is in other files.
 
@@ -30,18 +29,6 @@ function getWaterTankUnit() {
 let lastLevelMm = null;
 let lastRefillLevelMm = null;
 let tankVolElementRef = null;
-let tankLow = false;
-
-// Tank running low is a level-vs-threshold fact independent of the DE1's own
-// `needsWater` machine state, which per the DE1 state machine only fires as a
-// hard block once it actively tries to heat/pull -- a tablet watching the
-// level itself can warn earlier, while the machine is idle/sleeping.
-// Latched with hysteresis (tank-warning.js): a plumbed machine's auto-refill
-// parks the level right on the refill line, and a bare <= comparison flipped
-// the warning on and off with every millimetre of slosh -- issue #60.
-export function isTankBelowRefillLevel() {
-    return tankLow;
-}
 
 function renderLevel() {
     if (!tankVolElementRef || lastLevelMm === null) return;
@@ -103,7 +90,6 @@ export function initWaterTankSocket() {
                 lastRefillLevelMm = Math.round(data.refillLevel);
                 localStorage.setItem('waterRefillLevel', String(lastRefillLevelMm));
             }
-            tankLow = nextTankWarning(tankLow, lastLevelMm, lastRefillLevelMm);
         } catch (e) {
             logger.error('Error parsing water level data:', e);
         }
