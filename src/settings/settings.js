@@ -937,6 +937,12 @@ export function renderFlowMultiplierSettings(settings) {
 
 // Host exit, moved off the old floating home button. The host can inject its API
 // after this module runs, so decentApp is resolved on click, not at load.
+//
+// Only good while the skin server has not been restarted under us: the URL
+// skin-api.js bakes in carries the port this page was served on, and Decaid
+// compares it against the port it is serving right now (see setActiveSkin).
+// After a restart no exit URL can pass, which is why switching skins navigates
+// into the new skin rather than going out through the dashboard.
 function exitToDecentDashboard() {
     const app = window.decentApp;
     // Gate on __DECENT_HOST__, not on the function: skin-api.js is served to plain
@@ -8008,24 +8014,39 @@ export async function initializeSettings() {
                 ui.showToast('Skin set, but the web server did not come back. Restart Decaid.', 0, 'error');
                 return;
             }
-            // Straight out to the dashboard. The page cannot reload into the new skin:
-            // Decaid binds a fresh ephemeral port every time it serves a skin folder
-            // (webui_service.dart _serveFresh), so this origin is dead the moment the
-            // server restarts. Re-entering from the launcher builds SkinView against
-            // the current port -- and the launcher only offers "Return to skin" while
-            // the server is up, which is what the status poll above waited for.
-            ui.showToast('Skin set. Returning to the dashboard.', 6000, 'success');
-            exitToDecentDashboard();
-            // The host exit URL carries a port, and the host only honours the one it
-            // expects. skin-api.js baked in the port this page was served from, which
-            // the restart above just retired -- the log shows that URL coming back as
-            // "Blocking navigation to: http://localhost:<old>/__decent/exit-dashboard".
-            // So follow up with the same path on the port the server actually came back
-            // on. A /__decent/ URL the host does not recognise is blocked, never opened
-            // elsewhere, so trying both costs nothing.
-            setTimeout(() => {
-                window.location.assign(`${window.location.protocol}//${window.location.hostname}:${port}/__decent/exit-dashboard`);
-            }, 800);
+            // Go straight to the new skin instead of out to the dashboard.
+            //
+            // The dashboard exit cannot work here. Decaid's webview compares an
+            // exit URL against skinExitDashboardUrlForPort(<port it is serving
+            // right now>) and additionally requires the page's own top-level URL
+            // to be on that port (classifySkinNavigation + SkinExitCoordinator in
+            // skin_view.dart). The restart just moved that port, and this page is
+            // still on the old one, so every exit URL we can produce loses: the
+            // one skin-api.js baked in is the dead port ("Blocking navigation
+            // to: .../__decent/exit-dashboard"), and the port the restart came
+            // back on passes the URL check but fails the top-level check
+            // ("Rejected skin dashboard request").
+            //
+            // Port 3000 is the way out. Decaid keeps it bound as a permanent 307
+            // redirector to whatever port currently serves the skin
+            // (_serveEntryPoint), and the webview allows port 3000 outright plus
+            // the live serving port the redirect lands on. So one navigation puts
+            // the new skin on screen with no dashboard round trip.
+            ui.showToast('Skin set. Loading it now.', 6000, 'success');
+            // The redirect lands on the port Decaid is serving *at that moment*,
+            // and the webview only allows it once its own view has picked the new
+            // port up. Give it a beat: too early and the navigation is treated as
+            // an external link and opens in the system browser instead.
+            await new Promise(r => setTimeout(r, 1200));
+            const enterSkin = () => window.location.assign(
+                `${window.location.protocol}//${window.location.hostname}:3000/?_=${Date.now()}`);
+            enterSkin();
+            // Still here means the navigation was refused. One retry, then say so
+            // — the machine-side back gesture still reaches the dashboard.
+            setTimeout(enterSkin, 3000);
+            setTimeout(() => ui.showToast(
+                'Skin set, but this screen did not switch. Use system back to reach the dashboard, then open the skin.',
+                0, 'error'), 6000);
         } catch (error) {
             logger.error('Error setting active skin:', error);
             ui.showToast(`Failed to switch skin: ${error.message}`, 5000, 'error');
