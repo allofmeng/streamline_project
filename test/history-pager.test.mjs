@@ -22,7 +22,7 @@ test('offline history pages every cached summary', async () => {
     page = await pager.more();
     assert.equal(page.shots.length, 55);
     assert.deepEqual(page.shots.map(shot => shot.id), cached.map(shot => shot.id));
-    assert.equal(page.hasMore, false);
+    assert.equal(page.hasMore, true);
 });
 
 test('server and cache use independent offsets and merge duplicate ids', async () => {
@@ -46,7 +46,7 @@ test('server and cache use independent offsets and merge duplicate ids', async (
     assert.equal(page.shots.find(shot => shot.id === local[0].id).server, true);
 });
 
-test('simultaneous loads share one page request and retry the same server offset after failure', async () => {
+test('simultaneous loads share one page request and a failed page stays retryable', async () => {
     let calls = 0;
     let online = false;
     let release;
@@ -63,9 +63,11 @@ test('simultaneous loads share one page request and retry the same server offset
         fetchCachedPage: async () => []
     });
 
-    await pager.initial();
+    const failedPage = await pager.initial();
+    assert.equal(failedPage.hasMore, true);
+    assert.equal(pager.hasMore(), true);
     online = true;
-    const first = pager.more();
+    const first = failedPage.hasMore ? pager.more() : Promise.resolve(failedPage);
     const second = pager.more();
     const third = pager.more();
     assert.equal(calls, 2);
@@ -73,6 +75,40 @@ test('simultaneous loads share one page request and retry the same server offset
     const pages = await Promise.all([first, second, third]);
     assert.equal(calls, 2);
     assert.equal(pages[0].shots.length, 1);
+});
+
+test('initial starts a new generation while more is in flight', async () => {
+    const offsets = [];
+    let zeroPage = 0;
+    let releaseOldPage;
+    const pager = createHistoryPager({
+        pageSize: 1,
+        fetchServerPage: offset => {
+            offsets.push(offset);
+            if (offset === 1) {
+                return new Promise(resolve => { releaseOldPage = () => resolve({
+                    items: [{ id: 'stale', timestamp: new Date(1000).toISOString() }],
+                    total: 2
+                }); });
+            }
+            zeroPage += 1;
+            return Promise.resolve({
+                items: [{ id: zeroPage === 1 ? 'initial' : 'refreshed', timestamp: new Date(3000).toISOString() }],
+                total: 2
+            });
+        },
+        fetchSummaryPage: async () => [],
+        fetchCachedPage: async () => []
+    });
+
+    await pager.initial();
+    const oldMore = pager.more();
+    const refreshed = await pager.initial();
+    releaseOldPage();
+    await oldMore;
+
+    assert.deepEqual(offsets, [0, 1, 0]);
+    assert.deepEqual(refreshed.shots.map(shot => shot.id), ['refreshed']);
 });
 
 test('updated shots are not replaced by stale later pages', async () => {

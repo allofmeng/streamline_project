@@ -1946,23 +1946,6 @@ function wireExpandedChart() {
     const backBtn = document.getElementById('expanded-chart-back');
     if (backBtn) backBtn.addEventListener('click', close);
 
-    const overlay = document.getElementById('expanded-chart-overlay');
-    if (overlay) {
-        let downX = 0;
-        let downY = 0;
-        let downInLegend = false;
-        const inLegend = node => !!node?.closest?.('.legend');
-        overlay.addEventListener('pointerdown', event => {
-            downX = event.clientX;
-            downY = event.clientY;
-            downInLegend = inLegend(event.target);
-        });
-        overlay.addEventListener('click', event => {
-            if (downInLegend || inLegend(event.target)) return;
-            if (Math.hypot(event.clientX - downX, event.clientY - downY) <= 10) close();
-        });
-    }
-
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && chart.isExpandedChartOpen && chart.isExpandedChartOpen()) close();
     });

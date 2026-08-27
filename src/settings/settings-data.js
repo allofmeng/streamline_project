@@ -52,6 +52,9 @@ async function refreshInternal() {
     publish({ ...state, loading: true, error: null });
     try {
         const rea = await getReaSettings();
+        if (!rea || typeof rea !== 'object' || Array.isArray(rea)) {
+            throw new Error('REA settings request returned no data');
+        }
         if (revision !== mutationRevision) return;
         networkApplied = true;
         applyRea(rea);

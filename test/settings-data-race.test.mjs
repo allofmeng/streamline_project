@@ -108,3 +108,25 @@ test('startup hydration cannot overwrite a successful save', async () => {
 
     assert.equal(settings.getSnapshot().rea.weightFlowMultiplier, 1.2);
 });
+
+test('failed startup refresh preserves a valid cached setting', async () => {
+    let finishHydration;
+    const writes = [];
+    const settings = createSettingsData({
+        getReaSettings: async () => null,
+        setReaSettings: async () => {},
+        getSetting: async key => key === 'settingsBackup'
+            ? undefined
+            : new Promise(resolve => { finishHydration = resolve; }),
+        setSetting: async (key, value) => { writes.push([key, value]); }
+    });
+
+    const { hydration, refresh } = settings.startSettingsData();
+    await refresh;
+    finishHydration({ weightFlowMultiplier: 1.2, volumeFlowMultiplier: 0.4 });
+    await hydration;
+
+    assert.deepEqual(settings.getSnapshot().rea, { weightFlowMultiplier: 1.2, volumeFlowMultiplier: 0.4 });
+    assert.equal(writes.some(([key, value]) => key === 'settings-rea' && value === null), false);
+    assert.match(settings.getSnapshot().error, /returned no data/);
+});

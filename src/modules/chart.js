@@ -1477,12 +1477,18 @@ function handleChartVisibilityChange() {
     if (document.visibilityState === 'visible') flushDeferredChart();
 }
 
+function handleMainPageVisible() {
+    const element = getChartElement();
+    if (element) observeChartElement(element);
+    flushDeferredChart();
+}
+
 function ensureChartLifecycle() {
     if (!chartLifecycleBound) {
         if (!window.ResizeObserver) window.addEventListener('resize', handleChartWindowResize);
         window.addEventListener('storage', handleChartStorage);
         document.addEventListener('streamline:languagechange', handleChartLanguageChange);
-        document.addEventListener('streamline:mainpagevisible', flushDeferredChart);
+        document.addEventListener('streamline:mainpagevisible', handleMainPageVisible);
         document.addEventListener('visibilitychange', handleChartVisibilityChange);
         chartLifecycleBound = true;
     }

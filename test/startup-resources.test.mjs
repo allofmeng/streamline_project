@@ -102,11 +102,12 @@ test('core startup does not wait for Visualizer verification', () => {
     assert.match(app, /Promise\.all\(\[historyInit, profileManager\.init\(\)\]\)/);
 });
 
-test('expanded chart closes on a stationary non-legend tap', () => {
+test('expanded chart closes only from explicit controls', () => {
     const app = read('src/modules/app.js');
-    assert.match(app, /overlay\.addEventListener\('pointerdown'/);
-    assert.match(app, /Math\.hypot\(event\.clientX - downX, event\.clientY - downY\) <= 10/);
-    assert.match(app, /downInLegend \|\| inLegend\(event\.target\)/);
+    assert.match(app, /backBtn\.addEventListener\('click', close\)/);
+    assert.match(app, /e\.key === 'Escape'/);
+    assert.doesNotMatch(app, /expanded-chart-overlay[\s\S]*?addEventListener\('(click|pointerdown)'/);
+    assert.doesNotMatch(app, /closest\?\.\('\.legend'\)/);
 });
 
 test('production startup logging is disabled', () => {
