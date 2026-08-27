@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     clampCalWeight,
     buildCalibrateBody,
-    calResponseHasBody,
+    classifyCalState,
     calActionState,
     CAL_WEIGHT_MIN_G,
     CAL_WEIGHT_MAX_G,
@@ -53,23 +53,67 @@ test('clampCalWeight: unparseable input returns null (caller keeps old mass)', (
 
 // --- request-body wire shape ------------------------------------------------
 
-test('buildCalibrateBody: zero and abort carry no grams key', () => {
+test('buildCalibrateBody: zero and abort carry no weight key', () => {
     assert.deepEqual(buildCalibrateBody('zero'), { command: 'zero' });
     assert.deepEqual(buildCalibrateBody('abort'), { command: 'abort' });
-    assert.equal('grams' in buildCalibrateBody('zero', undefined), false);
-    assert.equal('grams' in buildCalibrateBody('zero', null), false);
+    assert.equal('weightGrams' in buildCalibrateBody('zero', 500), false);
+    assert.equal('weightGrams' in buildCalibrateBody('abort', 500), false);
 });
 
-test('buildCalibrateBody: left/right attach the reference mass', () => {
-    assert.deepEqual(buildCalibrateBody('left', 500), { command: 'left', grams: 500 });
-    assert.deepEqual(buildCalibrateBody('right', 500), { command: 'right', grams: 500 });
+test('buildCalibrateBody: latch attaches the reference mass as weightGrams', () => {
+    assert.deepEqual(buildCalibrateBody('latch', 500), { command: 'latch', weightGrams: 500 });
+    assert.deepEqual(buildCalibrateBody('latch'), { command: 'latch' });
+    assert.deepEqual(buildCalibrateBody('latch', null), { command: 'latch' });
 });
 
-test('calResponseHasBody: abort is 202 with no body, everything else parses JSON', () => {
-    assert.equal(calResponseHasBody('abort'), false);
-    assert.equal(calResponseHasBody('zero'), true);
-    assert.equal(calResponseHasBody('left'), true);
-    assert.equal(calResponseHasBody('right'), true);
+// --- state classifier (drives the poll loop) --------------------------------
+
+const st = (over) => ({
+    step: 'idle', detectedCell: 'none', subState: 'done', secondsRemaining: 0, status: 'none', ...over,
+});
+
+test('classifyCalState: settling/averaging steps keep the poll loop running', () => {
+    for (const step of ['zeroing', 'calLatch', 'taring']) {
+        const v = classifyCalState(st({ step, subState: 'settling', secondsRemaining: 9 }));
+        assert.deepEqual(v, { busy: true, done: false, error: '' });
+    }
+});
+
+test('classifyCalState: a finished zero leaves idle/none and counts as done', () => {
+    assert.deepEqual(classifyCalState(st({})), { busy: false, done: true, error: '' });
+});
+
+test('classifyCalState: incomplete is the first latch of the pair, not a failure', () => {
+    const v = classifyCalState(st({ step: 'idle', detectedCell: 'a', status: 'incomplete' }));
+    assert.deepEqual(v, { busy: false, done: true, error: '' });
+});
+
+test('classifyCalState: ok on the completing latch', () => {
+    const v = classifyCalState(st({ step: 'complete', detectedCell: 'b', status: 'ok' }));
+    assert.deepEqual(v, { busy: false, done: true, error: '' });
+});
+
+test('classifyCalState: firmware status codes surface an actionable message', () => {
+    for (const status of ['noZero', 'notSettled', 'badWeight', 'badDelta', 'illConditioned', 'outOfRange', 'notIsolated']) {
+        const v = classifyCalState(st({ step: 'error', status }));
+        assert.equal(v.busy, false);
+        assert.equal(v.done, false);
+        assert.ok(v.error.length > 0, `${status} needs a message`);
+    }
+});
+
+test('classifyCalState: error step without a status code still fails', () => {
+    const v = classifyCalState(st({ step: 'error', status: 'none' }));
+    assert.deepEqual(v, { busy: false, done: false, error: 'The machine reported a calibration error' });
+});
+
+test('classifyCalState: a missing state is a failure, never a silent pass', () => {
+    for (const bad of [null, undefined, 'nope']) {
+        const v = classifyCalState(bad);
+        assert.equal(v.done, false);
+        assert.equal(v.busy, false);
+        assert.ok(v.error.length > 0);
+    }
 });
 
 // --- action-area state map (stable no-jump card) -----------------------------

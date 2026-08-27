@@ -1,11 +1,14 @@
 // Pure helpers for the Bengle load-cell calibration wizard.
 //
-// The wizard UI lives in src/settings/settings.js and drives reaprime's
-// POST /api/v1/machine/scale/calibrate (two-point firmware cal: zero the
+// The wizard UI lives in src/settings/settings.js and drives Decaid's
+// PUT /api/v1/machine/scaleCalibration (two-point firmware cal: zero the
 // empty platform, then latch the SAME known mass on the LEFT and RIGHT
-// halves; the firmware solves both per-cell gains). This module holds the
-// DOM-free logic — reference-mass clamping, the request-body wire shape,
-// the abort 202-no-body policy, and the action-area state map — so the
+// halves; the firmware auto-detects the cell and solves both per-cell
+// gains). That call only *starts* a step and answers 202 immediately, so
+// the wizard polls GET /api/v1/machine/scaleCalibration until the step
+// leaves its busy phase. This module holds the DOM-free logic —
+// reference-mass clamping, the request-body wire shape, the state
+// classifier used by the poll loop, and the action-area state map — so the
 // node:test suite can lock it in (see test/loadcell-cal.test.mjs and
 // test/README.md).
 
@@ -26,24 +29,57 @@ export function clampCalWeight(value) {
 }
 
 /**
- * Build the ScaleCalibrationRequest body. `grams` is attached only when it
- * is neither null nor undefined — 'zero' and 'abort' must not carry it.
- * @param {'zero'|'left'|'right'|'abort'} command
+ * Build the ScaleCalibrationCommandRequest body. The API takes three
+ * commands — 'zero', 'latch' and 'abort'; there is no left/right pair, the
+ * same 'latch' runs once per cell and the firmware auto-detects which one
+ * is loaded. `weightGrams` is required for 'latch' and must not be sent
+ * with the other two.
+ * @param {'zero'|'latch'|'abort'} command
  * @param {number} [grams]
  */
 export function buildCalibrateBody(command, grams) {
     const body = { command };
-    if (grams != null) body.grams = grams;
+    if (command === 'latch' && grams != null) body.weightGrams = grams;
     return body;
 }
 
+// Steps where the firmware is still settling/averaging — keep polling.
+const CAL_BUSY_STEPS = ['zeroing', 'calLatch', 'taring'];
+
+// `status` is the result of the last latch attempt. 'ok' is a solved cell,
+// 'incomplete' is the first latch of the ordered pair (one cell solved,
+// awaiting the other) and 'none' means no latch was attempted — which is
+// what a plain zero leaves behind. Everything else is a failure the user
+// has to act on.
+const CAL_STATUS_MESSAGES = {
+    noZero: 'Zero the empty platform first',
+    notSettled: 'The scale never settled — keep the machine still and retry',
+    badWeight: 'The mass on the cell does not match the entered weight',
+    badDelta: 'Weight change too small — put the mass on a bare load cell',
+    illConditioned: 'Could not solve the cell gains — reseat the mass and retry',
+    outOfRange: 'Load-cell reading out of range',
+    notIsolated: 'The mass is not isolated on one cell — remove the platform',
+};
+
 /**
- * Whether the calibrate response carries a JSON body.
- * zero/left/right -> 200 with a ScaleCalResult; abort -> 202 with NO body,
- * so calling response.json() on it would throw.
+ * Classify a ScaleCalibrationState into what the wizard needs: keep
+ * polling, finished, or failed with a message to show.
+ * @param {{step?: string, subState?: string, status?: string}} state
+ * @returns {{busy: boolean, done: boolean, error: string}}
  */
-export function calResponseHasBody(command) {
-    return command !== 'abort';
+export function classifyCalState(state) {
+    if (!state || typeof state !== 'object') {
+        return { busy: false, done: false, error: 'No calibration state returned' };
+    }
+    if (CAL_BUSY_STEPS.includes(state.step)) {
+        return { busy: true, done: false, error: '' };
+    }
+    const statusError = CAL_STATUS_MESSAGES[state.status];
+    if (statusError) return { busy: false, done: false, error: statusError };
+    if (state.step === 'error' || state.subState === 'error') {
+        return { busy: false, done: false, error: 'The machine reported a calibration error' };
+    }
+    return { busy: false, done: true, error: '' };
 }
 
 /**

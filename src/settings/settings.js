@@ -7184,21 +7184,18 @@ export async function initializeSettings() {
         }
     };
 
-    // side = 'left' (point 1) or 'right' (point 2)
     // The firmware auto-detects which bare cell holds the reference mass, so the
-    // two weight latches are an ORDERED pair, not left-vs-right: the FIRST latch
-    // reports 'incomplete' (one cell solved, awaiting the other); the SECOND
-    // reports 'ok' (both solved + persisted). reaprime's 'left' command accepts
-    // that first (incomplete) latch; 'right' requires the completing 'ok'. The
-    // leg shown to the user (RIGHT first, then LEFT) is only which leg to load —
-    // independent of these commands, since the firmware auto-detects the cell.
+    // two weight latches are an ORDERED pair, not left-vs-right: both send the
+    // SAME 'latch' command, and the firmware reports 'incomplete' after the
+    // first (one cell solved, awaiting the other) and 'ok' after the second
+    // (both solved + persisted) — Decaid has no left/right commands. The leg
+    // shown to the user (RIGHT first, then LEFT) is only which leg to load.
     window.calRunPoint = async function(order) { // order: 'first' | 'second'
         if (calBusy) return;
         const stepNo = order === 'first' ? 2 : 3;
-        const cmd = order === 'first' ? 'left' : 'right';
         calBusy = true; calError = ''; calRerender();
         try {
-            const r = await calibrateScale(cmd, calWeightG);
+            const r = await calibrateScale('latch', calWeightG);
             if (r && r.success) {
                 calDone[stepNo] = true;
                 ui.showToast('Cell calibrated', 3000, 'success');
@@ -7215,8 +7212,8 @@ export async function initializeSettings() {
         }
     };
 
-    // Cancel the in-flight zero/left/right step: abort → 202 no body. The
-    // blocked cal call then returns success:false message:'aborted', which
+    // Cancel the in-flight zero/latch step: abort → 202 with the new state. The
+    // polling cal call then returns success:false message:'aborted', which
     // the run handler surfaces in the status slot. Deliberately does not
     // toast on success — the aborted step's own failure path reports it.
     window.calAbort = async function() {
