@@ -19,7 +19,7 @@ test('main chart rendering uses the ECharts renderer without sampling', () => {
     const chart = read('src/modules/chart.js');
     const renderer = read('src/modules/echarts-renderer.js');
     assert.match(chart, /const CHART_REDRAW_INTERVAL_MS = 100/);
-    assert.match(chart, /renderChart\(echarts, element, traces, layout, interactive, mode\)/);
+    assert.match(chart, /renderChart\(echarts, element, traces, layout, mode\)/);
     assert.match(renderer, /renderer: 'canvas'/);
     assert.match(renderer, /animation: false/);
     assert.doesNotMatch(renderer, /sampling:/);

@@ -1,6 +1,35 @@
 const charts = new WeakMap();
 const DPR = 1.25;
 
+function attachHoverLabel(chart, element) {
+    const label = element.ownerDocument?.createElement('div');
+    if (!label) return null;
+    Object.assign(label.style, {
+        position: 'absolute',
+        display: 'none',
+        pointerEvents: 'none',
+        zIndex: '3',
+        transform: 'translate(8px, -100%)',
+        borderRadius: '2px',
+        padding: '2px 4px',
+        color: '#ffffff',
+        font: '12px Inter, sans-serif',
+        lineHeight: '16px'
+    });
+    (element.firstElementChild || element).append(label);
+    const hide = () => { label.style.display = 'none'; };
+    chart.on('mousemove', { seriesType: 'line' }, event => {
+        label.textContent = event.seriesName;
+        label.style.backgroundColor = event.color;
+        label.style.left = `${event.event.offsetX}px`;
+        label.style.top = `${event.event.offsetY}px`;
+        label.style.display = 'block';
+    });
+    chart.on('mouseout', { seriesType: 'line' }, hide);
+    chart.on('globalout', hide);
+    return label;
+}
+
 function sizeOf(element) {
     return {
         width: Math.max(1, Math.round(element.clientWidth)),
@@ -31,7 +60,7 @@ function axisOption(config = {}, font = {}, isX = false) {
             fontFamily: 'Inter, sans-serif',
             fontSize: font.size || 16,
             showMaxLabel: !isX,
-            formatter: value => tickText?.get(value) ?? `${value}${config.ticksuffix || ''}`
+            formatter: value => tickText?.get(value) ?? (tickText ? `${Math.round(value * 10)}°` : `${value}${config.ticksuffix || ''}`)
         },
         axisLine: { show: true, lineStyle: { color: config.linecolor } },
         axisTick: { show: true, lineStyle: { color: config.tickcolor } },
@@ -91,13 +120,11 @@ function annotationFor(trace, layout) {
     return coordinateMatches.length === 1 ? coordinateMatches[0] : null;
 }
 
-function seriesOptions(traces, layout, interactive) {
-    const markedAxes = new Set();
+function seriesOptions(traces, layout) {
     return traces.map((trace, index) => {
         const axisIndex = trace.xaxis === 'x2' || trace.yaxis === 'y2' ? 1 : 0;
+        const hoverable = trace.hoverinfo !== 'skip';
         const annotation = annotationFor(trace, layout);
-        const markLine = markedAxes.has(axisIndex) ? undefined : markerData(layout, axisIndex);
-        markedAxes.add(axisIndex);
         return {
             id: `trace-${index}`,
             name: trace.name,
@@ -109,15 +136,16 @@ function seriesOptions(traces, layout, interactive) {
             symbol: 'none',
             smooth: false,
             connectNulls: false,
-            silent: !interactive,
+            silent: !hoverable,
+            triggerEvent: hoverable ? 'line' : false,
             clip: true,
             lineStyle: {
                 color: trace.line?.color,
                 width: trace.line?.width || 2,
                 type: dashType(trace.line?.dash)
             },
-            emphasis: { disabled: !interactive },
-            markLine,
+            itemStyle: { color: trace.line?.color },
+            emphasis: { disabled: true },
             markPoint: annotation ? {
                 silent: true,
                 symbol: 'circle',
@@ -136,6 +164,25 @@ function seriesOptions(traces, layout, interactive) {
                 data: [{ coord: [annotation.x, annotation.y] }]
             } : undefined
         };
+    }).concat(markerSeriesOptions(layout));
+}
+
+function markerSeriesOptions(layout, includeEmpty = false) {
+    const axes = layout.xaxis2 || layout.yaxis2 ? [0, 1] : [0];
+    return axes.flatMap(axisIndex => {
+        const markLine = markerData(layout, axisIndex);
+        if (!markLine && !includeEmpty) return [];
+        return [{
+            id: `markers-${axisIndex}`,
+            type: 'line',
+            xAxisIndex: axisIndex,
+            yAxisIndex: axisIndex,
+            data: [],
+            symbol: 'none',
+            silent: true,
+            lineStyle: { opacity: 0 },
+            markLine: markLine || { data: [] }
+        }];
     });
 }
 
@@ -162,7 +209,7 @@ function legendOptions(layout, traces, size, selected) {
     return legends;
 }
 
-function chartOption(traces, layout, interactive, size, selected) {
+function axesOptions(layout, traces) {
     const font = layout.font || {};
     let xAxes = [axisOption(layout.xaxis, font, true)];
     const yAxes = [axisOption(layout.yaxis, font, false)];
@@ -178,19 +225,51 @@ function chartOption(traces, layout, interactive, size, selected) {
         }
         if (Number.isFinite(min)) xAxes = xAxes.map(axis => ({ ...axis, min, max }));
     }
+    return { xAxis: xAxes, yAxis: yAxes };
+}
+
+function chartOption(traces, layout, size, selected) {
+    const font = layout.font || {};
     return {
         animation: false,
         backgroundColor: layout.paper_bgcolor || layout.plot_bgcolor || 'transparent',
         textStyle: { color: font.color, fontFamily: 'Inter, sans-serif', fontSize: font.size },
         grid: gridOptions(layout, size),
         legend: legendOptions(layout, traces, size, selected),
-        xAxis: xAxes,
-        yAxis: yAxes,
-        series: seriesOptions(traces, layout, interactive)
+        ...axesOptions(layout, traces),
+        series: seriesOptions(traces, layout)
     };
 }
 
-export function renderChart(echarts, element, traces, layout, interactive = false) {
+function liveLayoutSignature(layout) {
+    const { range: _xRange, ...xaxis } = layout.xaxis || {};
+    const { range: _x2Range, ...xaxis2 } = layout.xaxis2 || {};
+    return JSON.stringify({
+        xaxis,
+        yaxis: layout.yaxis,
+        xaxis2,
+        yaxis2: layout.yaxis2,
+        shapes: layout.shapes
+    });
+}
+
+function liveXAxisOptions(layout) {
+    return [layout.xaxis, layout.xaxis2].filter(Boolean).map(axis => ({
+        min: axis.autorange !== true && Array.isArray(axis.range) ? axis.range[0] : null,
+        max: axis.autorange !== true && Array.isArray(axis.range) ? axis.range[1] : null,
+        interval: axis.dtick
+    }));
+}
+
+function liveSeriesOptions(traces, layout, includeMarkers) {
+    const series = traces.map((trace, index) => ({
+            id: `trace-${index}`,
+            data: trace.x.map((x, pointIndex) => [x, trace.y[pointIndex]])
+        }));
+    return includeMarkers ? series.concat(markerSeriesOptions(layout, true)) : series;
+}
+
+export function renderChart(echarts, element, traces, layout, mode = 'full') {
     const size = sizeOf(element);
     let state = charts.get(element);
     element.style.background = layout.paper_bgcolor || layout.plot_bgcolor || 'transparent';
@@ -204,25 +283,39 @@ export function renderChart(echarts, element, traces, layout, interactive = fals
             }),
             size
         };
+        state.hoverLabel = attachHoverLabel(state.chart, element);
         charts.set(element, state);
     } else if (size.width !== state.size.width || size.height !== state.size.height) {
         state.chart.resize({ ...size, silent: true });
         state = { ...state, size };
         charts.set(element, state);
     }
-    const selected = Object.assign({}, ...(state.chart.getOption?.().legend || []).map(legend => legend.selected || {}));
-    state.chart.setOption(chartOption(traces, layout, interactive, size, selected), {
-        notMerge: false,
-        replaceMerge: ['series', 'grid', 'xAxis', 'yAxis', 'legend'],
-        lazyUpdate: false,
-        silent: true
-    });
+    const signature = liveLayoutSignature(layout);
+    const live = mode === 'live' && state.traceCount === traces.length;
+    if (live) {
+        const layoutChanged = state.liveLayoutSignature !== signature;
+        const axes = layoutChanged ? axesOptions(layout, traces) : null;
+        state.chart.setOption({
+            ...(axes || { xAxis: liveXAxisOptions(layout) }),
+            series: liveSeriesOptions(traces, layout, layoutChanged)
+        }, { notMerge: false, lazyUpdate: true, silent: true });
+    } else {
+        const selected = Object.assign({}, ...(state.chart.getOption?.()?.legend || []).map(legend => legend.selected || {}));
+        state.chart.setOption(chartOption(traces, layout, size, selected), {
+            notMerge: false,
+            replaceMerge: ['series', 'grid', 'xAxis', 'yAxis', 'legend'],
+            lazyUpdate: false,
+            silent: true
+        });
+    }
+    charts.set(element, { ...state, traceCount: traces.length, liveLayoutSignature: signature });
 }
 
 export function resizeChart(element) {
     const state = charts.get(element);
     if (!state) return false;
     const size = sizeOf(element);
+    if (size.width === state.size.width && size.height === state.size.height) return true;
     state.chart.resize({ ...size, silent: true });
     charts.set(element, { ...state, size });
     return true;
@@ -232,6 +325,7 @@ export function destroyChart(element) {
     const state = charts.get(element);
     if (!state) return;
     state.chart.dispose();
+    state.hoverLabel?.remove();
     charts.delete(element);
 }
 

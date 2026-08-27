@@ -5,7 +5,11 @@ export function loadECharts() {
     if (!echartsPromise) {
         echartsPromise = new Promise(resolve => requestAnimationFrame(resolve))
             .then(() => import('./echarts-streamline.min.js'))
-            .then(({ echarts }) => echarts);
+            .then(({ echarts }) => echarts)
+            .catch(error => {
+                echartsPromise = null;
+                throw error;
+            });
     }
     return echartsPromise;
 }

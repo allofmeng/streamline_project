@@ -4,12 +4,13 @@ import { test } from 'node:test';
 test('live chart frames are paint-aligned, deferred while hidden, and expanded in one instance', async () => {
     const options = [];
     const handlers = {};
+    let legendBindings = 0;
     const instance = {
         setOption(option) { options.push(option); },
         getOption() { return options.at(-1) || { legend: [], series: [] }; },
         resize() {},
         dispose() {},
-        on(name, handler) { handlers[name] = handler; },
+        on(name, handler) { handlers[name] = handler; if (name === 'legendselectchanged') legendBindings++; },
         off() {},
         dispatchAction() {}
     };
@@ -75,6 +76,7 @@ test('live chart frames are paint-aligned, deferred while hidden, and expanded i
     chart.updateChart(start, frame(3), 3);
     await new Promise(resolve => setTimeout(resolve, 120));
     assert.equal(options.at(-1).series[0].data.length, 3);
+    assert.deepEqual([options.at(-1).xAxis[0].min, options.at(-1).xAxis[0].max], [0, 3 / 0.93]);
 
     const visibleRenderCount = options.length;
     documentTarget.visibilityState = 'hidden';
@@ -87,12 +89,22 @@ test('live chart frames are paint-aligned, deferred while hidden, and expanded i
     await new Promise(resolve => setTimeout(resolve, 120));
     assert.equal(options.at(-1).series[0].data.length, 4);
 
+    chart.finalizeLiveChart();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(options.at(-1).animation, false);
+    assert.ok(options.at(-1).xAxis[0].max > 4);
+
     chart.openExpandedChart();
     await new Promise(resolve => setTimeout(resolve, 20));
     const expanded = options.at(-1);
     assert.equal(expanded.grid.length, 2);
     assert.equal(expanded.series.length, 9);
-    assert.equal(expanded.series.filter(series => series.xAxisIndex === 1 && series.yAxisIndex === 1).length, 4);
+    assert.equal(expanded.series.filter(series => series.id.startsWith('trace-') && series.xAxisIndex === 1 && series.yAxisIndex === 1).length, 4);
     assert.equal(typeof handlers.legendselectchanged, 'function');
+    chart.closeExpandedChart();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    chart.openExpandedChart();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(legendBindings, 2);
     chart.closeExpandedChart();
 });

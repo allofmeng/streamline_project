@@ -26,21 +26,22 @@ const STEP_MARKER_COLORS = {
 };
 
 const CHART_REDRAW_INTERVAL_MS = 100;
+const LIVE_X_DATA_FRACTION = 0.93;
 const renderQueues = new WeakMap();
 const renderGenerations = new WeakMap();
 let latestMainRender = null;
 let mainRenderDirty = false;
 let currentTheme = localStorage.getItem('theme') || 'light';
 
-async function drawECharts({ element, traces, layout, interactive, mode, generation }) {
+async function drawECharts({ element, traces, layout, mode, generation }) {
     if (!element.isConnected || renderGenerations.get(element) !== generation) return;
     const echarts = await loadECharts();
     if (!element.isConnected || renderGenerations.get(element) !== generation) return;
-    renderChart(echarts, element, traces, layout, interactive, mode);
+    renderChart(echarts, element, traces, layout, mode);
     ensureExpandedInteractions(element);
 }
 
-function renderECharts(element, traces, layout, interactive, mode = 'full') {
+function renderECharts(element, traces, layout, mode = 'full') {
     let enqueue = renderQueues.get(element);
     if (!enqueue) {
         renderGenerations.set(element, (renderGenerations.get(element) || 0) + 1);
@@ -49,7 +50,7 @@ function renderECharts(element, traces, layout, interactive, mode = 'full') {
         });
         renderQueues.set(element, enqueue);
     }
-    enqueue({ element, traces, layout, interactive, mode, generation: renderGenerations.get(element) });
+    enqueue({ element, traces, layout, mode, generation: renderGenerations.get(element) });
 }
 
 async function disposeECharts(element) {
@@ -73,7 +74,7 @@ function renderMain(traces, layout, mode = 'full') {
         mainRenderDirty = true;
         return;
     }
-    renderECharts(element, traces, layout, false, mode);
+    renderECharts(element, traces, layout, mode);
     mainRenderDirty = false;
 }
 
@@ -394,6 +395,22 @@ function applyLabelLayout(layout) {
     layout.margin = { ...(layout.margin || {}), r: 50 };
 }
 
+function applyFinalXRange(layout) {
+    let dataMax = 0;
+    for (const traceName in chartData) {
+        if (traceName === 'targetPressure' || traceName === 'targetFlow' || traceName === 'targetTemperature') continue;
+        const trace = chartData[traceName];
+        const lastX = trace.x.at(-1);
+        if (lastX > dataMax) dataMax = lastX;
+    }
+    if (dataMax === 0) {
+        const { range: _range, ...xaxis } = layout.xaxis;
+        layout.xaxis = { ...xaxis, autorange: true };
+        return;
+    }
+    layout.xaxis = { ...layout.xaxis, range: [0, rangeMaxForLabels(dataMax)], autorange: false };
+}
+
 // True from shot start until finalizeLiveChart() runs at shot end — labels
 // are suppressed entirely while true so a live shot shows no trace-end text.
 let isLiveShot = false;
@@ -407,6 +424,7 @@ export function finalizeLiveChart() {
     const theme = currentTheme;
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     applyLabelLayout(layout);
+    applyFinalXRange(layout);
     renderMain(chartTraces, layout);
 }
 
@@ -421,26 +439,10 @@ export function refreshLabelMargin() {
     // this unconditionally regardless of which page is actually showing.
     if (element.offsetParent === null && !expandedOpen) return;
 
-    // Find current data max across labelled traces.
-    let dataMax = 0;
-    for (const traceName in chartData) {
-        if (traceName === 'targetPressure' || traceName === 'targetFlow' || traceName === 'targetTemperature') continue;
-        const trace = chartData[traceName];
-        if (trace.x.length === 0) continue;
-        const lastX = trace.x[trace.x.length - 1];
-        if (lastX > dataMax) dataMax = lastX;
-    }
     const theme = currentTheme;
     const layout = theme === 'dark' ? darkLayout : lightLayout;
     applyLabelLayout(layout);
-    if (dataMax === 0) {
-        layout.xaxis = { ...layout.xaxis, autorange: true };
-        renderMain(chartTraces, layout);
-        return;
-    }
-
-    const rangeMax = rangeMaxForLabels(dataMax);
-    layout.xaxis = { ...layout.xaxis, range: [0, rangeMax], autorange: false };
+    applyFinalXRange(layout);
     renderMain(chartTraces, layout);
 }
 
@@ -485,6 +487,10 @@ function dtickForTime(time) {
     return 30;
 }
 
+function liveXRange(time) {
+    return time > 0 ? [0, time / LIVE_X_DATA_FRACTION] : [-1, 1];
+}
+
 function flushChart() {
     if (!hasVisibleChart()) {
         liveRenderDirty = true;
@@ -500,7 +506,8 @@ function flushChart() {
     const { range: _range, ...liveXAxis } = layout.xaxis;
     layout.xaxis = {
         ...liveXAxis,
-        autorange: true,
+        range: liveXRange(pendingTime),
+        autorange: false,
         dtick: dtickValue
     };
     renderMain(chartTraces, layout, 'live');
@@ -640,7 +647,7 @@ function expandedShapes(theme) {
     ]);
 }
 
-function expandedLayout(theme, topRange, tempRange) {
+function expandedLayout(theme, topRange, tempRange, xRange) {
     const c = expandedAxisColors(theme);
     const ticks = expandedTemperatureTicks(tempRange);
     return {
@@ -650,7 +657,7 @@ function expandedLayout(theme, topRange, tempRange) {
         margin: { l: 70, r: 28, t: 88, b: 52, pad: 0 },
         xaxis: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
-            fixedrange: true, autorange: true, zeroline: false, domain: [0, 1], anchor: 'y'
+            fixedrange: true, range: xRange, autorange: !xRange, zeroline: false, domain: [0, 1], anchor: 'y'
         },
         yaxis: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
@@ -658,7 +665,7 @@ function expandedLayout(theme, topRange, tempRange) {
         },
         xaxis2: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
-            fixedrange: true, autorange: true, zeroline: false, domain: [0, 1], anchor: 'y2', matches: 'x',
+            fixedrange: true, range: xRange, autorange: !xRange, zeroline: false, domain: [0, 1], anchor: 'y2', matches: 'x',
             title: { text: 'seconds', font: { size: 15 } }
         },
         yaxis2: {
@@ -700,7 +707,7 @@ function expandedTempTraces() {
     return traces;
 }
 
-const expandedInteractionElements = new WeakSet();
+const expandedInteractionCallbacks = new WeakMap();
 
 function expandedTopSeriesYs() {
     return [
@@ -720,13 +727,17 @@ function rescaleExpandedTop(element) {
 }
 
 function ensureExpandedInteractions(element) {
-    if (element.id !== 'expanded-chart' || expandedInteractionElements.has(element) || !hasChart(element)) return;
-    const topNames = expandedTopTraces().map(trace => trace.name);
-    onLegendChange(element, event => {
-        if (!topNames.some(name => event.selected[name] !== false)) selectSeries(element, topNames);
-        rescaleExpandedTop(element);
-    });
-    expandedInteractionElements.add(element);
+    if (element.id !== 'expanded-chart' || !hasChart(element)) return;
+    let callback = expandedInteractionCallbacks.get(element);
+    if (!callback) {
+        callback = event => {
+            const topNames = expandedTopTraces().map(trace => trace.name);
+            if (!topNames.some(name => event.selected[name] !== false)) selectSeries(element, topNames);
+            rescaleExpandedTop(element);
+        };
+        expandedInteractionCallbacks.set(element, callback);
+    }
+    onLegendChange(element, callback);
 }
 
 function renderExpandedCharts(mode = 'full') {
@@ -736,8 +747,8 @@ function renderExpandedCharts(mode = 'full') {
     const theme = currentTheme;
     const visibility = getSeriesVisibility(element, 5);
     expandedTopYMax = computeExpandedTopYMax(pickVisible(expandedTopSeriesYs(), visibility), expandedTopYMax);
-    const layout = expandedLayout(theme, [0, expandedTopYMax], expandedTemperatureRange());
-    renderECharts(element, [...expandedTopTraces(), ...expandedTempTraces()], layout, true, mode);
+    const layout = expandedLayout(theme, [0, expandedTopYMax], expandedTemperatureRange(), mode === 'live' ? liveXRange(pendingTime) : undefined);
+    renderECharts(element, [...expandedTopTraces(), ...expandedTempTraces()], layout, mode);
 }
 
 export function isExpandedChartOpen() { return expandedOpen; }
