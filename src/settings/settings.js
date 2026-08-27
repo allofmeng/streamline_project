@@ -8016,6 +8016,16 @@ export async function initializeSettings() {
             // the server is up, which is what the status poll above waited for.
             ui.showToast('Skin set. Returning to the dashboard.', 6000, 'success');
             exitToDecentDashboard();
+            // The host exit URL carries a port, and the host only honours the one it
+            // expects. skin-api.js baked in the port this page was served from, which
+            // the restart above just retired -- the log shows that URL coming back as
+            // "Blocking navigation to: http://localhost:<old>/__decent/exit-dashboard".
+            // So follow up with the same path on the port the server actually came back
+            // on. A /__decent/ URL the host does not recognise is blocked, never opened
+            // elsewhere, so trying both costs nothing.
+            setTimeout(() => {
+                window.location.assign(`${window.location.protocol}//${window.location.hostname}:${port}/__decent/exit-dashboard`);
+            }, 800);
         } catch (error) {
             logger.error('Error setting active skin:', error);
             ui.showToast(`Failed to switch skin: ${error.message}`, 5000, 'error');
