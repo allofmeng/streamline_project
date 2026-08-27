@@ -4,6 +4,7 @@ import { loadPage } from '../modules/router.js';
 import { isBengleMachine } from '../modules/machine.js';
 import { readSettingsLocation, writeSettingsLocation } from './settings-location.js';
 import {
+    getSnapshot,
     resetSettingsSession,
     saveSettingsData,
     startSettingsData
@@ -292,6 +293,7 @@ function bindShell(root) {
         if (legacyMounted) return;
         try {
             await saveSettingsData();
+            if (getSnapshot().dirty) return;
             ui.showToast('Settings updated', 3000, 'success');
             loadPage('index.html');
         } catch (error) {

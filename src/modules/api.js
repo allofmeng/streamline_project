@@ -89,19 +89,25 @@ export function setFirmwareFlashInFlight(value) {
 const de1SettingsCache = {
     data: null,
     timestamp: null,
-    TTL: 60000 // 60 seconds TTL
+    TTL: 60000,
+    inFlight: null,
+    generation: 0
 };
 
 // Caching for DE1 advanced settings to improve performance when navigating to settings page
 const de1AdvancedSettingsCache = {
     data: null,
     timestamp: null,
-    TTL: 40000 // 40 seconds TTL
+    TTL: 40000,
+    inFlight: null,
+    generation: 0
 };
 const reatsettingscache = {
     data: null,
     timestamp: null,
-    TTL: 40000 // 40 seconds TTL
+    TTL: 40000,
+    inFlight: null,
+    generation: 0
 };
 
 
@@ -201,7 +207,7 @@ export async function connectScaleDevice() {
          return response.json();
     } catch (error) {
         logger.error('Error during scale connection attempt:', error);
-        return response.json();
+        throw error;
     }
 }
 
@@ -1568,19 +1574,30 @@ export async function getReaSettings() {
             return reatsettingscache.data;
         }
     }
-    try {
-        const response = await fetch(`${API_BASE_URL}/settings`);
-        if (!response.ok) {
-            throw new Error(`Failed to get Rea settings: ${response.statusText}`);
+    if (reatsettingscache.inFlight?.generation === reatsettingscache.generation) return reatsettingscache.inFlight.promise;
+    const generation = reatsettingscache.generation;
+    const promise = (async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/settings`);
+            if (!response.ok) {
+                throw new Error(`Failed to get Rea settings: ${response.statusText}`);
+            }
+            const data = await response.json();
+            if (generation === reatsettingscache.generation) {
+                reatsettingscache.data = data;
+                reatsettingscache.timestamp = Date.now();
+            }
+            return data;
+        } catch (error) {
+            logger.error("Error in getReaSettings:", error);
+            return null;
         }
-        const data = await response.json();
-        // Update the cache with new data
-        reatsettingscache.data = data;
-        reatsettingscache.timestamp = Date.now();
-        return data;
-    } catch (error) {
-        logger.error("Error in getReaSettings:", error);
-        return null; // Return null or a default settings object
+    })();
+    reatsettingscache.inFlight = { generation, promise };
+    try {
+        return await promise;
+    } finally {
+        if (reatsettingscache.inFlight?.promise === promise) reatsettingscache.inFlight = null;
     }
 }
 
@@ -1727,36 +1744,37 @@ export async function getDe1Settings() {
         }
     }
 
+    if (de1SettingsCache.inFlight?.generation === de1SettingsCache.generation) return de1SettingsCache.inFlight.promise;
+    const generation = de1SettingsCache.generation;
+    const promise = (async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/machine/settings`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                const error = new Error(`Failed to get DE1 settings: ${response.statusText}`);
+                error.status = response.status;
+                error.statusText = response.statusText;
+                error.responseBody = errorText;
+                throw error;
+            }
+            const data = await response.json();
+            if (generation === de1SettingsCache.generation) {
+                de1SettingsCache.data = data;
+                de1SettingsCache.timestamp = Date.now();
+            }
+            return data;
+        } catch (error) {
+            logger.error("Error in getDe1Settings:", error);
+            if (error.status === 500) throw error;
+            if (de1SettingsCache.data) return de1SettingsCache.data;
+            return null;
+        }
+    })();
+    de1SettingsCache.inFlight = { generation, promise };
     try {
-        const response = await fetch(`${API_BASE_URL}/machine/settings`);
-        if (!response.ok) {
-            // Throw an error that includes the status code for better error handling
-            const errorText = await response.text(); // Get response body for more details
-            const error = new Error(`Failed to get DE1 settings: ${response.statusText}`);
-            error.status = response.status; // Add status code to error object
-            error.statusText = response.statusText;
-            error.responseBody = errorText;
-            throw error;
-        }
-        const data = await response.json();
-
-        // Update the cache with new data
-        de1SettingsCache.data = data;
-        de1SettingsCache.timestamp = Date.now();
-
-        return data;
-    } catch (error) {
-        logger.error("Error in getDe1Settings:", error);
-        
-        if (error.status === 500) {
-            throw error;
-        }
-        
-        // Return cached data if available, even if expired, to avoid breaking functionality
-        if (de1SettingsCache.data) {
-            return de1SettingsCache.data;
-        }
-        return null;
+        return await promise;
+    } finally {
+        if (de1SettingsCache.inFlight?.promise === promise) de1SettingsCache.inFlight = null;
     }
 }
 
@@ -1774,6 +1792,7 @@ export async function setDe1Settings(settings) {
             const errorBody = await response.text();
             throw new Error(`Failed to set DE1 settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        de1SettingsCache.generation += 1;
         de1SettingsCache.timestamp = null; // expire, but keep data for the mid-flash and error fallbacks
         logger.info('DE1 settings updated successfully:', settings);
     } catch (error) {
@@ -1803,52 +1822,49 @@ export async function getDe1AdvancedSettings() {
         }
     }
 
-    const controller = new AbortController();
-    const timeoutMs = 20000; // DE1 advanced settings = 9 MMR reads over BLE; slow when the machine is busy
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    if (de1AdvancedSettingsCache.inFlight?.generation === de1AdvancedSettingsCache.generation) return de1AdvancedSettingsCache.inFlight.promise;
+    const generation = de1AdvancedSettingsCache.generation;
+    const promise = (async () => {
+        const controller = new AbortController();
+        const timeoutMs = 20000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const url = `${API_BASE_URL}/machine/settings/advanced`;
+        logger.info(`Fetching advanced settings from: ${url}`);
 
-    const url = `${API_BASE_URL}/machine/settings/advanced`;
-    logger.info(`Fetching advanced settings from: ${url}`); // Log the URL
-
-    try {
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId); // Clear the timeout if the fetch completes in time
-
-        if (!response.ok) {
-            // Throw an error that includes the status code for better error handling
-            const errorText = await response.text(); // Get response body for more details
-            const error = new Error(`Failed to get DE1 advanced settings: ${response.statusText}`);
-            error.status = response.status; // Add status code to error object
-            error.statusText = response.statusText;
-            error.responseBody = errorText;
-            throw error;
-        }
-        const data = await response.json();
-
-        // Update the cache with new data
-        de1AdvancedSettingsCache.data = data;
-        de1AdvancedSettingsCache.timestamp = Date.now();
-
-        return data;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-            logger.error(`Error in getDe1AdvancedSettings: Request timed out after ${timeoutMs} ms.`);
-            // window.location.reload(); // Reload the page on timeout to attempt recovery
-        } else {
-            logger.error("Error in getDe1AdvancedSettings:", error);
-            
-            // Check if this is a 500 error and re-throw with status info
-            if (error.status === 500) {
-                throw error; // Re-throw so calling code can handle 500 specifically
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!response.ok) {
+                const errorText = await response.text();
+                const error = new Error(`Failed to get DE1 advanced settings: ${response.statusText}`);
+                error.status = response.status;
+                error.statusText = response.statusText;
+                error.responseBody = errorText;
+                throw error;
             }
+            const data = await response.json();
+            if (generation === de1AdvancedSettingsCache.generation) {
+                de1AdvancedSettingsCache.data = data;
+                de1AdvancedSettingsCache.timestamp = Date.now();
+            }
+            return data;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                logger.error(`Error in getDe1AdvancedSettings: Request timed out after ${timeoutMs} ms.`);
+            } else {
+                logger.error("Error in getDe1AdvancedSettings:", error);
+                if (error.status === 500) throw error;
+            }
+            if (de1AdvancedSettingsCache.data) return de1AdvancedSettingsCache.data;
+            return null;
         }
-        
-        // Return cached data if available, even if expired, to avoid breaking functionality
-        if (de1AdvancedSettingsCache.data) {
-            return de1AdvancedSettingsCache.data;
-        }
-        return null;
+    })();
+    de1AdvancedSettingsCache.inFlight = { generation, promise };
+    try {
+        return await promise;
+    } finally {
+        if (de1AdvancedSettingsCache.inFlight?.promise === promise) de1AdvancedSettingsCache.inFlight = null;
     }
 }
 
@@ -1866,6 +1882,7 @@ export async function setDe1AdvancedSettings(settings) {
             const errorBody = await response.text();
             throw new Error(`Failed to set DE1 advanced settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        de1AdvancedSettingsCache.generation += 1;
         de1AdvancedSettingsCache.timestamp = null; // expire, but keep data for the mid-flash and error fallbacks
         logger.info('DE1 advanced settings updated successfully:', settings);
     } catch (error) {
@@ -1883,6 +1900,8 @@ export async function resetDe1Settings() {
             const errorBody = await response.text();
             throw new Error(`Failed to reset DE1 settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        de1SettingsCache.generation += 1;
+        de1AdvancedSettingsCache.generation += 1;
         de1SettingsCache.timestamp = null; // expire, but keep data for the mid-flash and error fallbacks
         de1AdvancedSettingsCache.timestamp = null; // expire, but keep data for the mid-flash and error fallbacks
         logger.info('DE1 settings reset to defaults');
@@ -1906,7 +1925,8 @@ export async function setReaSettings(settings) {
             const errorBody = await response.text();
             throw new Error(`Failed to set REA settings. Status: ${response.status}, Body: ${errorBody}`);
         }
-        reatsettingscache.timestamp = null; // expire, but keep data for the mid-flash and error fallbacks
+        reatsettingscache.generation += 1;
+        reatsettingscache.timestamp = null;
         logger.info('REA settings updated successfully:', settings);
     } catch (error) {
         logger.error('Error setting REA settings:', error);

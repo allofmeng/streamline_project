@@ -15,7 +15,9 @@ let committedRea = DEFAULT_REA;
 let pendingRea = Object.freeze({});
 let hydrationPromise = null;
 let refreshPromise = null;
+let savePromise = null;
 let networkApplied = false;
+let mutationRevision = 0;
 const listeners = new Set();
 
 function publish(nextState) {
@@ -33,20 +35,24 @@ function applyRea(rea, commit = true) {
 }
 
 async function hydrateInternal() {
+    const revision = mutationRevision;
     try {
         await openDB();
         const backup = await getSetting('settingsBackup');
         const freshBackup = backup?.ts && Date.now() - backup.ts < 30 * 24 * 60 * 60 * 1000;
-        if (!networkApplied) applyRea(freshBackup ? backup.rea : await getSetting('settings-rea'));
+        const rea = freshBackup ? backup.rea : await getSetting('settings-rea');
+        if (!networkApplied && revision === mutationRevision) applyRea(rea);
     } catch (error) {
         console.warn('Settings cache hydration failed:', error);
     }
 }
 
 async function refreshInternal() {
+    const revision = mutationRevision;
     publish({ ...state, loading: true, error: null });
     try {
         const rea = await getReaSettings();
+        if (revision !== mutationRevision) return;
         networkApplied = true;
         applyRea(rea);
         try {
@@ -102,25 +108,38 @@ export function updateReaSetting(key, value) {
     });
 }
 
-export async function saveSettingsData() {
-    if (Object.keys(pendingRea).length === 0) return;
-    const changes = pendingRea;
-    await setReaSettings(changes);
-    committedRea = Object.freeze({ ...state.rea });
-    pendingRea = Object.freeze({});
-    try {
-        await openDB();
-        const backup = await getSetting('settingsBackup');
-        await Promise.all([
-            setSetting('settings-rea', state.rea),
-            setSetting('settingsBackup', {
-                ...(backup || {}),
-                ts: Date.now(),
-                rea: { ...state.rea }
-            })
-        ]);
-    } catch (error) {
-        console.warn('Settings backup write failed:', error);
+async function savePendingSettings() {
+    while (Object.keys(pendingRea).length > 0) {
+        const sent = { ...pendingRea };
+        await setReaSettings(sent);
+        mutationRevision += 1;
+        committedRea = Object.freeze({ ...committedRea, ...sent });
+        pendingRea = Object.freeze(Object.fromEntries(
+            Object.entries(pendingRea).filter(([key, value]) => !Object.is(sent[key], value))
+        ));
+        const savedRea = { ...committedRea };
+        try {
+            await openDB();
+            const backup = await getSetting('settingsBackup');
+            await Promise.all([
+                setSetting('settings-rea', savedRea),
+                setSetting('settingsBackup', {
+                    ...(backup || {}),
+                    ts: Date.now(),
+                    rea: savedRea
+                })
+            ]);
+        } catch (error) {
+            console.warn('Settings backup write failed:', error);
+        }
+        publish({ ...state, rea: Object.freeze({ ...committedRea, ...pendingRea }) });
     }
-    publish({ ...state });
+}
+
+export function saveSettingsData() {
+    if (Object.keys(pendingRea).length === 0) return Promise.resolve();
+    savePromise ||= savePendingSettings().finally(() => {
+        savePromise = null;
+    });
+    return savePromise;
 }

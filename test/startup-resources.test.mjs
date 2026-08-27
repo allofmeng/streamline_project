@@ -10,6 +10,7 @@ test('route-only vendors and pages are absent from the startup preload list', ()
     assert.doesNotMatch(index, /rel="preload"/);
     assert.doesNotMatch(index, /<script[^>]+(?:easymde|iro\.min)/);
     assert.doesNotMatch(index, /<link[^>]+easymde\.min\.css/);
+    assert.doesNotMatch(index, /<script[^>]+plotly-basic/);
 });
 
 test('font faces use WOFF2 with swap and no browser TTF references', () => {
@@ -25,7 +26,7 @@ test('process-lifetime chart and profile listeners use stable identities', () =>
     const chart = read('src/modules/chart.js');
     const profiles = read('src/modules/profile_selector.js');
     const settings = read('src/settings/settings.js');
-    assert.match(chart, /window\.addEventListener\('resize', handleChartWindowResize\)/);
+    assert.match(chart, /if \(!window\.ResizeObserver\) window\.addEventListener\('resize', handleChartWindowResize\)/);
     assert.match(chart, /document\.addEventListener\('streamline:languagechange', handleChartLanguageChange\)/);
     assert.match(profiles, /new WeakSet\(\)/);
     assert.match(profiles, /document\.addEventListener\('profiles-updated', handleProfilesUpdated\)/);
@@ -70,7 +71,32 @@ test('help implementation and route resources are deferred and cleaned up', () =
     assert.match(app, /import\('\.\/time-picker-modal\.js'\)/);
     assert.match(launcher, /import\('\.\/helpOverlay\.js'\)/);
     assert.match(router, /await cleanupSubpage\(\)/);
-    assert.match(chart, /export function cleanupSubpageChart/);
+    assert.match(chart, /export async function cleanupSubpageChart/);
+});
+
+test('ECharts loads after first paint only on chart-bearing routes', () => {
+    const app = read('src/modules/app.js');
+    const chart = read('src/modules/chart.js');
+    const loader = read('src/modules/echarts-loader.js');
+    assert.match(app, /if \(!isSubPage\(\)\) requestAnimationFrame\(\(\) => loadECharts\(\)/);
+    assert.match(chart, /const echarts = await loadECharts\(\)/);
+    assert.match(loader, /requestAnimationFrame/);
+    assert.match(loader, /import\('\.\/echarts-streamline\.min\.js'\)/);
+    assert.match(loader, /catch\(error => \{\s*echartsPromise = null;/);
+});
+
+test('core startup does not wait for Visualizer verification', () => {
+    const app = read('src/modules/app.js');
+    assert.doesNotMatch(app, /await initVisualizer\(\)/);
+    assert.match(app, /connectShotSettingsWebSocket\(handleShotSettingsData\);\s*void initVisualizer\(\)/);
+    assert.match(app, /Promise\.all\(\[historyInit, profileManager\.init\(\)\]\)/);
+});
+
+test('expanded chart closes on a stationary non-legend tap', () => {
+    const app = read('src/modules/app.js');
+    assert.match(app, /overlay\.addEventListener\('pointerdown'/);
+    assert.match(app, /Math\.hypot\(event\.clientX - downX, event\.clientY - downY\) <= 10/);
+    assert.match(app, /downInLegend \|\| inLegend\(event\.target\)/);
 });
 
 test('production startup logging is disabled', () => {

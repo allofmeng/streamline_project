@@ -72,3 +72,28 @@ test('a write during a firmware flash still leaves the cache servable', async ()
     await api.getDe1Settings();          // must be served from cache, not refetched
     assert.deepEqual(calls, ['GET', 'POST']);
 });
+
+test('a REA write prevents an older read from repopulating the cache', async () => {
+    let finishOldRead;
+    let reads = 0;
+    const fetch = async (url, options = {}) => {
+        if (options.method === 'POST') return { ok: true };
+        reads += 1;
+        if (reads === 1) return new Promise(resolve => { finishOldRead = resolve; });
+        return { ok: true, json: async () => ({ value: 'new' }) };
+    };
+    const api = new Function(
+        'fetch', 'logger', 'API_BASE_URL',
+        `${pick(/(?:const|let) reatsettingscache = \{[\s\S]*?\r?\n\};/)}\n`
+        + `${pick(/export async function getReaSettings\(\) \{[\s\S]*?\r?\n\}/)}\n`
+        + `${pick(/export async function setReaSettings\(settings\) \{[\s\S]*?\r?\n\}/)}\n`
+        + 'return { getReaSettings, setReaSettings };'
+    )(fetch, { info() {}, error() {} }, 'http://decaid/api/v1');
+
+    const oldRead = api.getReaSettings();
+    await api.setReaSettings({ value: 'new' });
+    finishOldRead({ ok: true, json: async () => ({ value: 'old' }) });
+    assert.equal((await oldRead).value, 'old');
+    assert.equal((await api.getReaSettings()).value, 'new');
+    assert.equal(reads, 2);
+});
