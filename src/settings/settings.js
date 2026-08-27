@@ -19,8 +19,10 @@ import { openNotesModal } from '../modules/notes-modal.js';
 import { openDB, getSetting, setSetting, addEmails, getAllEmails, getLatestEmailTimestamp } from '../modules/idb.js';
 import { openModal, shouldUseNumpad, initializeNumpadModal } from '../modules/numpad-modal.js';
 import { ensureDye2PluginReady, getDye2VersionInfo, installDye2Plugin, offerDye2Update, checkDye2UpdatesIfDue } from '../modules/dyeStrip.js';
-import { pluginKeywords, pluginListKeywords, subcategoryMatches, categoryMatches, highlightTokens, textFromHtml, tokenPattern, HIGHLIGHT_CLASS } from '../modules/settings-search.js';
+import { pluginKeywords, pluginListKeywords, subcategoryMatches, textFromHtml, tokenPattern, HIGHLIGHT_CLASS } from '../modules/settings-search.js';
 import { haYamlBlocks } from '../modules/home-assistant.js';
+import { loadIro } from '../modules/vendor-loader.js';
+import { readSettingsLocation, writeSettingsLocation } from './settings-location.js';
 
 // Config for each numeric input that should get two-click numpad support
 const SETTINGS_NUMPAD_CONFIGS = {
@@ -210,6 +212,7 @@ let displayStateCache = null;
 function displayState() { return displayStateCache ?? getLastDisplayState(); }
 
 let activeSettingsCategory = null; // New global variable to track the currently active category
+let settingsLanguageListenerInstalled = false;
 
 let pendingChanges = { rea: {}, de1: {}, de1Advanced: {}, workflow: {} };
 function resetPendingChanges() { pendingChanges = { rea: {}, de1: {}, de1Advanced: {}, workflow: {} }; }
@@ -3335,6 +3338,8 @@ let ledError = false;
 let ledPreviewActive = false;  // a live colour is being previewed on the strip
 let ledPaletteDirty = false;   // cross-state edits not yet PUT (deferred to a preview-end seam)
 let ledLastLit = {};           // last lit colour per 'zoneKey:state', restored on power-on
+let iroLoadPromise = null;
+let iroLoadFailed = false;
 const LED_DEFAULT_ON = 'FFFFAAAA5555'; // warm white — default colour when powering a zone on with no history
 
 const LED_PRESETS = [
@@ -3361,7 +3366,22 @@ function ledNormalize(data) {
 
 export function renderLedSettings() {
     if (!window.iro) {
-        return renderErrorState(getTranslation('Lighting'), getTranslation('Colour picker failed to load'));
+        if (!iroLoadPromise && !iroLoadFailed) {
+            iroLoadPromise = loadIro()
+                .then(() => {
+                    iroLoadPromise = null;
+                    if (activeSettingsCategory === 'ledstrip') updateSettingsContentArea('ledstrip');
+                })
+                .catch(error => {
+                    console.error('Colour picker failed to load.', error);
+                    iroLoadPromise = null;
+                    iroLoadFailed = true;
+                    if (activeSettingsCategory === 'ledstrip') updateSettingsContentArea('ledstrip');
+                });
+        }
+        return iroLoadFailed
+            ? renderErrorState(getTranslation('Lighting'), getTranslation('Colour picker failed to load'))
+            : renderLoadingState(getTranslation('Lighting'));
     }
     if (ledState === null && !ledError) {
         getLedStrip()
@@ -5196,8 +5216,14 @@ export function renderLanguageSettings() {
             switcher.appendChild(option);
         });
 
-        switcher.addEventListener('change', (event) => {
-            setLanguage(event.target.value);
+        switcher.addEventListener('change', async (event) => {
+            event.target.disabled = true;
+            try {
+                await setLanguage(event.target.value);
+                event.target.value = getCurrentLanguage();
+            } finally {
+                event.target.disabled = false;
+            }
         });
     }, 0);
 
@@ -6775,7 +6801,7 @@ async function _preloadSettingsInternal() {
         }
 
         // Update cache with results
-        settingsCache.rea = reaSettings;
+        settingsCache.rea = reaSettings ? { ...reaSettings, ...pendingChanges.rea } : reaSettings;
         settingsCache.de1 = de1Settings;
         settingsCache.de1Advanced = de1AdvancedSettings;
         settingsCache.appInfo = appInfo;
@@ -6841,10 +6867,15 @@ function handleSettingsLanguageChange() {
 }
 
 // Initialize the settings page
-export async function initializeSettings() {
+export async function initializeSettings({ initialMainCategory = null, initialCategory = null, initialReaChanges = {} } = {}) {
+    const savedLocation = readSettingsLocation();
+    const restoredMainCategory = initialMainCategory || savedLocation?.mainCategory || 'quickadjustments';
+    const restoredCategory = initialCategory
+        || (savedLocation?.mainCategory === restoredMainCategory ? savedLocation.category : null);
     resetPendingChanges();
     // Pre-seed cache from IDB backup for instant render, then fetch from network in background
     await preSeedFromIDB();
+    Object.entries(initialReaChanges).forEach(([key, value]) => updateReaSetting(key, value, false));
     preloadSettings().then(() => {
         if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
     });
@@ -6903,87 +6934,64 @@ export async function initializeSettings() {
         });
     }
 
-    // Set up search functionality
-    setupSettingsSearch();
-
     initResizableSubNav();
 
-    // Set up main category navigation
-    document.querySelectorAll('.settings-nav-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            // Handle active state for main categories
-            document.querySelectorAll('.settings-nav-btn').forEach(b => {
-                b.classList.remove('text-white', 'bg-[#2c4a7a]');
-                b.classList.add('text-[#959595]'); // Explicitly re-add default color
-            });
-            this.classList.remove('text-[#959595]'); // Explicitly remove default color
-            this.classList.add('text-white', 'bg-[#2c4a7a]');
+    const mainCategoriesPanel = document.getElementById('main-categories-panel');
+    const subCategoriesPanel = document.getElementById('sub-categories-panel');
+    let activeMainCategoryKey = restoredMainCategory;
 
-            const mainCategoryKey = this.id.replace(/-btn$/, '').replace(/-/g, '');
-
-            // Render subcategories
-            const subCategoriesPanel = document.getElementById('sub-categories-panel');
-            if (subCategoriesPanel) {
-                subCategoriesPanel.innerHTML = renderSubcategories(mainCategoryKey);
-
-                // Add event listeners to the new subcategory buttons
-                subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(subBtn => {
-                    subBtn.addEventListener('click', function(e) {
-                        e.preventDefault(); // Prevent any default behavior that might cause page reload
-                        e.stopPropagation(); // Stop event from bubbling up
-
-                        // Handle active state for subcategories
-                        subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(sb => {
-                             sb.classList.remove('text-white', 'bg-[#2c4a7a]');
-                             sb.classList.add('text-[#959595]');
-                        });
-                        this.classList.remove('text-[#959595]');
-                        this.classList.add('text-white', 'bg-[#2c4a7a]');
-
-                        const settingsCategory = this.dataset.category;
-                        activeSettingsCategory = settingsCategory; // Set the active category
-                        updateSettingsContentArea(settingsCategory); // Use the new helper function
-                    });
-                });
-            }
-
-            // After rendering subcategories, attempt to click the first one if it exists
-            const firstSubCategoryBtn = subCategoriesPanel?.querySelector('.settings-subnav-btn');
-            if (firstSubCategoryBtn) {
-                firstSubCategoryBtn.click();
-            } else {
-                // If no subcategories, clear the content area and set activeSettingsCategory to null
-                const contentArea = document.getElementById('settings-content-area');
-                if (contentArea) {
-                    contentArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center p-8">
-                        <p class="text-[var(--text-primary)] text-[28px]" data-i18n-key="Select a sub-category from the menu">Select a sub-category from the menu</p>
-                    </div>`;
-                    activeSettingsCategory = null;
-                }
-            }
+    const activateSubcategory = button => {
+        subCategoriesPanel?.querySelectorAll('.settings-subnav-btn').forEach(item => {
+            const active = item === button;
+            item.classList.toggle('text-white', active);
+            item.classList.toggle('bg-[#2c4a7a]', active);
+            item.classList.toggle('text-[#959595]', !active);
         });
+        activeSettingsCategory = button.dataset.category;
+        writeSettingsLocation(activeMainCategoryKey, activeSettingsCategory);
+        updateSettingsContentArea(activeSettingsCategory);
+    };
+
+    const activateMainCategory = (button, requestedCategory = null) => {
+        document.querySelectorAll('.settings-nav-btn').forEach(item => {
+            const active = item === button;
+            item.classList.toggle('text-white', active);
+            item.classList.toggle('bg-[#2c4a7a]', active);
+            item.classList.toggle('text-[#959595]', !active);
+        });
+        activeMainCategoryKey = button.id.replace(/-btn$/, '').replace(/-/g, '');
+        if (subCategoriesPanel) subCategoriesPanel.innerHTML = renderSubcategories(activeMainCategoryKey);
+        const subcategories = Array.from(subCategoriesPanel?.querySelectorAll('.settings-subnav-btn') || []);
+        const target = subcategories.find(item => item.dataset.category === requestedCategory) || subcategories[0];
+        if (target) activateSubcategory(target);
+    };
+
+    mainCategoriesPanel?.addEventListener('click', event => {
+        const button = event.target.closest('.settings-nav-btn');
+        if (button) activateMainCategory(button);
+    });
+    subCategoriesPanel?.addEventListener('click', event => {
+        const button = event.target.closest('.settings-subnav-btn');
+        if (button) activateSubcategory(button);
     });
 
-    // Initial load of settings content: Simulate a click on the first main category button
-    const firstMainCategoryBtn = document.querySelector('.settings-nav-btn');
-    if (firstMainCategoryBtn) {
-        firstMainCategoryBtn.click();
-    } else {
-        // Fallback if no main category buttons are found
-        const contentArea = document.getElementById('settings-content-area');
-        if (contentArea) {
-             contentArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center p-8">
-                 <p class="text-[var(--text-primary)] text-[28px]" data-i18n-key="No settings categories found.">No settings categories found.</p>
-             </div>`;
-             activeSettingsCategory = null;
-        }
-    }
+    const firstMainCategoryBtn = document.getElementById(`${restoredMainCategory}-btn`)
+        || document.querySelector('.settings-nav-btn');
+    if (firstMainCategoryBtn) activateMainCategory(firstMainCategoryBtn, restoredCategory);
+
+    setupSettingsSearch((mainCategory, category) => {
+        const mainButton = document.getElementById(`${mainCategory}-btn`);
+        if (mainButton) activateMainCategory(mainButton, category);
+    });
 
     // Apply translations to the settings page
-    setLanguage(getCurrentLanguage());
+    await setLanguage(getCurrentLanguage());
 
     // Re-translate settings content whenever language changes
-    document.addEventListener('streamline:languagechange', handleSettingsLanguageChange);
+    if (!settingsLanguageListenerInstalled) {
+        document.addEventListener('streamline:languagechange', handleSettingsLanguageChange);
+        settingsLanguageListenerInstalled = true;
+    }
 
     // Expose update functions to global scope for inline event handlers
     window.updateReaSetting = updateReaSetting;
@@ -8506,319 +8514,118 @@ function indexSettingsPageText() {
 }
 
 // Set up search functionality for settings
-function setupSettingsSearch() {
+function setupSettingsSearch(activateResult) {
     const searchInput = document.getElementById('settings-search');
-    if (!searchInput) {
-        console.warn('Settings search input not found');
-        return;
-    }
+    const subCategoriesPanel = document.getElementById('sub-categories-panel');
+    if (!searchInput || !subCategoriesPanel) return;
 
     loadPluginSearchKeywords().catch(e => logger.warn('Plugin search keywords unavailable:', e));
     indexSettingsPageText();
+    let timer = null;
+    let savedScrollTop = 0;
+    let searchActive = false;
 
+    const restore = () => {
+        clearTimeout(timer);
+        timer = null;
+        const results = subCategoriesPanel.querySelector('[data-settings-search-results]');
+        if (!results || !searchActive) return;
+        results.hidden = true;
+        results.replaceChildren();
+        Array.from(subCategoriesPanel.children).forEach(child => {
+            if (child !== results) child.hidden = false;
+        });
+        subCategoriesPanel.scrollTop = savedScrollTop;
+        searchActive = false;
+    };
 
-    // Store original navigation structure
-    const originalMainCategories = {};
-    Object.keys(settingsTree).forEach(key => {
-        originalMainCategories[key] = { ...settingsTree[key] };
-    });
+    const renderResults = searchTerm => {
+        let results = subCategoriesPanel.querySelector('[data-settings-search-results]');
+        if (!results) {
+            results = document.createElement('div');
+            results.dataset.settingsSearchResults = '';
+            results.className = 'flex flex-col gap-[8px]';
+            subCategoriesPanel.appendChild(results);
+            results.addEventListener('click', event => {
+                const button = event.target.closest('.settings-search-result');
+                if (!button) return;
+                searchInput.value = '';
+                restore();
+                activateResult(button.dataset.mainCategory, button.dataset.category);
+            });
+        }
+        if (!searchActive) {
+            savedScrollTop = subCategoriesPanel.scrollTop;
+            Array.from(subCategoriesPanel.children).forEach(child => {
+                if (child !== results) child.hidden = true;
+            });
+            searchActive = true;
+        }
 
-    // Tapping the keyboard's search/enter key dismisses the soft keyboard.
-    // 'search' fires on type=search; keep Enter as a fallback for keyboards
-    // that send it instead.
-    const dismissKeyboard = () => searchInput.blur();
-    searchInput.addEventListener('search', dismissKeyboard);
-    searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); dismissKeyboard(); }
-    });
+        const fragment = document.createDocumentFragment();
+        Object.entries(settingsTree).forEach(([mainCategory, category]) => {
+            const mainLabel = getTranslation(category.i18nKey || category.name);
+            const mainMatches = mainLabel.toLowerCase().includes(searchTerm);
+            category.subcategories
+                .filter(subcategory => !subcategory.bengleOnly || isBengleMachine())
+                .filter(subcategory => {
+                    const label = getTranslation(subcategory.i18nKey || subcategory.name.replace(/^\d+\.\s*/, ''));
+                    return mainMatches
+                        || label.toLowerCase().includes(searchTerm)
+                        || subcategoryMatches(subcategory, searchTerm);
+                })
+                .forEach(subcategory => {
+                    const label = getTranslation(subcategory.i18nKey || subcategory.name.replace(/^\d+\.\s*/, ''));
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'settings-search-result w-full text-left px-4 py-3 rounded-lg text-[22px] text-[var(--text-primary)] hover:bg-[#2c4a7a] hover:text-white';
+                    button.dataset.mainCategory = mainCategory;
+                    button.dataset.category = subcategory.settingsCategory;
+                    button.textContent = `${mainLabel} \u203a ${label}`;
+                    fragment.appendChild(button);
+                });
+        });
+        if (!fragment.childNodes.length) {
+            const empty = document.createElement('p');
+            empty.className = 'p-4 text-center text-[22px] text-[var(--text-primary)] opacity-60';
+            empty.textContent = getTranslation('No settings match your search');
+            fragment.appendChild(empty);
+        }
+        results.replaceChildren(fragment);
+        results.hidden = false;
+        subCategoriesPanel.scrollTop = 0;
+    };
 
-    searchInput.addEventListener('input', (e) => {
-        const searchTerm = e.target.value.toLowerCase().trim();
-
-        if (searchTerm === '') {
-            // If search is empty, restore original navigation
-            restoreOriginalNavigation();
+    searchInput.addEventListener('input', event => {
+        const searchTerm = event.target.value.toLowerCase().trim();
+        clearTimeout(timer);
+        if (!searchTerm) {
+            restore();
             return;
         }
-
-        // Filter categories based on search term
-        const filteredCategories = {};
-        
-        Object.entries(settingsTree).forEach(([key, category]) => {
-            // Check if main category name matches
-            const mainCategoryMatches = categoryMatches(category.name, searchTerm);
-
-            // Search only the subcategories visible on this machine — Bengle-only
-            // pages must not surface via search on a non-Bengle machine.
-            const visibleSubcategories = category.subcategories.filter(
-                (subcat) => !subcat.bengleOnly || isBengleMachine()
-            );
-
-            // Filter subcategories that match. subcategoryMatches also tests the
-            // keywords loaded from installed plugins, so "upload" reaches the page
-            // hosting the Visualizer plugin's AutoUpload setting.
-            const matchingSubcategories = visibleSubcategories.filter(
-                subcat => subcategoryMatches(subcat, searchTerm));
-
-            // Include the category if either main name matches or any subcategory matches
-            if (mainCategoryMatches || matchingSubcategories.length > 0) {
-                filteredCategories[key] = {
-                    name: category.name,
-                    subcategories: matchingSubcategories.length > 0 ? matchingSubcategories : visibleSubcategories
-                };
-            }
-        });
-
-        // Update the navigation with filtered results
-        updateNavigationWithResults(filteredCategories, searchTerm);
-        // The page on screen keeps its content; repaint it so its own copy
-        // shows the words too. Re-rendering also clears the previous marks.
-        if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
+        timer = setTimeout(() => renderResults(searchTerm), 125);
+    });
+    searchInput.addEventListener('search', () => {
+        if (!searchInput.value.trim()) restore();
+    });
+    searchInput.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        if (searchTerm) renderResults(searchTerm);
+        subCategoriesPanel.querySelector('.settings-search-result')?.click();
+        searchInput.blur();
     });
 }
 
-// Restore original navigation when search is cleared
-function restoreOriginalNavigation() {
-    const mainCategoriesPanel = document.getElementById('main-categories-panel');
-    if (!mainCategoriesPanel) return;
-
-    // Clear and rebuild the main categories panel
-    const navUl = mainCategoriesPanel.querySelector('nav ul');
-    if (navUl) {
-        navUl.innerHTML = '';
-        
-        Object.entries(settingsTree).forEach(([key, category], i) => {
-            const li = document.createElement('li');
-            const btn = document.createElement('button');
-            btn.id = `${key}-btn`;
-            btn.className = 'settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center';
-            btn.innerHTML = `${i + 1}. <span>${getTranslation(category.i18nKey || category.name)}</span>`;
-
-            navUl.appendChild(li);
-            li.appendChild(btn);
-        });
-    }
-
-    // Reattach event listeners to the restored buttons
-    document.querySelectorAll('.settings-nav-btn').forEach(btn => {
-        // Remove any existing listeners to avoid duplicates
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-        
-        newBtn.addEventListener('click', function() {
-            // Handle active state for main categories
-            document.querySelectorAll('.settings-nav-btn').forEach(b => {
-                b.classList.remove('text-white', 'bg-[#2c4a7a]');
-                b.classList.add('text-[#959595]'); // Explicitly re-add default color
-            });
-            this.classList.remove('text-[#959595]'); // Explicitly remove default color
-            this.classList.add('text-white', 'bg-[#2c4a7a]');
-
-            const mainCategoryKey = this.id.replace(/-btn$/, '').replace(/-/g, '');
-
-            // Render subcategories
-            const subCategoriesPanel = document.getElementById('sub-categories-panel');
-            if (subCategoriesPanel) {
-                subCategoriesPanel.innerHTML = renderSubcategories(mainCategoryKey);
-
-                // Add event listeners to the new subcategory buttons
-                subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(subBtn => {
-                    subBtn.addEventListener('click', function(e) {
-                        e.preventDefault(); // Prevent any default behavior that might cause page reload
-                        e.stopPropagation(); // Stop event from bubbling up
-
-                        // Handle active state for subcategories
-                        subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(sb => {
-                             sb.classList.remove('text-white', 'bg-[#2c4a7a]');
-                             sb.classList.add('text-[#959595]');
-                        });
-                        this.classList.remove('text-[#959595]');
-                        this.classList.add('text-white', 'bg-[#2c4a7a]');
-
-                        const settingsCategory = this.dataset.category;
-                        activeSettingsCategory = settingsCategory; // Set the active category
-                        updateSettingsContentArea(settingsCategory); // Use the new helper function
-                    });
-                });
-            }
-
-            // After rendering subcategories, attempt to click the first one if it exists
-            const firstSubCategoryBtn = subCategoriesPanel?.querySelector('.settings-subnav-btn');
-            if (firstSubCategoryBtn) {
-                firstSubCategoryBtn.click();
-            } else {
-                // If no subcategories, clear the content area and set activeSettingsCategory to null
-                const contentArea = document.getElementById('settings-content-area');
-                if (contentArea) {
-                    contentArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center p-8">
-                        <p class="text-[var(--text-primary)] text-[28px]" data-i18n-key="Select a sub-category from the menu">Select a sub-category from the menu</p>
-                    </div>`;
-                    activeSettingsCategory = null;
-                }
-            }
-        });
-    });
-
-    // Clear the subcategories panel when restoring original navigation
-    const subCategoriesPanel = document.getElementById('sub-categories-panel');
-    if (subCategoriesPanel) {
-        subCategoriesPanel.innerHTML = '';
-    }
-}
-
-// Update navigation with search results
-function updateNavigationWithResults(filteredCategories, searchTerm) {
-    const mainCategoriesPanel = document.getElementById('main-categories-panel');
-    if (!mainCategoriesPanel) return;
-
-    // Clear and rebuild the main categories panel with filtered results
-    const navUl = mainCategoriesPanel.querySelector('nav ul');
-    if (navUl) {
-        navUl.innerHTML = '';
-        
-        const allKeys = Object.keys(settingsTree);
-        Object.entries(filteredCategories).forEach(([key, category]) => {
-            const li = document.createElement('li');
-            const btn = document.createElement('button');
-            btn.id = `${key}-btn`;
-            btn.className = 'settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center';
-
-            const number = allKeys.indexOf(key) + 1;
-            // Translate before highlighting — search filters on the English name but the
-            // nav must stay in the active language (otherwise it reverts to English).
-            const translatedName = getTranslation(settingsTree[key]?.i18nKey || category.name);
-            const highlightedName = highlightTokens(translatedName, searchTerm);
-            btn.innerHTML = `${number}. <span>${highlightedName}</span>`;
-
-            navUl.appendChild(li);
-            li.appendChild(btn);
-        });
-    }
-
-    // Attach event listeners to the filtered buttons
-    document.querySelectorAll('.settings-nav-btn').forEach(btn => {
-        // Remove any existing listeners to avoid duplicates
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-
-        newBtn.addEventListener('click', function() {
-            // Handle active state for main categories
-            document.querySelectorAll('.settings-nav-btn').forEach(b => {
-                b.classList.remove('text-white', 'bg-[#2c4a7a]');
-                b.classList.add('text-[#959595]');
-            });
-            this.classList.remove('text-[#959595]');
-            this.classList.add('text-white', 'bg-[#2c4a7a]');
-
-            const mainCategoryKey = this.id.replace(/-btn$/, '').replace(/-/g, '');
-            const category = settingsTree[mainCategoryKey];
-
-            // Render subcategories with the search term highlighted
-            const subCategoriesPanel = document.getElementById('sub-categories-panel');
-            if (subCategoriesPanel) {
-                subCategoriesPanel.innerHTML = renderFilteredSubcategories(mainCategoryKey, searchTerm);
-
-                subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(subBtn => {
-                    subBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-
-                        subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(sb => {
-                             sb.classList.remove('text-white', 'bg-[#2c4a7a]');
-                             sb.classList.add('text-[#959595]');
-                        });
-                        this.classList.remove('text-[#959595]');
-                        this.classList.add('text-white', 'bg-[#2c4a7a]');
-
-                        const settingsCategory = this.dataset.category;
-                        activeSettingsCategory = settingsCategory;
-                        updateSettingsContentArea(settingsCategory);
-                    });
-                });
-            }
-
-            // If main category name didn't match the search, the user got here via a
-            // subcategory match — jump directly to the first matching subcategory.
-            // Otherwise fall back to the first subcategory in the list.
-            const subBtns = [...(subCategoriesPanel?.querySelectorAll('.settings-subnav-btn') || [])];
-            const mainMatches = category && categoryMatches(category.name, searchTerm);
-            const targetSubBtn = (!mainMatches && searchTerm)
-                ? (subBtns.find(sb => sb.textContent.toLowerCase().includes(searchTerm)) || subBtns[0])
-                : subBtns[0];
-
-            if (targetSubBtn) {
-                targetSubBtn.click();
-            } else {
-                const contentArea = document.getElementById('settings-content-area');
-                if (contentArea) {
-                    contentArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center p-8">
-                        <p class="text-[var(--text-primary)] text-[28px]" data-i18n-key="Select a sub-category from the menu">Select a sub-category from the menu</p>
-                    </div>`;
-                    activeSettingsCategory = null;
-                }
-            }
-        });
-    });
-
-    // Auto-click the first result so subcategories appear without a manual click
-    const firstBtn = navUl?.querySelector('.settings-nav-btn');
-    if (firstBtn) {
-        firstBtn.click();
-    } else {
-        // No matches — clear stale subcategory + content panels so nothing lingers.
-        const subCategoriesPanel = document.getElementById('sub-categories-panel');
-        if (subCategoriesPanel) subCategoriesPanel.innerHTML = '';
-        const contentArea = document.getElementById('settings-content-area');
-        if (contentArea) {
-            contentArea.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center p-8">
-                <p class="text-[var(--text-primary)] text-[28px]">No settings match your search</p>
-            </div>`;
-        }
-        activeSettingsCategory = null;
-    }
-}
-
-// Render filtered subcategories based on search term
-function renderFilteredSubcategories(mainCategoryKey, searchTerm) {
-    const category = settingsTree[mainCategoryKey];
-    if (!category || !category.subcategories || category.subcategories.length === 0) {
-        return `<div class="p-4 text-center text-gray-500" data-i18n-key="No sub-categories.">No sub-categories.</div>`;
-    }
-
-    // Bengle-only subcategories are hidden on non-Bengle machines — search
-    // results must respect the same visibility as the normal navigation.
-    const visibleSubcategories = category.subcategories.filter(
-        (subcat) => !subcat.bengleOnly || isBengleMachine()
-    );
-
-    // Filter subcategories that match the search term. If none match (the
-    // category surfaced via its main-name match), show all subcats — matching
-    // text still gets highlighted, the rest render plainly.
-    const matchingSubcategories = visibleSubcategories.filter(
-        subcat => subcategoryMatches(subcat, searchTerm));
-    const subcategoriesToShow = matchingSubcategories.length > 0 ? matchingSubcategories : visibleSubcategories;
-
-    let subcategoryItems = '';
-    subcategoriesToShow.forEach((subcat) => {
-        // Translate before highlighting (matches renderSubcategories' key logic) so the
-        // filtered nav stays in the active language instead of reverting to English.
-        const prefixMatch = subcat.name.match(/^(\d+\.\s*)/);
-        const prefix = prefixMatch ? prefixMatch[1] : '';
-        const label = prefix ? subcat.name.slice(prefix.length) : subcat.name;
-        const translatedLabel = getTranslation(subcat.i18nKey || label);
-        const highlightedName = highlightTokens(translatedLabel, searchTerm);
-
-        subcategoryItems += `
-            <li>
-                <button class="settings-subnav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center"
-                        data-category="${subcat.settingsCategory}">
-                    <span>${prefix}${highlightedName}</span>
-                </button>
-            </li>
-        `;
-    });
-
-    return `<ul class="space-y-1">${subcategoryItems}</ul>`;
+export function cleanupSettings() {
+    stopCupWarmerPoll();
+    clearTimeout(_settingsNumpadTimer);
+    _settingsNumpadTimer = null;
+    clearTimeout(ledPutTimer);
+    ledPutTimer = null;
+    ledClearPreview();
+    if (calWsClaimed) calReleaseScaleWs();
 }
 
 /**
