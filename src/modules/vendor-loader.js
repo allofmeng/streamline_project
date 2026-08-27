@@ -37,11 +37,14 @@ export function loadStyle(path) {
     return loadElement('link', path);
 }
 
-export function loadEasyMDE() {
-    return Promise.all([
+export async function loadEasyMDE() {
+    const [, , EasyMDE] = await Promise.all([
         loadStyle('src/vendor/easymde.min.css'),
+        loadStyle('src/vendor/font-awesome/easymde-icons.css'),
         loadScript('src/vendor/easymde.min.js', 'EasyMDE'),
-    ]).then(([, EasyMDE]) => EasyMDE);
+    ]);
+    await document.fonts?.load('14px FontAwesome');
+    return EasyMDE;
 }
 
 export function loadIro() {

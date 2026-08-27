@@ -10,7 +10,17 @@ test('route-only vendors and pages are absent from the startup preload list', ()
     assert.doesNotMatch(index, /rel="preload"/);
     assert.doesNotMatch(index, /<script[^>]+(?:easymde|iro\.min)/);
     assert.doesNotMatch(index, /<link[^>]+easymde\.min\.css/);
+    assert.doesNotMatch(index, /<link[^>]+easymde-icons\.css/);
     assert.doesNotMatch(index, /<script[^>]+plotly-basic/);
+});
+
+test('EasyMDE toolbar icon font is bundled for its first render', () => {
+    const css = read('src/vendor/font-awesome/easymde-icons.css');
+    assert.match(css, /font-family:FontAwesome/);
+    for (const icon of ['bold', 'italic', 'header', 'list-ul', 'list-ol', 'link', 'quote-left', 'minus', 'eye', 'columns']) {
+        assert.match(css, new RegExp(`\\.fa-${icon}:before\\{content:`));
+    }
+    assert.equal(existsSync(new URL('src/vendor/font-awesome/fonts/fontawesome-webfont.woff2', root)), true);
 });
 
 test('font faces use WOFF2 with swap and no browser TTF references', () => {
