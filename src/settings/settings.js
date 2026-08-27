@@ -1,5 +1,5 @@
 import { isEcoSteamEnabled, setEcoSteamEnabled } from '../modules/eco-steam.js';
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
+import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation } from '../modules/i18n.js';
@@ -13,6 +13,7 @@ import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensave
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewComposite } from '../modules/led-color.js';
 import { isCupWarmerOn, readCupWarmerTarget, clampCupWarmerTarget, clampPrewarmMinutes, resolvePrewarm, prewarmWarnings, prewarmShapeSignature, cupWarmerViewMode, formatCurrentMatTemp, getCupWarmerState, setCupWarmerState, patchCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY, PREWARM_MIN_MINUTES, PREWARM_MAX_MINUTES } from '../modules/cup-warmer.js';
 import { clampCalWeight, calActionState, CAL_WEIGHT_DEFAULT_G, CAL_WEIGHT_MIN_G, CAL_WEIGHT_MAX_G } from '../modules/loadcell-cal.js';
+import { SENSOR_CAL_TARGETS, sensorCalTarget, parseSensorCalInput, previewCalibration, absoluteSetCorrection, formatCalValue, snapshotGoal, correctionBlocked } from '../modules/sensor-cal.js';
 import { APP_VERSION, SKIN_ID } from '../version.js';
 import { openNotesModal } from '../modules/notes-modal.js';
 import { openDB, getSetting, setSetting, addEmails, getAllEmails, getLatestEmailTimestamp } from '../modules/idb.js';
@@ -29,6 +30,15 @@ const SETTINGS_NUMPAD_CONFIGS = {
     waterAlertInput:         { title: 'WATER ALERT LEVEL',   unit: 'mm',   min: 0,   max: 30,   fieldType: 'settings-water-alert' },
     calibFanInput:           { title: 'FAN THRESHOLD',       unit: '%',    min: 0,   max: 100,  fieldType: 'settings-calib-fan' },
     calibWeightInput:        { title: 'CALIBRATION WEIGHT',  unit: 'g',    min: 1,   max: 10000,fieldType: 'settings-calib-weight' },
+    // DE1 sensor calibration: one pair per target. The temperature pair is
+    // entered in the display unit (the '°C' unit makes attachSettingsNumpad
+    // convert min/max), flow and pressure have no alternate unit.
+    'sensor-cal-temperature-reported': { title: 'DE1 REPORTED TEMP', unit: '°C',   min: 0, max: 200, fieldType: 'settings-sensor-cal-temp-reported' },
+    'sensor-cal-temperature-measured': { title: 'MEASURED TEMP',     unit: '°C',   min: 0, max: 200, fieldType: 'settings-sensor-cal-temp-measured' },
+    'sensor-cal-pressure-reported':    { title: 'DE1 REPORTED BAR',  unit: 'bar',  min: 0, max: 20,  fieldType: 'settings-sensor-cal-pressure-reported' },
+    'sensor-cal-pressure-measured':    { title: 'MEASURED BAR',      unit: 'bar',  min: 0, max: 20,  fieldType: 'settings-sensor-cal-pressure-measured' },
+    'sensor-cal-flow-reported':        { title: 'DE1 REPORTED FLOW', unit: 'ml/s', min: 0, max: 20,  fieldType: 'settings-sensor-cal-flow-reported' },
+    'sensor-cal-flow-measured':        { title: 'MEASURED FLOW',     unit: 'ml/s', min: 0, max: 20,  fieldType: 'settings-sensor-cal-flow-measured' },
     steamCalibTempInput:     { title: 'STEAM TEMPERATURE',   unit: '°C',   min: 135, max: 170,  fieldType: 'settings-steam-calib-temp' },
     steamTempInput:          { title: 'STEAM TEMPERATURE',   unit: '°C',   min: 0,   max: 170,  fieldType: 'settings-steam-temp' },
     steamDurationInput:      { title: 'STEAM DURATION',      unit: 'sec',  min: 10,  max: 120,  fieldType: 'settings-steam-duration' },
@@ -400,6 +410,7 @@ function updateSettingsContentArea(category) {
     if (category !== 'ledstrip') { ledFlushDirty(); ledClearPreview(); }
     // Leaving the Load Cells page → hand the scale WS back to the main page.
     if (category !== 'calib_loadcell' && calWsClaimed) calReleaseScaleWs();
+    if (category !== 'calib_sensors') sensorCalStopLive();
     // Leaving the Cup Warmer page → stop its ~5 s revalidate poll.
     if (category !== 'cupwarmer' && cupWarmerPollTimer !== null) stopCupWarmerPoll();
     const contentArea = document.getElementById('settings-content-area');
@@ -437,6 +448,9 @@ function updateSettingsContentArea(category) {
         if (category === 'ledstrip') {
             setTimeout(initLedPicker, 0);
         }
+        if (category === 'calib_sensors') {
+            setTimeout(initSensorCal, 0);
+        }
         // Step 4's live readout needs the scale WS — claim it on every render
         // of the page at step 4 (idempotent), so returning to a resumed wizard
         // re-wires it after a reclaim.
@@ -452,7 +466,7 @@ const settingsTree = {
     'quickadjustments': {
         name: 'Quick Adjustments',
         subcategories: [
-            { id: 'flowmultiplier', name: 'Flow Multiplier', settingsCategory: 'flowmultiplier' },
+            { id: 'flowmultiplier', name: 'Flow Estimation', settingsCategory: 'flowmultiplier' },
             { id: 'steam', name: 'Steam', settingsCategory: 'steam' },
             { id: 'hotwater', name: 'Hot Water', settingsCategory: 'hotwater' },
             { id: 'watertank', name: 'Water Tank', settingsCategory: 'watertank' },
@@ -476,6 +490,7 @@ const settingsTree = {
             { id: 'voltage',             name: 'Voltage',               settingsCategory: 'calib_voltage' },
             { id: 'fan',                 name: 'Fan',                   settingsCategory: 'calib_fan' },
             { id: 'steam',               name: 'Steam',                 settingsCategory: 'calib_steam' },
+            { id: 'sensors',             name: 'Sensor Calibration',    settingsCategory: 'calib_sensors' },
             { id: 'loadcell',            name: 'Load Cells',            settingsCategory: 'calib_loadcell', i18nKey: 'Load Cells', bengleOnly: true }
         ]
     },
@@ -744,6 +759,8 @@ export function renderSettingsContent(category) {
             return renderCalibVoltageSettings();
         case 'calib_steam':
             return renderCalibSteamSettings();
+        case 'calib_sensors':
+            return renderSensorCalSettings();
         case 'calib_loadcell':
             return renderLoadCellCalibration();
         case 'maint_descaling':
@@ -819,13 +836,13 @@ export function renderSettingsContent(category) {
     }
 }
 
-// Render Flow Multiplier settings
+// Render Flow Estimation settings
 export function renderFlowMultiplierSettings(settings) {
     if (!settings) {
         return `
             <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
                 <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                    <p class="leading-[1.2]" data-i18n-key="Flow Multiplier Settings">Flow Multiplier Settings</p>
+                    <p class="leading-[1.2]" data-i18n-key="Flow Estimation Settings">Flow Estimation Settings</p>
                 </div>
                 <div class="text-red-500 p-4 text-[24px]" data-i18n-key="Failed to load flow multiplier settings">Failed to load flow multiplier settings</div>
             </div>
@@ -835,7 +852,7 @@ export function renderFlowMultiplierSettings(settings) {
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Flow Multiplier Settings">Flow Multiplier Settings</p>
+                <p class="leading-[1.2]" data-i18n-key="Flow Estimation Settings">Flow Estimation Settings</p>
             </div>
 
             <!-- Divider -->
@@ -4560,6 +4577,218 @@ export function renderCalibSteamSettings() {
     `;
 }
 
+// ── DE1 sensor calibration (temperature / pressure / flow) ──────────────────
+// Decaid: GET|PUT /api/v1/machine/calibration/{target}, de1app's calibration
+// page. A write is a CORRECTION, not a set (the firmware folds it into the
+// value it already holds — see sensor-cal.js), so every leg here is
+// read -> preview -> write -> re-read, and a successful write clears the two
+// inputs: they are one observation, and re-sending them corrects twice.
+let sensorCal = {};             // target id -> {current, factory, reported, measured, busy, error}
+let sensorCalLoading = false;   // the initial three-target read is in flight
+let sensorCalLoaded = false;    // ponytail: read once per session, refreshed
+                                // after each write. Re-read on reconnect if
+                                // anyone ever calibrates across a swap.
+let sensorCalLoadError = '';
+
+function sensorCalRerender() {
+    updateSettingsContentArea('calib_sensors');
+}
+
+function sensorCalEntry(id) {
+    if (!sensorCal[id]) {
+        sensorCal[id] = { current: null, factory: null, goal: null, measured: '', busy: false, error: '' };
+    }
+    return sensorCal[id];
+}
+
+// Temperatures are entered in the display unit; the firmware works in °C.
+// The STORED value is an offset, and an offset converts by scale, not by the
+// absolute conversion boundToDisplay() does — so it is always shown in °C
+// with the unit spelled out, rather than converted subtly wrong.
+function sensorCalToCelsius(id, value) {
+    return id === 'temperature' ? fromDisplayTemp(value) : value;
+}
+
+async function sensorCalRead(id) {
+    const entry = sensorCalEntry(id);
+    const [current, factory] = await Promise.all([
+        getSensorCalibration(id, 'current'),
+        getSensorCalibration(id, 'factory'),
+    ]);
+    entry.current = current?.measuredValue ?? null;
+    entry.factory = factory?.measuredValue ?? null;
+}
+
+async function initSensorCal() {
+    // The goal column is fed by the snapshot socket, which nobody has opened
+    // if the app booted straight onto this page (a reload while in Settings).
+    ensureMachineSnapshotSocket();
+    if (sensorCalLoaded || sensorCalLoading) return;
+    sensorCalLoading = true;
+    sensorCalLoadError = '';
+    try {
+        await Promise.all(SENSOR_CAL_TARGETS.map((t) => sensorCalRead(t.id)));
+        sensorCalLoaded = true;
+    } catch (error) {
+        logger.error('Failed to read sensor calibration:', error);
+        sensorCalLoadError = error.message;
+    } finally {
+        sensorCalLoading = false;
+        sensorCalRerender();
+    }
+}
+
+const SENSOR_CAL_INPUT = "text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border border-[#c9c9c9] rounded-[10px] h-[60px] w-[130px]";
+const SENSOR_CAL_SMALL_BTN = "h-[56px] px-[28px] rounded-[56px] text-[22px] font-bold";
+
+// The live "Goal" column, repainted off the snapshot socket's last frame
+// while this page is open. This is the de1ReportedValue half of every
+// correction, so the user only types what they measured — de1app reads it
+// off the static espresso setpoint, and a profile-driven skin reads the
+// machine's live per-step target instead.
+let sensorCalLiveTimer = null;
+
+function sensorCalGoal(target) {
+    return snapshotGoal(target, getLastMachineSnapshot());
+}
+
+function sensorCalGoalText(target, goal) {
+    if (goal === null) return '—';
+    const shown = target.id === 'temperature' ? tempInputValue(goal) : goal;
+    const unit = target.id === 'temperature' ? tempUnitLabel() : target.unit;
+    return `${Number(shown).toFixed(target.kind === 'offset' ? 1 : 2)} ${unit}`;
+}
+
+// Only the rows the user is not mid-measurement on follow the machine: once
+// a measurement is typed, that row's goal is frozen (see sensorCalInput) so
+// the pair that gets written is the pair that was on screen.
+function sensorCalPaintLive() {
+    SENSOR_CAL_TARGETS.forEach((target) => {
+        const el = document.getElementById(`sensor-cal-goal-${target.id}`);
+        if (!el || sensorCalEntry(target.id).goal !== null) return;
+        el.textContent = sensorCalGoalText(target, sensorCalGoal(target));
+    });
+}
+
+function sensorCalStartLive() {
+    if (sensorCalLiveTimer) return;
+    sensorCalLiveTimer = setInterval(sensorCalPaintLive, 1000);
+}
+
+function sensorCalStopLive() {
+    if (!sensorCalLiveTimer) return;
+    clearInterval(sensorCalLiveTimer);
+    sensorCalLiveTimer = null;
+}
+
+function sensorCalRow(target) {
+    const entry = sensorCalEntry(target.id);
+    const stored = Number.isFinite(entry.current);
+    // Frozen once a measurement is in the box, live until then.
+    const goal = entry.goal !== null ? entry.goal : sensorCalGoal(target);
+    const measured = parseSensorCalInput(entry.measured);
+    const unit = target.id === 'temperature' ? tempUnitLabel() : target.unit;
+    const filled = stored && goal !== null && measured !== null && !entry.busy;
+    const blocked = filled
+        ? correctionBlocked(target.kind, goal, sensorCalToCelsius(target.id, measured))
+        : '';
+    const preview = filled && !blocked
+        ? previewCalibration(target.kind, entry.current, goal, sensorCalToCelsius(target.id, measured))
+        : null;
+    const ready = filled && !blocked && Number.isFinite(preview);
+    const suffix = target.kind === 'offset' ? ' °C' : '';
+    const canFactory = stored && Number.isFinite(entry.factory) && !entry.busy
+        && entry.current !== entry.factory;
+
+    let status = `<span class="text-[var(--text-secondary)]" data-i18n-key="${target.help}">${target.help}</span>`;
+    if (entry.error) status = `<span class="text-red-500">${escapeHtml(entry.error)}</span>`;
+    else if (blocked) status = `<span class="text-red-500" data-i18n-key="${blocked}">${blocked}</span>`;
+    else if (goal === null) status = `<span class="text-[var(--text-secondary)]" data-i18n-key="Waiting for a reading from the machine…">Waiting for a reading from the machine…</span>`;
+    else if (entry.busy) status = `<span style="color:#959595" data-i18n-key="Writing…">Writing…</span>`;
+    else if (Number.isFinite(preview)) {
+        status = `<span style="color:#0ca581;font-weight:700">${formatCalValue(target.kind, entry.current)}${suffix} &rarr; ${formatCalValue(target.kind, preview)}${suffix}</span>`;
+    }
+
+    return `
+        <tr class="border-t border-[#c9c9c9]">
+            <td class="py-[20px] pr-[20px] align-middle">
+                <p class="text-[28px] font-bold text-[var(--text-primary)]" data-i18n-key="${target.label}">${target.label}</p>
+            </td>
+            <td class="py-[20px] px-[10px] text-center align-middle">
+                <p class="text-[24px] font-bold text-[var(--text-primary)]">${formatCalValue(target.kind, entry.current)}${suffix}</p>
+            </td>
+            <td class="py-[20px] px-[10px] text-center align-middle">
+                <p class="text-[24px] text-[var(--text-secondary)]">${formatCalValue(target.kind, entry.factory)}${suffix}</p>
+            </td>
+            <td class="py-[20px] px-[10px] text-center align-middle">
+                <p id="sensor-cal-goal-${target.id}" class="text-[24px] ${entry.goal !== null ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}">${sensorCalGoalText(target, goal)}</p>
+            </td>
+            <td class="py-[20px] px-[10px] align-middle">
+                <div class="flex items-center justify-center">
+                    <input type="text" inputmode="decimal" id="sensor-cal-${target.id}-measured"
+                           class="${SENSOR_CAL_INPUT}"
+                           value="${escapeHtml(entry.measured)}"
+                           onchange="window.sensorCalInput('${target.id}', this.value)">
+                    <span class="ml-2 text-nowrap text-[22px] text-[#959595]">${unit}</span>
+                </div>
+            </td>
+            <td class="py-[20px] pl-[10px] align-middle">
+                <div class="flex flex-col items-stretch" style="gap:10px">
+                    <button class="${SENSOR_CAL_SMALL_BTN} bg-[#385a92] text-white ${ready ? '' : 'opacity-40'}" ${ready ? '' : 'disabled'}
+                            onclick="window.sensorCalApply('${target.id}')" data-i18n-key="Apply">Apply</button>
+                    <button class="${SENSOR_CAL_SMALL_BTN} bg-[var(--box-color)] border-2 border-[#385a92] text-[var(--text-primary)] ${canFactory ? '' : 'opacity-40'}" ${canFactory ? '' : 'disabled'}
+                            onclick="window.sensorCalFactoryReset('${target.id}')" data-i18n-key="Factory">Factory</button>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="6" class="pb-[20px] text-[22px] leading-[1.4]">${status}</td>
+        </tr>`;
+}
+
+export function renderSensorCalSettings() {
+    sensorCalStartLive();
+    let body;
+    if (sensorCalLoading) {
+        body = `<p class="${CAL_BODY}" data-i18n-key="Reading calibration from the machine…">Reading calibration from the machine…</p>`;
+    } else if (sensorCalLoadError) {
+        body = `<p class="${CAL_BODY} text-red-500">${escapeHtml(sensorCalLoadError)}</p>`;
+    } else {
+        body = `
+            <div class="w-full" style="overflow-x:auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-[22px] text-[var(--text-secondary)] text-left">
+                            <th class="pb-[10px] font-normal" data-i18n-key="Sensor">Sensor</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Saved">Saved</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Factory">Factory</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="Goal">Goal</th>
+                            <th class="pb-[10px] font-normal text-center" data-i18n-key="You measured">You measured</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>${SENSOR_CAL_TARGETS.map(sensorCalRow).join('')}</tbody>
+                </table>
+            </div>`;
+    }
+    return `
+        <div class="content-stretch flex flex-col gap-[40px] items-start relative w-full">
+            <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
+                <p class="leading-[1.2]" data-i18n-key="Sensor Calibration">Sensor Calibration</p>
+            </div>
+
+            <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
+
+            <p class="${CAL_BODY}" data-i18n-key="Run the machine at the goal shown, then enter what your own instrument measured. Applying corrects the machine by the difference — each measurement is applied once.">
+                Run the machine at the goal shown, then enter what your own instrument measured. Applying corrects the machine by the difference — each measurement is applied once.
+            </p>
+
+            <div class="w-full">${body}</div>
+        </div>
+    `;
+}
+
+
 export function renderMainDescalingSettings() {
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
@@ -6459,7 +6688,7 @@ function getCategoryTitle(category) {
     switch(category) {
         case 'rea': return 'Decaid Settings';
         case 'quickadjustments': return 'Quick Adjustments';
-        case 'flowmultiplier': return 'Flow Multiplier Settings';
+        case 'flowmultiplier': return 'Flow Estimation Settings';
         case 'steam': return 'Steam Settings';
         case 'hotwater': return 'Hot Water Settings';
         case 'watertank': return 'Water Tank Settings';
@@ -6470,6 +6699,7 @@ function getCategoryTitle(category) {
         case 'cupwarmer': return 'Cup Warmer';
         case 'ledstrip': return 'Lighting';
         case 'machineinfo': return 'Machine Info';
+        case 'calib_sensors': return 'Sensor Calibration';
         case 'de1advanced': return 'Machine Advanced Settings';
         case 'homeassistant': return 'Home Assistant';
         default: return 'Settings';
@@ -7141,6 +7371,80 @@ export async function initializeSettings() {
         } catch (error) {
             logger.error('Error starting descaling:', error);
             ui.showToast(`Failed to start descaling: ${error.message}`, 5000, 'error');
+        }
+    };
+
+    // --- DE1 sensor calibration handlers ---
+    // One number to type. Entering it freezes the goal that was on screen,
+    // so the pair written is the pair the user was looking at even if the
+    // profile steps on to a different target a second later.
+    window.sensorCalInput = function(id, value) {
+        const target = sensorCalTarget(id);
+        const entry = sensorCalEntry(id);
+        entry.measured = value;
+        entry.error = '';
+        if (parseSensorCalInput(value) === null) entry.goal = null;
+        else if (entry.goal === null) entry.goal = sensorCalGoal(target);
+        sensorCalRerender();
+    };
+
+    window.sensorCalApply = async function(id) {
+        const target = sensorCalTarget(id);
+        const entry = sensorCalEntry(id);
+        if (!target || entry.busy) return;
+        const goal = entry.goal;
+        const measured = parseSensorCalInput(entry.measured);
+        if (goal === null || measured === null) return;
+        const blocked = correctionBlocked(target.kind, goal, sensorCalToCelsius(id, measured));
+        if (blocked) { entry.error = blocked; sensorCalRerender(); return; }
+        entry.busy = true; entry.error = ''; sensorCalRerender();
+        try {
+            await setSensorCalibration(id, goal, sensorCalToCelsius(id, measured));
+            // The 202 is the BLE write ack, not a settled value — read it back
+            // rather than paint the preview as fact.
+            await sensorCalRead(id);
+            // One observation, spent. Leaving the number in the box invites a
+            // second Apply, which corrects a second time.
+            entry.goal = null; entry.measured = '';
+            ui.showToast(`${target.label} calibration updated`, 3000, 'success');
+        } catch (error) {
+            logger.error(`Sensor calibration (${id}) failed:`, error);
+            entry.error = error.message;
+            ui.showToast(`Calibration failed: ${error.message}`, 5000, 'error');
+        } finally {
+            entry.busy = false; sensorCalRerender();
+        }
+    };
+
+    // Decaid exposes no reset command — read the factory value and land on it
+    // absolutely, which is a correction away from wherever we are right now.
+    // Pressing it twice is a no-op (see absoluteSetCorrection).
+    window.sensorCalFactoryReset = async function(id) {
+        const target = sensorCalTarget(id);
+        const entry = sensorCalEntry(id);
+        if (!target || entry.busy || !Number.isFinite(entry.factory)) return;
+        entry.busy = true; entry.error = ''; sensorCalRerender();
+        try {
+            const live = await getSensorCalibration(id, 'current');
+            const current = live?.measuredValue;
+            if (!Number.isFinite(current)) throw new Error('Could not read the current calibration');
+            // A ratio correction divides by the current value, so a stored 0
+            // cannot be corrected away from — refuse rather than send a
+            // division by zero to the firmware.
+            if (target.kind === 'ratio' && current === 0) {
+                throw new Error('Stored multiplier is 0 — the machine cannot be corrected from it');
+            }
+            const { de1ReportedValue, measuredValue } = absoluteSetCorrection(current, entry.factory);
+            await setSensorCalibration(id, de1ReportedValue, measuredValue);
+            await sensorCalRead(id);
+            entry.goal = null; entry.measured = '';
+            ui.showToast(`${target.label} reset to factory`, 3000, 'success');
+        } catch (error) {
+            logger.error(`Sensor calibration factory reset (${id}) failed:`, error);
+            entry.error = error.message;
+            ui.showToast(`Reset failed: ${error.message}`, 5000, 'error');
+        } finally {
+            entry.busy = false; sensorCalRerender();
         }
     };
 

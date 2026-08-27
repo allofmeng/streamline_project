@@ -62,6 +62,12 @@ test('buildCalibrateBody: zero and abort carry no weight key', () => {
 
 test('buildCalibrateBody: latch attaches the reference mass as weightGrams', () => {
     assert.deepEqual(buildCalibrateBody('latch', 500), { command: 'latch', weightGrams: 500 });
+});
+
+// Decaid 400s a latch with no weightGrams. The wizard always passes a
+// clamped mass, so this only pins down that a missing mass is omitted
+// rather than sent as null/undefined.
+test('buildCalibrateBody: a latch with no mass omits the key (Decaid rejects it)', () => {
     assert.deepEqual(buildCalibrateBody('latch'), { command: 'latch' });
     assert.deepEqual(buildCalibrateBody('latch', null), { command: 'latch' });
 });
@@ -100,6 +106,23 @@ test('classifyCalState: firmware status codes surface an actionable message', ()
         assert.equal(v.done, false);
         assert.ok(v.error.length > 0, `${status} needs a message`);
     }
+});
+
+// `status` is the last LATCH's result and survives a zero, so a zero run
+// after a failed latch must not inherit its error — that is the
+// failed latch -> Start Over -> Zero path.
+test('classifyCalState: a zero ignores the previous latch status', () => {
+    for (const status of ['badWeight', 'notIsolated', 'illConditioned']) {
+        assert.deepEqual(
+            classifyCalState(st({ step: 'idle', status }), false),
+            { busy: false, done: true, error: '' },
+        );
+    }
+});
+
+test('classifyCalState: a zero still fails on a real error step', () => {
+    const v = classifyCalState(st({ step: 'error', status: 'badWeight' }), false);
+    assert.deepEqual(v, { busy: false, done: false, error: 'The machine reported a calibration error' });
 });
 
 test('classifyCalState: error step without a status code still fails', () => {

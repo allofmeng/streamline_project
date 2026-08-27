@@ -257,13 +257,25 @@ export async function getScaleCalibrationState() {
     return await response.json();
 }
 
-async function pollScaleCalibration() {
+async function pollScaleCalibration(command) {
     const deadline = Date.now() + CAL_POLL_TIMEOUT_MS;
     for (;;) {
         await new Promise((resolve) => setTimeout(resolve, CAL_POLL_INTERVAL_MS));
         if (calAbortRequested) return { success: false, message: 'aborted', state: null };
-        const state = await getScaleCalibrationState();
-        const verdict = classifyCalState(state);
+        let state;
+        try {
+            state = await getScaleCalibrationState();
+        } catch (error) {
+            // The firmware keeps calibrating regardless; a dropped MMR read
+            // must not fail a step that is still running. Retry until the
+            // deadline and only then give up.
+            if (Date.now() > deadline) {
+                return { success: false, message: error.message, state: null };
+            }
+            logger.warn('Scale calibration poll read failed, retrying:', error);
+            continue;
+        }
+        const verdict = classifyCalState(state, command === 'latch');
         if (!verdict.busy) return { success: verdict.done, message: verdict.error, state };
         if (Date.now() > deadline) {
             return { success: false, message: 'Calibration timed out', state };
@@ -309,11 +321,83 @@ export async function calibrateScale(command, grams) {
         }
         const accepted = await response.json().catch(() => null);
         if (command === 'abort') return { success: true, state: accepted?.state || null };
-        return await pollScaleCalibration();
+        return await pollScaleCalibration(command);
     } catch (error) {
         logger.error('Error calibrating scale:', error);
         throw error;
     }
+}
+
+/**
+ * Read one DE1 sensor calibration (temperature | pressure | flow).
+ * The stored calibration is in `measuredValue`; `de1ReportedValue` is 1.0
+ * for the ratiometric targets (flow, pressure) and 0.0 for temperature.
+ * @param {'temperature'|'pressure'|'flow'} target
+ * @param {'current'|'factory'} [source] 'factory' reads the factory values,
+ *   which is how the page offers a reset without a dedicated endpoint.
+ * @returns {Promise<{target: string, source: string, de1ReportedValue: number, measuredValue: number}>}
+ */
+export async function getSensorCalibration(target, source = 'current') {
+    const response = await fetch(`${API_BASE_URL}/machine/calibration/${target}?source=${source}`);
+    if (!response.ok) {
+        throw new Error(`Failed to read ${target} calibration. Status: ${response.status}`);
+    }
+    return await response.json();
+}
+
+/**
+ * Write a sensor calibration CORRECTION — not an absolute set. The firmware
+ * folds it into the value it already holds: flow/pressure multiply the
+ * stored calibration by measuredValue/de1ReportedValue, temperature adds the
+ * difference. Writing the same pair twice therefore corrects twice; see
+ * absoluteSetCorrection() in sensor-cal.js for the read-then-write form that
+ * lands on a value exactly.
+ *
+ * 202 means the machine acknowledged the BLE write, 504 that it never did.
+ * The ack is the write ack, not a settled read, so callers re-read the
+ * calibration rather than assume the new value.
+ * @param {'temperature'|'pressure'|'flow'} target
+ * @param {number} de1ReportedValue what the machine reported
+ * @param {number} measuredValue what the reference instrument measured
+ */
+export async function setSensorCalibration(target, de1ReportedValue, measuredValue) {
+    logger.info(`Sensor calibration ${target}: reported ${de1ReportedValue}, measured ${measuredValue}`);
+    const response = await fetch(`${API_BASE_URL}/machine/calibration/${target}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ de1ReportedValue, measuredValue }),
+    });
+    if (response.status === 504) {
+        throw new Error('The machine did not acknowledge the calibration write');
+    }
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || `Calibration write failed. Status: ${response.status}`);
+    }
+}
+
+// Last machine snapshot frame seen on the singleton snapshot socket. Null
+// until the first frame lands (machine asleep, or nothing connected).
+let lastMachineSnapshot = null;
+
+/** @returns {object|null} the most recent MachineSnapshot frame. */
+export function getLastMachineSnapshot() {
+    return lastMachineSnapshot;
+}
+
+/**
+ * Make sure *something* is streaming machine snapshots, so pages that only
+ * read the cache (the sensor calibration goal column) still get frames.
+ *
+ * Booting straight onto a sub-page skips initMainPageOnce(), and with it the
+ * only call that opens this socket — see app.js. This opens it with a no-op
+ * handler when nobody owns it yet; a later main-page init replaces the slot
+ * with the real handler, since the slot closes before it opens.
+ */
+export function ensureMachineSnapshotSocket() {
+    if (reconnectingWebSocket) return;
+    logger.info('No machine snapshot socket yet — opening one for the cached snapshot.');
+    connectWebSocket(() => {}, () => {});
 }
 
 export function connectWebSocket(onData, onReconnect) {
@@ -341,6 +425,10 @@ export function connectWebSocket(onData, onReconnect) {
             
             previousMachineState = currentMachineState;
             currentMachineState = stateValue;
+            // Keep the last frame so pages that need a live reading (the
+            // sensor calibration capture) can take one without opening a
+            // second socket -- this one is a process-wide singleton.
+            lastMachineSnapshot = data;
             // logger.info('Current state after assignment:', currentMachineState);
             
             // Brightness follows the machine's confirmed state. See

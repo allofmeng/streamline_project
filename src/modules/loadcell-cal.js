@@ -46,11 +46,12 @@ export function buildCalibrateBody(command, grams) {
 // Steps where the firmware is still settling/averaging — keep polling.
 const CAL_BUSY_STEPS = ['zeroing', 'calLatch', 'taring'];
 
-// `status` is the result of the last latch attempt. 'ok' is a solved cell,
+// `status` is the result of the last LATCH attempt (rest_v1.yml), not of
+// the step just run: it survives a zero. 'ok' is a solved cell,
 // 'incomplete' is the first latch of the ordered pair (one cell solved,
-// awaiting the other) and 'none' means no latch was attempted — which is
-// what a plain zero leaves behind. Everything else is a failure the user
-// has to act on.
+// awaiting the other) and 'none' means no latch was attempted.
+// Everything else is a failure the user has to act on — but only when the
+// step that just finished was itself a latch; see checkStatus below.
 const CAL_STATUS_MESSAGES = {
     noZero: 'Zero the empty platform first',
     notSettled: 'The scale never settled — keep the machine still and retry',
@@ -65,16 +66,21 @@ const CAL_STATUS_MESSAGES = {
  * Classify a ScaleCalibrationState into what the wizard needs: keep
  * polling, finished, or failed with a message to show.
  * @param {{step?: string, subState?: string, status?: string}} state
+ * @param {boolean} [checkStatus] read `status` as this step's result. True
+ *   only for 'latch'. A zero leaves the previous latch's status parked in
+ *   the register, so reading it after a zero reports a stale failure for a
+ *   step that worked — which is exactly the failed-latch -> Start Over ->
+ *   Zero path.
  * @returns {{busy: boolean, done: boolean, error: string}}
  */
-export function classifyCalState(state) {
+export function classifyCalState(state, checkStatus = true) {
     if (!state || typeof state !== 'object') {
         return { busy: false, done: false, error: 'No calibration state returned' };
     }
     if (CAL_BUSY_STEPS.includes(state.step)) {
         return { busy: true, done: false, error: '' };
     }
-    const statusError = CAL_STATUS_MESSAGES[state.status];
+    const statusError = checkStatus ? CAL_STATUS_MESSAGES[state.status] : null;
     if (statusError) return { busy: false, done: false, error: statusError };
     if (state.step === 'error' || state.subState === 'error') {
         return { busy: false, done: false, error: 'The machine reported a calibration error' };

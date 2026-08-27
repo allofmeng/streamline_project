@@ -1,89 +1,103 @@
-# Calibration endpoints: audit against Decaid
+# Calibration endpoints
 
-Audit of every calibration path this skin drives, checked against Decaid's
-route table (`lib/src/services/webserver/de1handler.dart`) and
-`assets/api/rest_v1.yml`, plus the de1app features that have no counterpart
-here yet.
+What this skin drives against Decaid's calibration routes
+(`lib/src/services/webserver/de1handler.dart`, repo-local `rest_v1.yml`),
+and the one knob still left on the shelf.
 
-## 1. Load-cell wizard pointed at a route that does not exist (fixed)
+## 1. Load-cell wizard — `GET|PUT /api/v1/machine/scaleCalibration`
 
-`calibrateScale()` posted to `POST /api/v1/machine/scale/calibrate`. Decaid
-has never served that path — not on `main`, not anywhere in its history — so
-every step of the Bengle load-cell wizard 404'd. The real endpoint differs in
-method, command set, body key, and response shape:
+Bengle only. `calibrateScale()` in `src/modules/api.js` PUTs
+`zero` / `latch` / `abort`, then polls the state register until the step
+leaves `zeroing`/`calLatch`/`taring`; `classifyCalState()` in
+`src/modules/loadcell-cal.js` turns a state into keep-polling / done /
+failed. Note that `status` is the result of the last **latch**, not of the
+step just run — it survives a zero, so it is only read back on a latch.
 
-| was sent / expected | Decaid |
-| --- | --- |
-| `POST /api/v1/machine/scale/calibrate` | `PUT /api/v1/machine/scaleCalibration` |
-| `command: 'zero' \| 'left' \| 'right' \| 'abort'` | `'zero' \| 'latch' \| 'abort'` — one `latch`, run once per cell |
-| `grams` | `weightGrams` (1–10000, required only for `latch`) |
-| `200 {success, finalStep, pointStatus, message}` | `202 {status: 'accepted', state}` / `409 {status: 'rejected', reason, state}` |
-| abort → 202 with no body | abort → 202 with the new state |
-| call blocks for the ~15 s step | call returns as soon as the command is staged |
+## 2. DE1 sensor calibration — `GET|PUT /api/v1/machine/calibration/{target}`
 
-`success` is not a field Decaid ever returns, so the wizard could not have
-read a result even with the path corrected. The last row matters most: the
-PUT only stages the command, so completion has to come from polling
-`GET /api/v1/machine/scaleCalibration`, which decodes the firmware's packed
-state register into `{step, detectedCell, subState, secondsRemaining, status}`.
+de1app's temperature / pressure / flow calibration page
+(`de1plus/binary.tcl:calibrate_spec`, `de1_comms.tcl:de1_send_calibration`).
+Lives under Calibration → Sensor Calibration
+(`renderSensorCalSettings()` in `src/settings/settings.js`, arithmetic in
+`src/modules/sensor-cal.js`).
 
-**Fix in this PR:** `calibrateScale()` PUTs the correct body, treats 409 as a
-rejection with its reason, and (for `zero`/`latch`) polls the state endpoint
-every 500 ms until the step leaves `zeroing`/`calLatch`/`taring`, returning
-`{success, message, state}` — the same promise shape the wizard already
-awaits, so `settings.js` only had to stop sending `left`/`right`.
-`classifyCalState()` in `loadcell-cal.js` maps a state to keep-polling /
-done / failed and turns firmware status codes (`noZero`, `notSettled`,
-`badWeight`, `badDelta`, `illConditioned`, `outOfRange`, `notIsolated`) into
-messages a user can act on. `incomplete` is treated as success: it is what
-the firmware reports after the first latch of the ordered pair.
+The page is de1app's calibration table: one row per sensor, **Saved** and
+**Factory** readable at a glance, a **Goal** the machine supplies, and one
+number for the user to type. de1app takes that goal from the static espresso
+setpoint (`::settings(espresso_temperature)`, `espresso_pressure` at
+`de1_skin_settings.tcl:2279`); a profile-driven skin has no such single
+value, so the goal is the machine's live per-step target from the snapshot
+socket (`targetGroupTemperature`, `targetPressure`, `targetFlow`), repainted
+at 1 Hz and frozen for that row the moment a measurement is typed — so the
+pair written is the pair that was on screen.
 
-Abort is tracked with a client-side flag rather than inferred from the state,
-because an aborted step drops back to `idle` — indistinguishable from a clean
-finish.
+The socket is opened by `ensureMachineSnapshotSocket()` when nothing else
+has: booting straight onto a sub-page (a reload while in Settings) skips
+`initMainPageOnce()`, which is the only other thing that opens it — without
+that call the goal column reads `—` forever.
 
-## 2. DE1 sensor calibration is not wired up at all
+Note that an idle machine still holds `targetGroupTemperature` (the brew
+target), while `targetPressure` and `targetFlow` read 0. Temperature can
+therefore be calibrated off a flush, while pressure and flow need the
+machine actually running — which is what `correctionBlocked()` enforces.
 
-de1app's calibration page adjusts three sensors — temperature, pressure and
-flow (`de1plus/binary.tcl:calibrate_spec`,
-`de1_comms.tcl:de1_send_calibration`). Decaid exposes all three:
+de1app drives flow through the machine's `calFlowEst` multiplier rather than
+the A012 flow calibration (its flow entry field is commented out at
+`:2287`); this page exposes the real per-sensor flow calibration instead.
 
-```
-GET /api/v1/machine/calibration/{flow|pressure|temperature}?source=current|factory
-PUT /api/v1/machine/calibration/{flow|pressure|temperature}
-    {"de1ReportedValue": <number>, "measuredValue": <number>}
-```
+What has to stay true of any change here:
 
-Nothing in this skin calls them. The Calibration menu (`settings.js`,
-`settingsTree.calibration`) covers default load, refill kit, voltage, fan,
-steam and load cells only.
+- **A write is a correction, not a set.** Flow and pressure multiply the
+  stored calibration by `measuredValue / de1ReportedValue`; temperature adds
+  `measuredValue - de1ReportedValue`. The page therefore previews the result
+  before writing and clears both inputs after a successful one — the two
+  numbers are a single observation, and re-sending them corrects twice.
+- To land on an absolute value X, read the current value C and write
+  `{de1ReportedValue: C, measuredValue: X}`. That is exactly what
+  "Reset to factory" does with the `?source=factory` read, and repeating it
+  is a no-op — which is why that button is safe to press twice and Apply is
+  not.
+- Reads answer with the calibration in `measuredValue`; `de1ReportedValue`
+  is 1.0 for flow/pressure and 0.0 for temperature.
+- Both values are clamped to the signed **Q16.16 range,
+  -32768..32767.9999**; outside it the PUT is a 400
+  (`de1handler.dart:549-559`), so `parseSensorCalInput()` stops it at the
+  input box.
+- The PUT answers 202 only after the machine acknowledges, 504 if it does
+  not. That ack is the BLE write ack, not an A012 notification
+  (`unified_de1.dart:486-493`), so the page re-reads rather than painting
+  its own preview as fact.
+- Temperature is entered in the display unit and converted with
+  `fromDisplayTemp()`; the stored **offset** is always shown in °C, because
+  an offset converts by scale and not by the absolute °C↔°F conversion.
+- A ratio correction divides by `de1ReportedValue` and scales the stored
+  calibration by `measuredValue`, so `correctionBlocked()` refuses a zero on
+  either side for flow and pressure, and a zero goal for every target — an
+  idle machine targets nothing, and correcting against that is either a
+  division by zero or the whole reading shoved into the offset.
 
-Worth knowing before building the UI: **a write is a correction, not a set.**
-Flow and pressure multiply the stored calibration by
-`measuredValue / de1ReportedValue`; temperature adds
-`measuredValue - de1ReportedValue`. To set an absolute value X, read the
-current value C first, then write `{de1ReportedValue: C, measuredValue: X}`.
-Reads answer with the calibration in `measuredValue` (`de1ReportedValue` is
-1.0 for flow/pressure, 0.0 for temperature). `?source=factory` reads the
-factory values, which gives a natural "reset to factory" affordance.
-`PUT` answers 202 only after the machine acknowledges, 504 if it does not.
-
-## 3. The machine's flow multiplier is not wired up either
-
-The "Flow Multiplier" page under Quick Adjustments edits
-`weightFlowMultiplier` and `volumeFlowMultiplier` through
-`POST /api/v1/settings`. Those are app-side skin settings and the calls are
-correct — but they are not de1app's `calibration_flow_multiplier`, which is a
-value stored on the machine (the `calFlowEst` MMR). Decaid serves that one
-separately:
+## 3. The machine's flow multiplier is still not wired up
 
 ```
 GET  /api/v1/machine/calibration          -> {"flowMultiplier": 1.0}
 POST /api/v1/machine/calibration          {"flowMultiplier": 1.05}
 ```
 
-Two different knobs share one label in the UI today. If the machine-side one
-is added, both need names that say which is which.
+This is de1app's `calibration_flow_multiplier`, stored on the machine (the
+`calFlowEst` MMR; `de1app/de1plus/bluetooth.tcl:2096-2102`). Nothing here
+calls it — de1app manages the value itself, so a second UI for it mostly
+invites the two to fight.
+
+The Quick Adjustments page that used to be called "Flow Multiplier" is now
+**Flow Estimation**, because it edits `weightFlowMultiplier` /
+`volumeFlowMultiplier` through `POST /api/v1/settings` — app-side settings in
+Decaid's `settings_service.dart`, a different knob that was wearing the same
+name.
+
+Caveat for whoever does wire the machine-side one: that POST answers 202 for
+**any** JSON object and ignores keys it does not recognise
+(`de1handler.dart:481-489`). A misspelled key is a silent no-op with a
+success code — read the value back to confirm a write landed.
 
 ## 4. Everything else checks out
 
