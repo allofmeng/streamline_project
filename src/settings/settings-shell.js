@@ -260,6 +260,77 @@ function bindShell(root) {
     });
 }
 
+// Drag-to-resize for a vertical separator: dragging moves `resizedPanel`'s
+// right edge, clamped to [min, max]. Shared by the two page-shell dividers
+// (main-nav/sub-nav, and left-panel/content) — shell-owned chrome, wired once
+// per settings-page mount so it works no matter which category is active,
+// unlike the old per-category legacy-only wiring it replaces.
+function makeResizableSeparator(separator, resizedPanel, min, max) {
+    if (!separator || !resizedPanel) return;
+    let isDragging = false;
+
+    function thicken() { separator.classList.remove('w-px'); separator.classList.add('w-2'); }
+    function restore() { separator.classList.remove('w-2'); separator.classList.add('w-px'); }
+
+    function beginDrag(clientX) {
+        isDragging = true;
+        thicken();
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+
+        const startX = clientX;
+        const startWidth = resizedPanel.offsetWidth;
+        const upperBound = typeof max === 'function' ? max() : max;
+
+        function applyDelta(cx) {
+            if (!isDragging) return;
+            const newWidth = startWidth + (cx - startX);
+            if (newWidth > min && newWidth < upperBound) resizedPanel.style.width = `${newWidth}px`;
+        }
+
+        function onMouseMove(e) { applyDelta(e.clientX); }
+        function onTouchMove(e) {
+            if (e.touches[0]) { applyDelta(e.touches[0].clientX); e.preventDefault(); }
+        }
+        function stopDrag() {
+            isDragging = false;
+            restore();
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', stopDrag);
+            document.removeEventListener('touchmove', onTouchMove);
+            document.removeEventListener('touchend', stopDrag);
+            document.removeEventListener('touchcancel', stopDrag);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', stopDrag);
+        document.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.addEventListener('touchend', stopDrag);
+        document.addEventListener('touchcancel', stopDrag);
+    }
+
+    separator.addEventListener('mousedown', e => beginDrag(e.clientX));
+    separator.addEventListener('touchstart', e => { if (e.touches[0]) beginDrag(e.touches[0].clientX); }, { passive: true });
+}
+
+function initResizableSeparators() {
+    const subSeparator = document.getElementById('sub-categories-separator');
+    makeResizableSeparator(
+        subSeparator,
+        document.getElementById('main-categories-panel'),
+        150,
+        () => (subSeparator.parentElement.offsetWidth - 150)
+    );
+    makeResizableSeparator(
+        document.getElementById('separator'),
+        document.getElementById('left-panel'),
+        200,
+        1600
+    );
+}
+
 export async function initializeSettingsShell() {
     const root = document.getElementById('settings-body')?.parentElement;
     if (!root || root === currentRoot) return;
@@ -275,6 +346,7 @@ export async function initializeSettingsShell() {
     resetSettingsSession();
     startSettingsData();
     bindShell(root);
+    initResizableSeparators();
     const saved = readSettingsLocation();
     const first = document.getElementById(`${saved?.mainCategory || 'quickadjustments'}-btn`)
         || document.querySelector('.settings-nav-btn');

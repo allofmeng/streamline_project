@@ -6491,81 +6491,6 @@ export function renderSubcategories(mainCategoryKey) {
 }
 
 
-function initResizableSubNav() {
-    const separator = document.getElementById('sub-categories-separator');
-    const mainCategoriesPanel = document.getElementById('main-categories-panel');
-    const subCategoriesPanel = document.getElementById('sub-categories-panel');
-
-    if (!separator || !mainCategoriesPanel || !subCategoriesPanel) {
-        console.warn('Resizable sub-navigation elements not found.');
-        return;
-    }
-
-    let isDragging = false;
-
-    function thickenSeparator() {
-        separator.classList.remove('w-px');
-        separator.classList.add('w-2');
-    }
-
-    function restoreSeparator() {
-        separator.classList.remove('w-2');
-        separator.classList.add('w-px');
-    }
-
-    function beginDrag(clientX) {
-        isDragging = true;
-        thickenSeparator();
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-
-        const startX = clientX;
-        const startMainWidth = mainCategoriesPanel.offsetWidth;
-
-        function applyDelta(cx) {
-            if (!isDragging) return;
-            const dx = cx - startX;
-            const newMainWidth = startMainWidth + dx;
-            const containerWidth = separator.parentElement.offsetWidth;
-            if (newMainWidth > 150 && newMainWidth < containerWidth - 150) {
-                mainCategoriesPanel.style.width = `${newMainWidth}px`;
-            }
-        }
-
-        function onMouseMove(e) { applyDelta(e.clientX); }
-        function onTouchMove(e) {
-            if (e.touches[0]) {
-                applyDelta(e.touches[0].clientX);
-                e.preventDefault(); // block scroll while dragging
-            }
-        }
-
-        function stopDrag() {
-            isDragging = false;
-            restoreSeparator();
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', stopDrag);
-            document.removeEventListener('touchmove', onTouchMove);
-            document.removeEventListener('touchend', stopDrag);
-            document.removeEventListener('touchcancel', stopDrag);
-        }
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', stopDrag);
-        document.addEventListener('touchmove', onTouchMove, { passive: false });
-        document.addEventListener('touchend', stopDrag);
-        document.addEventListener('touchcancel', stopDrag);
-    }
-
-    separator.addEventListener('mousedown', (e) => beginDrag(e.clientX));
-    separator.addEventListener('touchstart', (e) => {
-        if (e.touches[0]) beginDrag(e.touches[0].clientX);
-    }, { passive: true });
-}
-
-
 // Cache for loading promises to prevent multiple simultaneous requests
 let settingsLoadingPromises = {};
 
@@ -6848,8 +6773,6 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             loadPage('index.html');
         });
     }
-
-    initResizableSubNav();
 
     const mainCategoriesPanel = document.getElementById('main-categories-panel');
     const subCategoriesPanel = document.getElementById('sub-categories-panel');
@@ -8310,73 +8233,6 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         }
         if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
     };
-
-    const mainSeparator = document.getElementById('separator');
-    const leftPanel     = document.getElementById('left-panel');
-    const rightPanel    = document.getElementById('right-panel');
-
-    if (mainSeparator && leftPanel && rightPanel) {
-        let isDragging = false;
-
-        function thicken() {
-            mainSeparator.classList.remove('w-px');
-            mainSeparator.classList.add('w-2');
-        }
-        function restore() {
-            mainSeparator.classList.remove('w-2');
-            mainSeparator.classList.add('w-px');
-        }
-
-        function beginDrag(clientX) {
-            isDragging = true;
-            thicken();
-            document.body.style.cursor    = 'col-resize';
-            document.body.style.userSelect = 'none';
-
-            const startX         = clientX;
-            const startLeftWidth = leftPanel.offsetWidth;
-
-            function applyDelta(cx) {
-                if (!isDragging) return;
-                const dx           = cx - startX;
-                const newLeftWidth = startLeftWidth + dx;
-                if (newLeftWidth > 200 && newLeftWidth < 1600) {
-                    leftPanel.style.width = `${newLeftWidth}px`;
-                }
-            }
-
-            function onMouseMove(e) { applyDelta(e.clientX); }
-            function onTouchMove(e) {
-                if (e.touches[0]) {
-                    applyDelta(e.touches[0].clientX);
-                    e.preventDefault();
-                }
-            }
-
-            function stopDrag() {
-                isDragging = false;
-                restore();
-                document.body.style.cursor     = '';
-                document.body.style.userSelect  = '';
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup',   stopDrag);
-                document.removeEventListener('touchmove', onTouchMove);
-                document.removeEventListener('touchend',  stopDrag);
-                document.removeEventListener('touchcancel', stopDrag);
-            }
-
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup',   stopDrag);
-            document.addEventListener('touchmove', onTouchMove, { passive: false });
-            document.addEventListener('touchend',  stopDrag);
-            document.addEventListener('touchcancel', stopDrag);
-        }
-
-        mainSeparator.addEventListener('mousedown', (e) => beginDrag(e.clientX));
-        mainSeparator.addEventListener('touchstart', (e) => {
-            if (e.touches[0]) beginDrag(e.touches[0].clientX);
-        }, { passive: true });
-    }
 }
 
 // Pages that ARE one plugin's settings UI, so that plugin's vocabulary belongs on

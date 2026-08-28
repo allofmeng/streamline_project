@@ -77,4 +77,20 @@ for (const [name, w, h] of [
 const design = fit(1920, 1200);
 assert.ok(design.sx === 1 && design.sy === 1 && design.canvasH === DESIGN_H, 'design size regressed');
 
+// Zoomed-in anchor (mirrors scaling.js's uiZoom>1 branch): normally left-anchored
+// (offsetX 0) so the left sidebar stays visible, but right-anchored when the GHC
+// column is shown so that 172px-wide machine-control column at the canvas's right
+// edge (x:1748-1920) doesn't get pushed off-screen instead.
+function zoomOffsetX(screenWidth, sx, ghcVisible) {
+    return ghcVisible ? screenWidth - DESIGN_W * sx : 0;
+}
+{
+    const screenWidth = 776, sx = 776 / DESIGN_W * 1.3; // "Extra Large" display size
+    const noGhc = zoomOffsetX(screenWidth, sx, false);
+    const withGhc = zoomOffsetX(screenWidth, sx, true);
+    assert.strictEqual(noGhc, 0, 'left sidebar anchor must stay put without GHC');
+    assert.ok(DESIGN_W * sx + withGhc <= screenWidth + 0.01, `GHC's right edge must not exceed the viewport: ${DESIGN_W * sx + withGhc} > ${screenWidth}`);
+    assert.ok(Math.abs((DESIGN_W * sx + withGhc) - screenWidth) < 0.01, 'GHC column must sit flush against the viewport right edge');
+}
+
 console.log('ok — scaling fit math');

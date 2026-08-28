@@ -37,18 +37,17 @@ test('tapping the expanded ECharts canvas does not close the overlay', () => {
     const overlay = new Element();
     const canvas = new Element(overlay);
     const back = new Element(overlay);
-    const expand = new Element();
     const mainChart = new Element();
     const documentTarget = new Element();
     documentTarget.getElementById = id => ({
-        'chart-expand-btn': expand,
         'plotly-chart': mainChart,
         'expanded-chart-back': back,
         'expanded-chart-overlay': overlay
     })[id] || null;
     let closes = 0;
+    let opens = 0;
     const chart = {
-        openExpandedChart() {},
+        openExpandedChart() { opens += 1; },
         closeExpandedChart() { closes += 1; },
         isExpandedChartOpen: () => true
     };
@@ -60,6 +59,9 @@ test('tapping the expanded ECharts canvas does not close the overlay', () => {
     )(chart, documentTarget, console);
 
     wireExpandedChart();
+    // Tapping the main chart is now the only way to open the overlay.
+    mainChart.tap();
+    assert.equal(opens, 1);
     canvas.tap();
     assert.equal(closes, 0);
     back.tap();

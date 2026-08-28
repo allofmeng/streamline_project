@@ -152,9 +152,15 @@ export function initScaling() {
 
         let offsetX, offsetY;
         if (uiZoom > 1.0) {
-            // Option D: anchor top-left when zoomed — right/bottom overflow instead of all-sides clip.
-            // The left sidebar (primary controls) always stays fully visible.
-            offsetX = 0;
+            // Option D: anchor an edge when zoomed — overflow the opposite side instead of
+            // clipping all around. Normally left-anchored so the left sidebar (primary
+            // controls) always stays fully visible. GHC machines put a second control
+            // column (coffee/water/steam/flush/stop) flush against the design canvas's
+            // right edge (x:1748-1920) — left-anchoring would push that off-screen first,
+            // so right-anchor instead while it's shown, sacrificing chart/history overflow
+            // on the left rather than the machine controls on the right.
+            const ghcVisible = document.getElementById('ghc-controls')?.style.display === 'flex';
+            offsetX = ghcVisible ? screenWidth - designWidth * sx : 0;
             offsetY = 0;
             // Option C: allow scroll so no content is permanently inaccessible when zoomed.
             // On tablets this enables touch-scroll/pan to reach the chart and data panels.
