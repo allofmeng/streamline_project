@@ -161,6 +161,7 @@ export function closeContextMenu() {
     backdrop.classList.remove('context-menu-backdrop--open');
     anchor && anchor.classList.remove('long-press-active');
     activeMenu = null;
+    if (anchor?.isConnected && typeof anchor.focus === 'function') anchor.focus({ preventScroll: true });
     if (typeof onClose === 'function') {
         try { onClose(); } catch (err) { console.error('[context-menu] onClose error', err); }
     }
@@ -173,13 +174,23 @@ export function openContextMenu(anchorEl, items, options = {}) {
     const { backdrop, menu } = ensureRoot();
     const close = () => closeContextMenu();
     buildItems(menu, items, close);
+    const actionCount = items.filter(item => !item.divider).length;
+    const bottomSheet = window.matchMedia?.('(pointer: coarse)').matches && actionCount >= 4;
+    menu.classList.toggle('context-menu--bottom-sheet', bottomSheet);
 
     menu.style.visibility = 'hidden';
     menu.classList.add('context-menu--open');
     backdrop.classList.add('context-menu-backdrop--open');
 
     requestAnimationFrame(() => {
-        position(menu, anchorEl);
+        if (bottomSheet) {
+            menu.style.removeProperty('left');
+            menu.style.removeProperty('top');
+            menu.style.removeProperty('--arrow-offset');
+            menu.classList.remove('context-menu--above', 'context-menu--below');
+        } else {
+            position(menu, anchorEl);
+        }
         menu.style.visibility = '';
         const first = focusableItems(menu)[0];
         if (first) first.focus();

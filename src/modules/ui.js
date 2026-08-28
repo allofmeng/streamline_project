@@ -3,10 +3,17 @@ import { openDB, getSetting, setSetting } from './idb.js';
 import { deriveSleepButtonAction, isWakePending } from './screensaver-policy.js';
 import { isBengleMachine, isBengleModel } from './machine.js';
 import { STEAM_FLOW_PRESETS_BY_MODEL, MILK_STOP_PRESETS, resolveSteamFlowPresetsForModel, resolveSteamTileMode, milkTelemetryValue, steamFlowHighlightIndex, STEAM_SYNC_SYNCED, steamSyncField, foldSteamSyncState, shouldRetrySteamSync } from './steam-mode.js';
-import { shouldUseNumpad, openModal as openNumpadModal } from './numpad-modal.js';
+import { shouldUseNumpad } from './numpad-policy.js';
 import { openContextMenu } from './context-menu.js';
 import { logger } from './logger.js';
 import * as chart from './chart.js';
+
+function openNumpadModal(...args) {
+    import('./numpad-modal.js').then(module => {
+        module.initNumpadModal();
+        module.openModal(...args);
+    });
+}
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, getTranslation } from './i18n.js';
 import { getTotalTime as getShotTotalTime } from './shotData.js';
 import { formatTemp, fromDisplayTemp, displayStepToCelsius, boundToDisplay, getTempUnit } from './units.js';
@@ -32,8 +39,14 @@ function initLanguageSwitcher() {
     });
 
     // Add event listener
-    switcher.addEventListener('change', (event) => {
-        setLanguage(event.target.value);
+    switcher.addEventListener('change', async (event) => {
+        event.target.disabled = true;
+        try {
+            await setLanguage(event.target.value);
+            event.target.value = getCurrentLanguage();
+        } finally {
+            event.target.disabled = false;
+        }
     });
 }
 
@@ -499,7 +512,7 @@ function setupValueAdjuster(minusBtnId, plusBtnId, valueElId, step, min, formatt
     });
 }
 
-export const LONG_PRESS_MS = 600;
+export const LONG_PRESS_MS = 500;
 
 function makeNumpadMockInput(initialValue) {
     return {
@@ -511,71 +524,80 @@ function makeNumpadMockInput(initialValue) {
 }
 
 export function setupPressAndHold(element, clickCallback, longPressCallback, options = {}) {
-    if (element.dataset.pressHoldInit) return; // already wired — prevent duplicate listeners on re-init
+    if (element.dataset.pressHoldInit) return;
     element.dataset.pressHoldInit = '1';
 
     const duration = options.duration ?? LONG_PRESS_MS;
+    const movementThreshold = options.movementThreshold ?? 10;
+    element.style.touchAction = options.touchAction ?? 'manipulation';
 
     let timer;
-    let longPressOccurred = false;
+    let pointerId = null;
+    let pointerType = '';
+    let startX = 0;
+    let startY = 0;
+    let suppressClick = false;
+    let suppressClickReset;
 
     const setActiveRing = (on) => {
         if (on) element.classList.add('long-press-active');
         else element.classList.remove('long-press-active');
     };
 
-    const startPress = (e) => {
-        e.preventDefault();
-        longPressOccurred = false;
+    const cancelPress = () => {
+        clearTimeout(timer);
+        pointerId = null;
+        setActiveRing(false);
+    };
+
+    const startPress = (event) => {
+        if (event.isPrimary === false || (event.pointerType === 'mouse' && event.button !== 0)) return;
+        clearTimeout(timer);
+        pointerId = event.pointerId;
+        pointerType = event.pointerType;
+        startX = event.clientX;
+        startY = event.clientY;
+        suppressClick = false;
+        clearTimeout(suppressClickReset);
         setActiveRing(true);
         timer = setTimeout(() => {
-            longPressOccurred = true;
+            suppressClick = true;
+            suppressClickReset = setTimeout(() => { suppressClick = false; }, 1000);
             setActiveRing(false);
+            if (pointerType === 'touch' && typeof navigator.vibrate === 'function') {
+                try { navigator.vibrate(10); } catch {}
+            }
             longPressCallback(element);
         }, duration);
     };
 
-    const endPress = (e) => {
-        clearTimeout(timer);
-        setActiveRing(false);
-        if (longPressOccurred) {
-            e.preventDefault();
-            e.stopPropagation();
-        } else if (e.type === 'touchend') {
-            // preventDefault on touchstart suppressed the synthetic click — fire manually
-            e.preventDefault();
-            clickCallback();
-        }
+    const movePress = (event) => {
+        if (event.pointerId !== pointerId) return;
+        if (Math.hypot(event.clientX - startX, event.clientY - startY) > movementThreshold) cancelPress();
     };
 
-    const cancelPress = () => {
-        clearTimeout(timer);
-        setActiveRing(false);
+    const endPress = (event) => {
+        if (event.pointerId === pointerId) cancelPress();
     };
 
-    // Desktop right-click opens the same menu (mouse parity)
-    element.addEventListener('contextmenu', e => {
-        e.preventDefault();
+    element.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        cancelPress();
         longPressCallback(element);
     });
 
-    // Mouse events
-    element.addEventListener('mousedown', startPress);
-    element.addEventListener('mouseup', endPress);
-    element.addEventListener('mouseleave', cancelPress);
+    element.addEventListener('pointerdown', startPress);
+    element.addEventListener('pointermove', movePress);
+    element.addEventListener('pointerup', endPress);
+    element.addEventListener('pointercancel', endPress);
+    element.addEventListener('pointerleave', endPress);
 
-    // Touch events
-    element.addEventListener('touchstart', startPress, { passive: false });
-    element.addEventListener('touchend', endPress);
-    element.addEventListener('touchcancel', cancelPress);
-
-    element.addEventListener('click', (e) => {
-        if (longPressOccurred) {
-            e.preventDefault();
-            e.stopPropagation();
-        } else {
-            clickCallback();
-        }
+    element.addEventListener('click', (event) => {
+        if (!suppressClick) return clickCallback();
+        suppressClick = false;
+        clearTimeout(suppressClickReset);
+        event.preventDefault();
+        event.stopImmediatePropagation();
     });
 }
 
@@ -3069,15 +3091,10 @@ export function showGhcControls() {
         grid.style.gridTemplateColumns = '90px 90px 90px 100px 200px 110px';
     });
 
-    // Resize Plotly: clear inline width (set by Plotly at init) then relayout to new size.
-    // 1920px canvas - 480px left aside - 172px GHC = 1268px chart width.
-    // Right margin is computed dynamically from label widths — refresh after resize
-    // so labels stay inside the new plot box.
     const chartEl = document.getElementById('plotly-chart');
     if (chartEl) {
         chartEl.style.width = '';
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            Plotly.relayout(chartEl, { width: 1268 });
             chart.refreshLabelMargin();
         }));
     }
@@ -3102,13 +3119,10 @@ export function hideGhcControls() {
         grid.style.gridTemplateColumns = '';
     });
 
-    // Restore chart to full main width: 1920px - 480px left aside = 1440px.
-    // Right margin recomputed from label widths.
     const chartEl = document.getElementById('plotly-chart');
     if (chartEl) {
         chartEl.style.width = '';
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            Plotly.relayout(chartEl, { width: 1460 });
             chart.refreshLabelMargin();
         }));
     }

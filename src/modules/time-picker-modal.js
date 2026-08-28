@@ -14,7 +14,7 @@
 //
 // Opt out of the custom picker on a specific input with `data-no-time-picker`.
 
-import { shouldUseNumpad } from './numpad-modal.js';
+import { shouldUseNumpad } from './numpad-policy.js';
 import {
     parseTime24,
     formatTime24,

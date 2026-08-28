@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
@@ -24,6 +25,16 @@ test('settings search highlights punctuation literally', () => {
     for (const [text, term] of cases) {
         assert.equal(highlightTokens(text, term), text.replace(term, MARK(term)));
     }
+});
+
+const source = readFileSync(new URL('../src/settings/settings.js', import.meta.url), 'utf8');
+
+test('settings search keeps navigation stable and waits for explicit activation', () => {
+    assert.doesNotMatch(source, /cloneNode\(/);
+    assert.doesNotMatch(source, /restoreOriginalNavigation|updateNavigationWithResults/);
+    assert.match(source, /dataset\.settingsSearchResults/);
+    assert.match(source, /setTimeout\(\(\) => renderResults\(searchTerm\), 125\)/);
+    assert.match(source, /event\.key !== 'Enter'/);
 });
 
 // The settings nav only knows page names, so searching for a setting used to

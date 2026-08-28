@@ -21,9 +21,9 @@ test('single IndexedDB writes settle only when their transaction settles', async
         },
     };
     const functions = new Function(
-        'db', 'logger', 'SETTINGS_STORE_NAME', 'SHOTS_STORE_NAME',
-        `${['setSetting', 'addShot', 'deleteShot', 'clearShots'].map(pick).join('\n')}\nreturn { setSetting, addShot, deleteShot, clearShots };`,
-    )(db, { info() {}, error() {} }, 'settings', 'shots');
+        'db', 'logger', 'SETTINGS_STORE_NAME', 'SHOTS_STORE_NAME', 'SHOT_SUMMARIES_STORE_NAME',
+        `const toShotSummary = shot => shot;\n${['setSetting', 'addShot', 'deleteShot', 'clearShots'].map(pick).join('\n')}\nreturn { setSetting, addShot, deleteShot, clearShots };`,
+    )(db, { info() {}, error() {} }, 'settings', 'shots', 'shot_summaries');
 
     const operations = [
         () => functions.setSetting('theme', 'dark'),

@@ -14,7 +14,9 @@ const cacheSource = [
 ].join('\n');
 const functionSource = [
     pick(/export async function getDe1Settings\(\) \{[\s\S]*?\r?\n\}/),
+    pick(/export async function setDe1Settings\(settings\) \{[\s\S]*?\r?\n\}/),
     pick(/export async function getDe1AdvancedSettings\(\) \{[\s\S]*?\r?\n\}/),
+    pick(/export async function setDe1AdvancedSettings\(settings\) \{[\s\S]*?\r?\n\}/),
     pick(/export async function resetDe1Settings\(\) \{[\s\S]*?\r?\n\}/),
 ].join('\n');
 
@@ -38,4 +40,57 @@ test('resetting machine settings invalidates both read caches', async () => {
     assert.equal((await getDe1Settings()).value, 'default');
     assert.equal((await getDe1AdvancedSettings()).value, 'default');
     assert.deepEqual(calls.map(([, method]) => method), ['GET', 'GET', 'DELETE', 'GET', 'GET']);
+});
+
+test('writing machine settings invalidates both read caches', async () => {
+    let value = 'old';
+    const fetch = async (url, options = {}) => {
+        if (options.method === 'POST') value = 'new';
+        return { ok: true, json: async () => ({ value }) };
+    };
+    const api = new Function(
+        'fetch', 'logger', 'API_BASE_URL', 'firmwareFlashInFlight',
+        `${cacheSource}\n${functionSource}\nreturn { getDe1Settings, setDe1Settings, getDe1AdvancedSettings, setDe1AdvancedSettings };`,
+    )(fetch, { info() {}, error() {} }, 'http://decaid/api/v1', false);
+
+    assert.equal((await api.getDe1Settings()).value, 'old');
+    await api.setDe1Settings({});
+    assert.equal((await api.getDe1Settings()).value, 'new');
+    value = 'old';
+    assert.equal((await api.getDe1AdvancedSettings()).value, 'old');
+    await api.setDe1AdvancedSettings({});
+    assert.equal((await api.getDe1AdvancedSettings()).value, 'new');
+});
+
+test('a reset does not reuse or cache reads started before the reset', async () => {
+    let reset = false;
+    const oldReads = [];
+    const fetch = (url, options = {}) => {
+        if (options.method === 'DELETE') {
+            reset = true;
+            return Promise.resolve({ ok: true });
+        }
+        if (!reset) {
+            return new Promise(resolve => oldReads.push(() => resolve({
+                ok: true,
+                json: async () => ({ value: 'old' })
+            })));
+        }
+        return Promise.resolve({ ok: true, json: async () => ({ value: 'default' }) });
+    };
+    const { getDe1Settings, getDe1AdvancedSettings, resetDe1Settings } = new Function(
+        'fetch', 'logger', 'API_BASE_URL', 'firmwareFlashInFlight',
+        `${cacheSource}\n${functionSource}\nreturn { getDe1Settings, getDe1AdvancedSettings, resetDe1Settings };`,
+    )(fetch, { info() {}, error() {} }, 'http://decaid/api/v1', false);
+
+    const oldStandard = getDe1Settings();
+    const oldAdvanced = getDe1AdvancedSettings();
+    await resetDe1Settings();
+    const fresh = await Promise.all([getDe1Settings(), getDe1AdvancedSettings()]);
+    oldReads.forEach(resolve => resolve());
+    await Promise.all([oldStandard, oldAdvanced]);
+
+    assert.deepEqual(fresh.map(value => value.value), ['default', 'default']);
+    assert.equal((await getDe1Settings()).value, 'default');
+    assert.equal((await getDe1AdvancedSettings()).value, 'default');
 });

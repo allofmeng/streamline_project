@@ -18,6 +18,7 @@ import {
     computeExpandedTopYMax,
     computeExpandedTempRange,
     pickVisible,
+    separateLabelPositions,
 } from '../src/modules/chart-autoscale.js';
 import { readFileSync } from 'node:fs';
 
@@ -54,6 +55,11 @@ test('niceCeil: steps of 10 above 80', () => {
     assert.equal(niceCeil(80.1), 90);
     assert.equal(niceCeil(94), 100);
     assert.equal(niceCeil(101), 110);
+});
+
+test('label separation moves a bottom cluster upward without overlap', () => {
+    assert.deepEqual(separateLabelPositions([570, 588, 590], 16, 582), [550, 566, 582]);
+    assert.deepEqual(separateLabelPositions([20, 80, 140], 16, 582), [20, 80, 140]);
 });
 
 // ── computeExpandedTopYMax ───────────────────────────────────────────────────
@@ -262,9 +268,9 @@ test('the top-chart trace order in chart.js matches the y-array order', () => {
         assert.ok(m, `${name} not found in chart.js`);
         return m[0];
     };
-    const keys = ['pressure', 'flow', 'gflow', 'targetPressure', 'targetFlow'];
+    const keys = ['pressure', 'flow', 'weight', 'targetPressure', 'targetFlow'];
     const orderIn = (text) => keys
-        .map(k => ({ k, at: text.indexOf(`s.${k}.`) }))
+        .map(k => ({ k, at: text.indexOf(`chartData.${k}`) }))
         .filter(e => e.at !== -1)
         .sort((a, b) => a.at - b.at)
         .map(e => e.k);

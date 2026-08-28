@@ -9,9 +9,9 @@ import * as history from './history.js';
 import * as shotData from './shotData.js';
 import * as profileManager from './profileManager.js';
 import * as api from './api.js';
-import { loadPage, initRouter, isSubPage } from './router.js';
+import { loadPage, initRouter, isSubPage, prefetchSettingsPage } from './router.js';
 import { initWaterTankSocket } from './waterTank.js';
-import { logger, setDebug } from './logger.js';
+import { logger } from './logger.js';
 import { deriveScreensaverAction, isMachineAsleep, isScreensaverSuppressed } from './screensaver-policy.js';
 import { createMachineLinkWatcher, machineFromDevicesPayload } from './machine-link.js';
 import { setMachineModel, isBengleMachine, setRefillKitPresent, isRefillKitPresent } from './machine.js';
@@ -20,12 +20,13 @@ import { resolveMilkProbePresence } from './steam-mode.js';
 import { readTimeToReadyFrame, heatingSecondsLeft } from './heating-countdown.js';
 import { workflowTileValues, changedTileValues } from './workflow-watch.js';
 import { isCupWarmerOn, readCupWarmerTarget, resolvePrewarm, getCupWarmerState, setCupWarmerState, patchCupWarmerState, invalidateCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY } from './cup-warmer.js';
-import { initNumpadModal, attachToNumericInputs, openModal, shouldUseNumpad } from './numpad-modal.js';
-import { initTimePicker } from './time-picker-modal.js';
 import { openDB, setSetting } from './idb.js';
 import { openContextMenu } from './context-menu.js';
 import { shouldHandleMachineShortcut } from './machine-shortcut.js';
 import { initEcoSteam, noteEcoSteamActivity } from './eco-steam.js';
+import { loadStyle } from './vendor-loader.js';
+import { loadECharts } from './echarts-loader.js';
+import { initHelpLauncher } from './help-launcher.js';
 
 window.app = { api, ui, chart };
 
@@ -55,7 +56,7 @@ function initClockTicker() {
     }, msToNextMinute);
 }
 
-function initMobileValueInputs() {
+function initMobileValueInputs({ openModal, shouldUseNumpad }) {
     if (!shouldUseNumpad()) return;
     
     const valueElements = [
@@ -1272,7 +1273,6 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
                             const defaultBgClass = 'bg-[var(--profile-button-background-color)]';
 
                             logger.info(`Marking button at index ${i} as active for profile ${profile.title}. Adding: ${activeBgClass}, ${activeTextClass}. Removing: ${inactiveTextClass}. Current classes: ${button.className}`);
-                            console.log(`[text-white APPLY] btn=${i} path=assignment-match profile="${profile.title}" assignedTitle="${assignedProfileRecord.profile.title}" alreadyHasTextWhite=${button.classList.contains('text-white')}`);
                             button.classList.add(activeBgClass, activeTextClass);
                             button.classList.remove(inactiveTextClass, defaultTextClass, defaultBgClass);
                             logger.info(`Button ${i} classes after change: ${button.className}`);
@@ -1285,9 +1285,6 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
                             const defaultBgClass = 'bg-[var(--profile-button-background-color)]';
 
                             logger.info(`Marking button ${i} as inactive. Removing: ${activeBgClass}, ${activeTextClass}. Adding: ${inactiveTextClass}. Current classes: ${button.className}`);
-                            if (button.classList.contains('text-white')) {
-                                console.log(`[text-white REMOVE] btn=${i} path=assignment-mismatch activeProfile="${profile.title}" assignedTitle="${assignedProfileRecord?.profile?.title}"`);
-                            }
                             button.classList.remove(activeBgClass, activeTextClass);
                             button.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
                             logger.info(`Button ${i} classes after change: ${button.className}`);
@@ -1301,9 +1298,6 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
                         const defaultBgClass = 'bg-[var(--profile-button-background-color)]';
 
                         logger.info(`Button ${i} has no assignment. Removing: ${activeBgClass}, ${activeTextClass}. Adding: ${inactiveTextClass}. Current classes: ${button.className}`);
-                        if (button.classList.contains('text-white')) {
-                            console.log(`[text-white REMOVE] btn=${i} path=no-assignment activeProfile="${profile.title}"`);
-                        }
                         button.classList.remove(activeBgClass, activeTextClass);
                         button.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
                         logger.info(`Button ${i} classes after change: ${button.className}`);
@@ -1326,15 +1320,11 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
 
                     if (buttonText === profileTitle) {
                         logger.info(`[FALLBACK] Marking button ${index} as active for profile ${profileTitle}. Adding: bg-[var(--mimoja-blue-v2)], text-white. Current classes: ${btn.className}`);
-                        console.log(`[text-white APPLY] btn=${index} path=fallback-text-match buttonText="${buttonText}" profile="${profileTitle}" alreadyHasTextWhite=${btn.classList.contains('text-white')}`);
                         btn.classList.add(activeBgClass, activeTextClass);
                         btn.classList.remove(inactiveTextClass, defaultTextClass, defaultBgClass);
                         logger.info(`[FALLBACK] Button ${index} classes after change: ${btn.className}`);
                     } else {
                         logger.info(`[FALLBACK] Marking button ${index} as inactive. Removing: bg-[var(--mimoja-blue-v2)], text-white. Adding: text-[var(--mimoja-blue)]. Current classes: ${btn.className}`);
-                        if (btn.classList.contains('text-white')) {
-                            console.log(`[text-white REMOVE] btn=${index} path=fallback-text-mismatch buttonText="${buttonText}" activeProfile="${profileTitle}"`);
-                        }
                         btn.classList.remove(activeBgClass, activeTextClass);
                         btn.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
                         logger.info(`[FALLBACK] Button ${index} classes after change: ${btn.className}`);
@@ -1475,10 +1465,11 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
         // everything as "changed".
         seedWorkflowTiles(workflow);
         startWorkflowWatch();
-
+        return workflow;
     } catch (error) {
         logger.error("Failed to load initial data:", error);
         ui.updateProfileName("Error loading profile");
+        return null;
     }
 }
 
@@ -1840,15 +1831,13 @@ async function initMainPageOnce() {
     if (mainPageInitPromise) return mainPageInitPromise;
     mainPageInitPromise = (async () => {
         logger.info('initMainPageOnce: starting.');
-        await history.initHistory();
-        resolveHistoryReady();
-        await profileManager.init();
+        const historyInit = history.initHistory().then(resolveHistoryReady);
+        await Promise.all([historyInit, profileManager.init()]);
         window.app.saveGrindToActiveProfile = (val) => profileManager.saveGrindToActiveProfile(val);
         window.app.saveContextToActiveProfile = (fields) => profileManager.saveContextToActiveProfile(fields);
         window.app.getActiveProfileRecord = () => profileManager.getActiveProfileRecord();
-        await loadInitialData();
+        const workflow = await loadInitialData();
         await initializeDe1Connection();
-        await initVisualizer();
         connectWebSocket(handleData, onMachineSnapshotSocketOpen);
         connectScaleWebSocket(handleScaleData, onScaleReconnect, onScaleDisconnect);
         connectDeviceWebSocket(handleDeviceWsData, () => {}, () => {}, handleDeviceConnectionError);
@@ -1866,10 +1855,10 @@ async function initMainPageOnce() {
         ensureGatewayModeTracking();
         resetDataTimeout();
         connectShotSettingsWebSocket(handleShotSettingsData);
-        getDe1AdvancedSettings();
-        getDe1Settings();
+        void initVisualizer().catch(error => logger.error('Visualizer initialization failed:', error));
         mainPageInitialized = true;
         logger.info('initMainPageOnce: finished.');
+        return workflow;
     })().catch(err => {
         mainPageInitPromise = null; // allow retry on next showMainPage
         logger.error('initMainPageOnce failed:', err);
@@ -1888,15 +1877,16 @@ window.app.isShotActive = () => shotStartTime !== null;
 // the shared element for the duration of that repaint.
 window.app.clearChart = () => chart.clearChart();
 
-async function prefetchSettingsToIDB() {
+async function prefetchSettingsToIDB(workflow = null) {
     try {
         await openDB();
+        const workflowRequest = workflow ? Promise.resolve(workflow) : getWorkflow();
         const [reaResult, de1Result, de1AdvResult, appInfoResult, workflowResult] = await Promise.allSettled([
             getReaSettings(),
             getDe1Settings(),
             getDe1AdvancedSettings(),
             getAppInfo(),
-            getWorkflow()
+            workflowRequest
         ]);
         const pairs = [
             ['settings-rea',         reaResult],
@@ -1916,7 +1906,6 @@ async function prefetchSettingsToIDB() {
     }
 }
 
-// --- External-link debugging ---------------------------------------------
 // The webview host opens the system browser ONLY when a top-level navigation
 // reaches its shouldOverrideUrlLoading hook (reaprime gh#384): it sees an
 // external http(s) URL, launches Chrome, and cancels the in-webview load so the
@@ -1924,57 +1913,21 @@ async function prefetchSettingsToIDB() {
 // onCreateWindow and dies. So intercept any external (cross-origin) link tap and
 // drive a real same-frame navigation; the user gesture is preserved so the
 // host's launchUrl works. Internal/same-origin and hash/JS links are left alone.
-//
-// Heavily logged with the [ext-link] tag so the on-device webview_console.log
-// documents the whole flow: env at boot, every anchor tap, the classify
-// decision, and the navigation attempt (incl. any thrown error).
-const EXT = '[ext-link]';
-
-// Boot banner — confirms this build is live on the device and whether we're in
-// the host webview (host injects window.__DECENT_HOST__).
-try {
-    console.log(EXT, 'init', JSON.stringify({
-        origin: location.origin,
-        href: location.href,
-        isWebview: !!window.__DECENT_HOST__,
-        host: window.__DECENT_HOST__ || null,
-        ua: navigator.userAgent,
-    }));
-} catch (err) {
-    console.log(EXT, 'init log failed:', err && err.message);
-}
-
-// Log raw taps too, so we can see whether the gesture reaches document at all
-// (rules out touch/SPA handlers swallowing the click before it bubbles here).
-document.addEventListener('pointerup', (e) => {
-    const a = e.target && e.target.closest && e.target.closest('a[href]');
-    if (a) console.log(EXT, 'pointerup over a[href]:', a.getAttribute('href'));
-}, true); // capture phase — fires even if a later handler stops propagation
-
 document.addEventListener('click', (e) => {
     const link = e.target.closest('a[href]');
     if (!link) return;
-    const rawHref = link.getAttribute('href'); // as authored in the DOM
-    const href = link.href;                    // resolved absolute URL
-    console.log(EXT, 'click on a[href]', JSON.stringify({
-        rawHref, href, target: link.target || '(none)',
-        defaultPrevented: e.defaultPrevented,
-    }));
-
-    if (e.defaultPrevented) { console.log(EXT, 'skip: default already prevented upstream'); return; }
-    if (!/^https?:\/\//i.test(href)) { console.log(EXT, 'skip: not http(s):', href); return; }
+    const href = link.href;
+    if (e.defaultPrevented) return;
+    if (!/^https?:\/\//i.test(href)) return;
     if (href.startsWith(location.origin + '/') || href === location.origin) {
-        console.log(EXT, 'skip: internal (same-origin):', href);
         return;
     }
 
-    console.log(EXT, 'external -> driving top-level navigation:', href);
     e.preventDefault();
     try {
         window.location.assign(href); // host's shouldOverrideUrlLoading -> launchUrl -> OS browser
-        console.log(EXT, 'location.assign called (no throw). If no browser opened, the host/device handled it — likely no browser app or launchUrl failed.');
     } catch (err) {
-        console.log(EXT, 'location.assign threw:', err && err.message);
+        logger.warn('External navigation failed:', err);
     }
 });
 
@@ -1993,49 +1946,6 @@ function wireExpandedChart() {
     const backBtn = document.getElementById('expanded-chart-back');
     if (backBtn) backBtn.addEventListener('click', close);
 
-    // Tap anywhere on the overlay to close it — the back arrow is a small
-    // target on a tablet and the charts fill the rest of the screen.
-    //
-    // Three things the obvious `overlay.onclick = close` gets wrong, all found
-    // by driving the real overlay in a browser:
-    //
-    //  - Panning. The expanded charts are interactive (staticPlot:false in
-    //    renderExpandedCharts), and a drag across a plot still ends in a click.
-    //    Only a press that stayed put counts as a tap — the same travel check
-    //    the exit-to-dashboard button in index.html uses, minus its long-press.
-    //
-    //  - The legend. Plotly's own legend handling is the only way to toggle a
-    //    trace (single click) or isolate one (double click), and both are taps
-    //    landing inside the plot container. Anything starting in the legend is
-    //    left entirely to Plotly, or a double click would close the overlay on
-    //    its first click and never reach Plotly at all.
-    //
-    //  - pointerup does not arrive. Over a plot's drag layer, Plotly lays a
-    //    cover div across the window on mousedown and removes it on mouseup, so
-    //    the pointerup fires outside this overlay and never reaches this
-    //    listener; pointerdown, mousedown and click all still do. Hence the
-    //    split: pointerdown records where the press began, click decides.
-    //
-    // Consequence, accepted deliberately: double-clicking the PLOT area no
-    // longer autoscales, because the first click closes. renderExpandedCharts
-    // recomputes both y-ranges on every frame anyway, so that reset had nothing
-    // lasting to undo. The legend's double-click isolate is unaffected.
-    const overlay = document.getElementById('expanded-chart-overlay');
-    if (overlay) {
-        const TAP_SLOP = 10;
-        let downX = 0, downY = 0, downInLegend = false;
-        const inLegend = (node) => !!(node instanceof Element && node.closest('.legend'));
-        overlay.addEventListener('pointerdown', (e) => {
-            downX = e.clientX;
-            downY = e.clientY;
-            downInLegend = inLegend(e.target);
-        });
-        overlay.addEventListener('click', (e) => {
-            if (downInLegend || inLegend(e.target)) return;
-            if (Math.hypot(e.clientX - downX, e.clientY - downY) <= TAP_SLOP) close();
-        });
-    }
-
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && chart.isExpandedChartOpen && chart.isExpandedChartOpen()) close();
     });
@@ -2043,25 +1953,36 @@ function wireExpandedChart() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        setDebug(true);
         logger.info('App DOMContentLoaded: Starting initialization.');
-
-        chart.initChart();
-        wireExpandedChart();
-        logger.info('App DOMContentLoaded: Chart initialized.');
 
         // Preferences come back from Decaid's KV store before anything reads
         // them — WebView storage does not survive an app update.
         await settingsReady;
 
-        await initI18n();
-        await initUnits();
-        ui.initUI({ onWeightClick: handleWeightClick }); // also inits the screensaver
         initScaling();
-        initNumpadModal();
-        initTimePicker();
-        initMobileValueInputs();
+        if (!isSubPage()) requestAnimationFrame(() => loadECharts().catch(error => logger.error('ECharts load failed:', error)));
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            ['numpad-modal.css', 'time-picker-modal.css', 'context-menu.css']
+                .forEach(file => loadStyle(`src/css/${file}`).catch(() => {}));
+            initHelpLauncher();
+            Promise.all([
+                import('./numpad-modal.js'),
+                import('./time-picker-modal.js')
+            ]).then(([numpad, timePicker]) => {
+                numpad.initNumpadModal();
+                timePicker.initTimePicker();
+                initMobileValueInputs(numpad);
+            }).catch(error => logger.warn('Deferred input controls failed to load:', error));
+        }));
+        const i18nReady = initI18n();
+        const unitsReady = initUnits();
+        chart.initChart();
+        wireExpandedChart();
+        logger.info('App DOMContentLoaded: Chart initialized.');
+
+        ui.initUI({ onWeightClick: handleWeightClick }); // also inits the screensaver
         initEcoSteam();
+        await Promise.all([i18nReady, unitsReady]);
         logger.info('App DOMContentLoaded: UI initialized.');
 
         // Check URL and load appropriate page if navigating directly to a route
@@ -2070,12 +1991,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Run main-page init unless we booted on a sub-page; sub-page returns will
         // trigger it lazily via window.app.initMainPageOnce() from the router.
-        if (!isSubPage()) {
-            await initMainPageOnce();
-        }
+        const initialWorkflow = !isSubPage() ? await initMainPageOnce() : null;
 
         // Pre-warm settings cache so the settings page opens without redirecting on slow Rea responses
-        prefetchSettingsToIDB();
+        prefetchSettingsToIDB(initialWorkflow);
 
         logger.info('App initialization finished successfully.');
 
@@ -2263,6 +2182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Add event listener for the settings button
         const settingsBtn = document.getElementById('settings-btn');
         if (settingsBtn) {
+            settingsBtn.addEventListener('pointerdown', () => {
+                prefetchSettingsPage().catch(() => {});
+            }, { once: true });
             settingsBtn.addEventListener('click', () => {
                 loadPage('src/settings/settings.html');
             });

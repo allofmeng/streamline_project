@@ -78,12 +78,20 @@ export function boundToDisplay(celsius) {
 }
 
 export async function initUnits() {
-    let saved = null;
+    currentTempUnit = localStorage.getItem(TEMP_UNIT_KEY) === 'F' ? 'F' : 'C';
+    localStorage.setItem(TEMP_UNIT_KEY, currentTempUnit);
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
     try {
         await openDB();
-        saved = await getSetting(TEMP_UNIT_KEY);
+        const saved = await getSetting(TEMP_UNIT_KEY);
+        if (saved === 'C' || saved === 'F') {
+            if (saved !== currentTempUnit) {
+                currentTempUnit = saved;
+                localStorage.setItem(TEMP_UNIT_KEY, currentTempUnit);
+                document.dispatchEvent(new CustomEvent('streamline:unitchange', { detail: { unit: currentTempUnit } }));
+            }
+        } else {
+            await setSetting(TEMP_UNIT_KEY, currentTempUnit);
+        }
     } catch (_) {}
-    if (!saved) saved = localStorage.getItem(TEMP_UNIT_KEY);
-    currentTempUnit = saved === 'F' ? 'F' : 'C';
-    localStorage.setItem(TEMP_UNIT_KEY, currentTempUnit);
 }

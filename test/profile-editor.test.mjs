@@ -100,7 +100,7 @@ const sanMatch = apiSource.match(/function sanitizeProfileForRea\(profileData\) 
 assert.ok(sanMatch, 'sanitizeProfileForRea not found in api.js');
 const sanitizeProfileForRea = new Function(`${sanMatch[0]}\nreturn sanitizeProfileForRea;`)();
 
-const normMatch = source.match(/function normalizeLegacySteps\(profile\) \{[\s\S]*?\n\}\n/);
+const normMatch = source.match(/function normalizeLegacySteps\(profile\) \{[\s\S]*?\r?\n\}\r?\n/);
 assert.ok(normMatch, 'normalizeLegacySteps not found in profile_editor.js');
 const normalizeLegacySteps = new Function(`${normMatch[0]}\nreturn normalizeLegacySteps;`)();
 

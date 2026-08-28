@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>IndexedDB migration test</title>
+<pre id="result">running</pre>
+<script type="module">
+const databaseName = 'shot_history';
+const result = document.getElementById('result');
+const repair = new URLSearchParams(location.search).has('repair');
+const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const request = operation => new Promise((resolve, reject) => {
+    operation.onsuccess = () => resolve(operation.result);
+    operation.onerror = () => reject(operation.error);
+});
+
+try {
+    await request(indexedDB.deleteDatabase(databaseName));
+    const database = await new Promise((resolve, reject) => {
+        const open = indexedDB.open(databaseName, repair ? 9 : 8);
+        open.onupgradeneeded = () => {
+            const shots = open.result.createObjectStore('shots', { keyPath: 'id' });
+            shots.createIndex('by_timestamp', 'timestamp');
+            if (repair) {
+                const summaries = open.result.createObjectStore('shot_summaries', { keyPath: 'id' });
+                summaries.createIndex('by_timestamp', 'timestamp');
+            }
+            open.result.createObjectStore('settings', { keyPath: 'id' });
+            open.result.createObjectStore('decent_emails', { keyPath: 'emailid' });
+            for (let index = 0; index < 250; index += 1) {
+                const shot = { id: `shot-${index}`, timestamp: index, measurements: [{ index }] };
+                shots.put(shot);
+                if (repair && index < 120) open.transaction.objectStore('shot_summaries').put({ id: shot.id, timestamp: shot.timestamp });
+            }
+        };
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+    });
+    database.close();
+
+    const idb = await import(`/src/modules/idb.js?migration-test=${Date.now()}`);
+    await idb.openDB();
+    const seeded = await idb.getLatestShotSummaries(20);
+    if (seeded.length !== 20) throw new Error(`expected 20 seeded summaries, got ${seeded.length}`);
+    if (!repair && seeded[0].id !== 'shot-249') throw new Error(`expected newest summary first, got ${seeded[0].id}`);
+    if ('measurements' in seeded[0]) throw new Error('seeded summary retained measurements');
+
+    let count = await idb.getShotSummaryCount();
+    for (let attempt = 0; count < 250 && attempt < 100; attempt += 1) {
+        await wait(20);
+        count = await idb.getShotSummaryCount();
+    }
+    if (count !== 250) throw new Error(`expected 250 backfilled summaries, got ${count}`);
+    result.textContent = `pass: ${repair ? 'repaired' : 'migrated'} 20, backfilled 250`;
+    result.dataset.status = 'pass';
+} catch (error) {
+    result.textContent = `fail: ${error.stack || error.message}`;
+    result.dataset.status = 'fail';
+}
+</script>

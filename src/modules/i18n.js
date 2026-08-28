@@ -1,77 +1,63 @@
 import { logger } from './logger.js';
 import { openDB, getSetting, setSetting } from './idb.js';
+import { SUPPORTED_LANGUAGES, parseTranslationColumn } from './i18n-parser.js';
+import { APP_VERSION } from '../version.js';
 
-const translations = {};
-// lowercased key -> canonical CSV key, so lookups tolerate casing differences
-// between the UI text and the sheet (e.g. "Force On" finds "force on").
-const keyIndex = {};
-export let supportedLanguages = [];
+let translations = {};
+let keyIndex = {};
+let loadedLanguage = 'en';
+let translationCsvPromise = null;
+export const supportedLanguages = SUPPORTED_LANGUAGES;
 export let currentLanguage = 'en';
 
-/**
- * Parses a CSV string into a usable translation object.
- * @param {string} csvText The CSV content.
- */
-function parseCSV(csvText) {
-    if (csvText.charCodeAt(0) === 0xFEFF) {
-        csvText = csvText.substring(1);
-    }
-    const lines = csvText.trim().split(/\r?\n/);
-    const headers = lines[0].split(',').map(h => h.trim());
-    supportedLanguages = headers;
-
-    // Initialize translation objects for each language
-    headers.forEach(lang => {
-        translations[lang] = {};
-    });
-
-    const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
-
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line) continue;
-
-        const values = line.split(splitRegex).map(val => {
-            let value = val.trim();
-            if (value.startsWith('"') && value.endsWith('"')) {
-                value = value.substring(1, value.length - 1).replace(/""/g, '"');
-            }
-            return value;
-        });
-
-        const key = values[0];
-        if (key) {
-            keyIndex[key.toLowerCase()] = key;
-            headers.forEach((lang, index) => {
-                if (values[index] !== undefined) {
-                    const translation = values[index] || values[0] || key;
-                    translations[lang][key] = translation;
-                }
-            });
-        }
-    }
-    logger.info("Translations loaded for languages:", supportedLanguages);
+function clearTranslations() {
+    translations = {};
+    keyIndex = {};
+    loadedLanguage = 'en';
 }
 
-
-/**
- * Fetches and loads the translation data.
- */
-async function loadTranslations() {
-    try {
-        // no-cache: revalidate with the server every load so sheet edits apply on
-        // refresh instead of sticking to a cached copy (the cause of "translation
-        // exists in CSV but not applied"). 304 when unchanged, so it's cheap.
-        const response = await fetch('src/ui/de1 gui translation - Sheet1.csv', { cache: 'no-cache' });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const csvText = await response.text();
-        parseCSV(csvText);
-    } catch (error) {
-        console.error("Could not load or parse translation file:", error);
+function getTranslationCsv() {
+    if (!translationCsvPromise) {
+        translationCsvPromise = fetch('src/ui/de1 gui translation - Sheet1.csv', { cache: 'no-cache' }).then(async response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text();
+        }).catch(error => {
+            translationCsvPromise = null;
+            throw error;
+        });
     }
+    return translationCsvPromise;
+}
+
+async function loadTranslations(language) {
+    if (language === 'en') {
+        clearTranslations();
+        return;
+    }
+    if (loadedLanguage === language) return;
+    const cacheKey = `translations:${APP_VERSION}:${language}`;
+    let parsed;
+    try {
+        await openDB();
+        parsed = await getSetting(cacheKey);
+    } catch (_) {}
+    if (!parsed?.table || !parsed?.keyIndex) {
+        parsed = parseTranslationColumn(await getTranslationCsv(), language);
+        setSetting(cacheKey, parsed).catch(() => {});
+    }
+    translations = parsed.table;
+    keyIndex = parsed.keyIndex;
+    loadedLanguage = language;
+    logger.info(`Translations loaded for language: ${language}`);
+}
+
+function findSupportedLanguage(language) {
+    const normalized = String(language || '').toLowerCase();
+    if (supportedLanguages.includes(normalized)) return normalized;
+    const base = normalized.split('-')[0];
+    return supportedLanguages.includes(base) ? base : null;
 }
 
 /**
@@ -224,7 +210,7 @@ export function fitTextToWidth(el) {
  * @returns {string} The translated string, or the key if not found.
  */
 export function getTranslation(key) {
-    const table = translations[currentLanguage];
+    const table = translations;
     if (table && table[key] !== undefined && table[key] !== '') return table[key];
     // Case-insensitive fallback: tolerate UI/CSV casing differences. For the
     // English/source column the value equals the key, so return the caller's
@@ -258,45 +244,46 @@ export function getCurrentLanguage() {
  * Sets the current language and translates the page.
  * @param {string} lang The language code (e.g., 'en', 'fr').
  */
-export function setLanguage(lang) {
-    if (supportedLanguages.includes(lang)) {
-        currentLanguage = lang;
-        // Write to both — IDB survives WebView process kills on iOS, localStorage is sync fallback
-        localStorage.setItem('language', lang);
-        setSetting('language', lang).catch(() => {});
-        logger.info(`Language set to: ${lang}`);
-    } else {
+export async function setLanguage(lang) {
+    const requestedLanguage = findSupportedLanguage(lang);
+    if (!requestedLanguage) {
         console.warn(`Language '${lang}' not supported. Defaulting to 'en'.`);
-        currentLanguage = 'en';
     }
+    let nextLanguage = requestedLanguage || 'en';
+    try {
+        await loadTranslations(nextLanguage);
+    } catch (error) {
+        console.error("Could not load or parse translation file:", error);
+        clearTranslations();
+        nextLanguage = 'en';
+    }
+    currentLanguage = nextLanguage;
+    if (nextLanguage === (requestedLanguage || 'en')) {
+        localStorage.setItem('language', nextLanguage);
+        setSetting('language', nextLanguage).catch(() => {});
+    }
+    logger.info(`Language set to: ${currentLanguage}`);
+    const switcher = document.getElementById('language-switcher');
+    if (switcher) switcher.value = currentLanguage;
     translatePage();
     document.dispatchEvent(new CustomEvent('streamline:languagechange', { detail: { language: currentLanguage } }));
+    return currentLanguage;
 }
 
 /**
  * Initializes the internationalization module.
  */
 export async function initI18n() {
-    await loadTranslations();
-
-    // IDB is primary (survives WebView process kills on iOS/Android).
-    // localStorage is fallback for first run or when IDB hasn't been written yet.
-    let savedLang = null;
+    const localLanguage = findSupportedLanguage(localStorage.getItem('language'));
+    const initialLanguage = localLanguage || findSupportedLanguage(navigator.language) || 'en';
+    currentLanguage = initialLanguage;
+    localStorage.setItem('language', initialLanguage);
+    translatePage();
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    let savedLanguage = null;
     try {
         await openDB();
-        savedLang = await getSetting('language');
+        savedLanguage = findSupportedLanguage(await getSetting('language'));
     } catch (_) {}
-    if (!savedLang) {
-        savedLang = localStorage.getItem('language');
-    }
-
-    const browserLang = navigator.language.split('-')[0];
-    let initialLang = 'en';
-    if (savedLang && supportedLanguages.includes(savedLang)) {
-        initialLang = savedLang;
-    } else if (supportedLanguages.includes(browserLang)) {
-        initialLang = browserLang;
-    }
-
-    setLanguage(initialLang);
+    await setLanguage(savedLanguage || initialLanguage);
 }

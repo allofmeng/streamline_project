@@ -12,19 +12,7 @@
 // are English-only; wire into i18n.js if/when the app needs translated help.
 
 import { setupPressAndHold } from './ui.js';
-import { settingsReady } from './settingsSync.js';
-
-// Mirrors isInWebView() in ui.js / app.js — kept local so this module stays
-// dependency-light and copy-able.
-function isInWebView() {
-    const ua = navigator.userAgent;
-    const isIOS = /iPad|iPhone|iPod/.test(ua);
-    const isStandalone = window.navigator.standalone === true;
-    const isAndroidWebView = /Android/.test(ua) && /wv/.test(ua);
-    const isIOSWebView = isIOS && !isStandalone && !/Safari\//.test(ua);
-    const isDecentWebView = ua.includes('Decent');
-    return isAndroidWebView || isIOSWebView || isDecentWebView;
-}
+import { isInWebView, syncHelpButton } from './help-launcher.js';
 
 const RING_PAD = 6;        // px of breathing room around the highlighted element
 const GAP = 12;            // gap between ring and its label
@@ -287,34 +275,11 @@ function open() {
 // Webview placement. On the home page the help button takes over the (host-owned,
 // hidden) fullscreen-toggle slot — same space, size, location. On every other page
 // it falls back to the browser-style round button in the bottom-right corner.
-function syncWebviewButton() {
-    const btn = document.getElementById('help-overlay-btn');
-    if (!btn || !isInWebView() || btn.style.display === 'none') return;
-
-    if (currentPage() !== 'home') {
-        // Subpages: behave like browser — clear the takeover styling so the base
-        // CSS (round, bottom-right) applies.
-        btn.classList.remove('help-btn--webview');
-        Object.assign(btn.style, { top: '', left: '', right: '', bottom: '', width: '', height: '' });
-        return;
-    }
-
-    const fs = document.querySelector('#main-page #fullscreen-toggle-btn');
-    if (!fs) return;
-    btn.classList.add('help-btn--webview');
-    // The .help-webview CSS rule keeps fs laid-out but invisible, so its rect is
-    // a real, stable slot beside the Sleep button.
-    const r = fs.getBoundingClientRect();
-    if (r.width === 0) return;
-    Object.assign(btn.style, {
-        top: `${r.top}px`, left: `${r.left}px`, right: 'auto', bottom: 'auto',
-        width: `${r.width}px`, height: `${r.height}px`,
-    });
-}
-
-function init() {
-    if (document.getElementById('help-overlay-btn')) return;
-    const btn = document.createElement('button');
+export function initializeHelpOverlay(button = null) {
+    const existing = document.getElementById('help-overlay-btn');
+    const btn = button || existing || document.createElement('button');
+    if (btn.dataset.helpOverlayInitialized) return;
+    btn.dataset.helpOverlayInitialized = 'true';
     btn.id = 'help-overlay-btn';
     btn.type = 'button';
     if (isInWebView()) btn.classList.add('help-btn--webview');
@@ -322,7 +287,6 @@ function init() {
     btn.setAttribute('aria-pressed', 'false');
     btn.title = 'Help (long-press to hide)';
     btn.textContent = '?';
-    localStorage.setItem(LAUNCH_KEY, String((parseInt(localStorage.getItem(LAUNCH_KEY), 10) || 0) + 1));
     if (helpHidden()) btn.style.display = 'none';
     // Tap = toggle help. Long-press = hide the button and remember it.
     setupPressAndHold(
@@ -330,7 +294,7 @@ function init() {
         () => (overlay ? close() : open()),
         () => setHidden(true),
     );
-    document.body.appendChild(btn);
+    if (!btn.isConnected) document.body.appendChild(btn);
 
     // Show/hide, keeping the webview state consistent: the .help-webview class
     // holds the home fullscreen slot open for the button — drop it when hidden so
@@ -345,7 +309,7 @@ function init() {
             localStorage.setItem(HIDE_KEY, '0'); // explicit "show" survives the startup auto-hide
             btn.style.display = '';
             if (isInWebView()) document.documentElement.classList.add('help-webview');
-            syncWebviewButton();
+            syncHelpButton();
         }
     };
     window.showHelpButton = () => setHidden(false);
@@ -356,24 +320,11 @@ function init() {
     // re-syncing on resize and whenever the router swaps the page.
     if (isInWebView()) {
         if (!helpHidden()) document.documentElement.classList.add('help-webview');
-        const sync = () => requestAnimationFrame(syncWebviewButton);
-        sync();
-        window.addEventListener('resize', sync);
-        // scaling.js applies its transform after load (often delayed in webviews),
-        // shifting the fullscreen button's real position — resync when it does.
-        document.addEventListener('streamline:scaleupdate', sync);
-        const host = document.getElementById('subpage-host');
-        const main = document.getElementById('main-page');
-        const obs = new MutationObserver(sync);
-        if (host) obs.observe(host, { childList: true, attributes: true, attributeFilter: ['style'] });
-        if (main) obs.observe(main, { attributes: true, attributeFilter: ['style'] });
+        syncHelpButton();
     }
 }
 
-if (document.readyState === 'loading') {
-    // Wait for the KV hydrate: init() reads the hide preference and bumps the
-    // launch counter, and this listener runs before app.js's own await lands.
-    document.addEventListener('DOMContentLoaded', () => { settingsReady.then(init); });
-} else {
-    settingsReady.then(init);
+export function toggleHelpOverlay() {
+    if (overlay) close();
+    else open();
 }
