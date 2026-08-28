@@ -8,7 +8,7 @@ This document serves as a reference for all future design and UI related tasks f
 - Tailwind CSS
 - daisyUI
 - JavaScript
-- Plotly.js
+- ECharts
 
 ## Design Tokens
 

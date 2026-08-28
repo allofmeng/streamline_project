@@ -23,6 +23,7 @@ import { pluginKeywords, pluginListKeywords, subcategoryMatches, textFromHtml, t
 import { haYamlBlocks } from '../modules/home-assistant.js';
 import { loadIro } from '../modules/vendor-loader.js';
 import { readSettingsLocation, writeSettingsLocation } from './settings-location.js';
+import { SETTINGS_TREE as settingsTree } from './settings-tree.js';
 
 // Config for each numeric input that should get two-click numpad support
 const SETTINGS_NUMPAD_CONFIGS = {
@@ -465,107 +466,6 @@ function updateSettingsContentArea(category) {
         highlightSearchInContent();
     }
 }
-
-// Define the tree structure for settings navigation
-const settingsTree = {
-    'quickadjustments': {
-        name: 'Quick Adjustments',
-        subcategories: [
-            { id: 'flowmultiplier', name: 'Flow calibration', settingsCategory: 'flowmultiplier', i18nKey: 'Flow calibration' },
-            { id: 'steam', name: 'Steam', settingsCategory: 'steam' },
-            { id: 'hotwater', name: 'Hot Water', settingsCategory: 'hotwater' },
-            { id: 'watertank', name: 'Water Tank', settingsCategory: 'watertank' },
-            { id: 'flush', name: 'Flush', settingsCategory: 'flush' },
-            { id: 'machineadvancedsettings', name: 'Machine Advanced Settings', settingsCategory: 'de1advanced' }
-        ]
-    },
-    'bluetooth': {
-        name: 'Connections',
-        i18nKey: 'Connection',
-        subcategories: [
-            { id: 'ble_machine', name: '1. Machine', settingsCategory: 'ble_machine' },
-            { id: 'ble_scale', name: '2. Scale', settingsCategory: 'ble_scale' }
-        ]
-    },
-    'calibration': {
-        name: 'Calibration',
-        subcategories: [
-            { id: 'defaultloadsettings', name: 'Default load settings', settingsCategory: 'calib_defaultload' },
-            { id: 'refillkit',           name: 'Refill Kit',            settingsCategory: 'calib_refillkit' },
-            { id: 'voltage',             name: 'Voltage',               settingsCategory: 'calib_voltage' },
-            { id: 'fan',                 name: 'Fan',                   settingsCategory: 'calib_fan' },
-            { id: 'steam',               name: 'Steam',                 settingsCategory: 'calib_steam' },
-            { id: 'sensors',             name: 'Sensor Calibration',    settingsCategory: 'calib_sensors' },
-            { id: 'loadcell',            name: 'Load Cells',            settingsCategory: 'calib_loadcell', i18nKey: 'Load Cells', bengleOnly: true }
-        ]
-    },
-    'machine': {
-        name: 'Machine',
-        subcategories: [
-            { id: 'usbchargermode', name: 'USB', settingsCategory: 'usbchargermode' },
-            { id: 'cupwarmer', name: 'Cup Warmer', settingsCategory: 'cupwarmer', i18nKey: 'Cup Warmer', bengleOnly: true },
-            { id: 'ledstrip', name: 'Lighting', settingsCategory: 'ledstrip', i18nKey: 'Lighting', bengleOnly: true },
-            { id: 'machineinfo', name: 'Machine Information', settingsCategory: 'machineinfo', i18nKey: 'Machine Info' }
-        ]
-    },
-    'maintenance': {
-        name: 'Maintenance',
-        subcategories: [
-            { id: 'machinedescaling', name: 'Machine Descaling', settingsCategory: 'maint_descaling' },
-            { id: 'transportmode',    name: 'Transport Mode',    settingsCategory: 'maint_airpurge' }
-        ]
-    },
-    'skin': {
-        name: 'Skin',
-        subcategories: [
-            { id: 'theme', name: 'Theme', settingsCategory: 'theme', i18nKey: 'Theme' },
-            { id: 'skin1', name: 'Skin Settings', settingsCategory: 'appearance', i18nKey: 'Skin Settings' }
-        ]
-    },
-    'language': {
-        name: 'Language',
-        subcategories: [
-            { id: 'selectlanguage', name: 'Select Language', settingsCategory: 'language' },
-        ]
-    },
-    'extensions': {
-        name: 'Extensions',
-        subcategories: [
-            { id: 'extention1', name: 'Visualizer', settingsCategory: 'extensions' },
-            { id: 'shotupload', name: 'Shot Uploader', settingsCategory: 'shotupload', i18nKey: 'Shot Uploader' },
-            { id: 'extention2', name: 'Plugins', settingsCategory: 'plugins' },
-            { id: 'dye2', name: 'DYE2', settingsCategory: 'dye2', i18nKey: 'DYE2' }
-        ]
-    },
-    'miscellaneous': {
-        name: 'Miscellaneous',
-        subcategories: [
-            { id: 'reasettings', name: 'Decaid Settings', settingsCategory: 'rea' },
-            { id: 'brightness', name: 'Brightness', settingsCategory: 'brightness' },
-            { id: 'wakelock', name: 'Wake Lock', settingsCategory: 'wakelock' },
-            { id: 'presence', name: 'Presence Detection', settingsCategory: 'presence' },
-            { id: 'fontsize', name: 'Display Size', settingsCategory: 'fontsize' },
-            { id: 'tempunit', name: 'Temperature', settingsCategory: 'tempunit', i18nKey: 'Temperature' },
-            { id: 'screensaver', name: 'Screen Saver', settingsCategory: 'screensaver' },
-            { id: 'keyboard-shortcuts', name: 'Keyboard Shortcuts', settingsCategory: 'keyboard_shortcuts' },
-            { id: 'homeassistant', name: 'Home Assistant', settingsCategory: 'homeassistant', i18nKey: 'Home Assistant' }
-        ]
-    },
-    'updates': {
-        name: 'Updates',
-        subcategories: [
-            { id: 'firmwareupdate', name: 'Firmware Update', settingsCategory: 'firmware' }
-        ]
-    },
-    'usermanual': {
-        name: 'User Manual',
-        subcategories: [
-            { id: 'quickstart', name: 'Quick Start Guide', settingsCategory: 'quickstart', i18nKey: 'Quickstart Guide' },
-            { id: 'talkdecent', name: 'Talk to Decent', settingsCategory: 'talkdecent' },
-            { id: 'feedback', name: 'Send Feedback', settingsCategory: 'feedback' }
-        ]
-    }
-};
 
 // Helper function to check if settings are loaded
 function areSettingsLoaded() {
@@ -5084,6 +4984,13 @@ function maybeCheckLatestReleases() {
     }
 }
 
+// English gets the shorter, current phrasing directly; every other language
+// still reads from the existing "Check for current skin updates" translation
+// key so its already-translated copy keeps working untouched.
+function skinUpdateCheckText() {
+    return getCurrentLanguage() === 'en' ? 'Check for skin updates' : getTranslation('Check for current skin updates');
+}
+
 // Render theme settings
 export function renderThemeSettings() {
     return `
@@ -5186,11 +5093,11 @@ export function renderSkinSettings() {
                 <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
                     <div class="content-stretch flex items-center justify-between relative w-full">
                         <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                            <p class="leading-[1.2]">Check for current skin updates</p>
+                            <p class="leading-[1.2]">${skinUpdateCheckText()}</p>
                         </div>
                         <button class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold"
-                                onclick="window.updateSkin()" data-i18n-key="Update">
-                            Update
+                                onclick="window.updateSkin()" data-i18n-key="Check">
+                            Check
                         </button>
                     </div>
                 </div>
@@ -8063,7 +7970,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
 
     window.updateSkin = async function() {
         try {
-            ui.showToast(getTranslation('Check for current skin updates'), 3000, 'info');
+            ui.showToast(skinUpdateCheckText(), 3000, 'info');
             await updateSkins(); // bridge checks sources & downloads newer skin files server-side
             settingsCache.allSkins = await getAllSkins();
             const diskVersion = settingsCache.allSkins.find(s => s.id === SKIN_ID)?.version;

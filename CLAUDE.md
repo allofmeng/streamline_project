@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the App
 
-No JS build step. Serve `index.html` from any static file server:
+No JS bundler for app code — it's served as native ES modules. Serve `index.html` from any static file server:
 ```
 python3 -m http.server
 ```
@@ -19,6 +19,15 @@ npm run watch:css      # rebuild on change while editing
 ```
 Symptom of forgetting: the class silently has no effect (e.g. width falls back to auto). Config in `tailwind.config.js`.
 
+## Chart Build (important)
+
+`src/modules/echarts-streamline.min.js` is also a **pre-built artifact**, not hand-edited — a tree-shaken ECharts bundle (core + line chart + grid/legend/markLine/markPoint components + canvas renderer) built from `scripts/echarts-streamline-entry.js`:
+```
+npm run build:echarts   # scripts/echarts-streamline-entry.js -> src/modules/echarts-streamline.min.js (esbuild, minified)
+npm run build           # build:css + build:echarts
+```
+Rebuild after changing the entry file's `echarts.use([...])` component list — a component used by `echarts-renderer.js` but not registered there fails silently or throws at first `setOption()`. It's loaded lazily via `echarts-loader.js` (`loadECharts()`), not eagerly on boot.
+
 ## Architecture
 
 Vanilla JS/HTML/CSS SPA — no framework, no JS bundler. ES modules via native browser `<script type="module">` and an importmap in `index.html`. Tailwind + DaisyUI compiled to `src/css/app.css` (see CSS Build above).
@@ -28,11 +37,23 @@ Vanilla JS/HTML/CSS SPA — no framework, no JS bundler. ES modules via native b
 - `api.js` — all network I/O: REST fetch wrappers + WebSocket connections to Decaid. Exports `MachineState` enum and caches for shot/DE1 settings.
 - `app.js` — bootstrap and orchestrator. Wires WebSocket callbacks, owns global state (`isDe1Connected`, `isScaleConnected`, `shotStartTime`), exposes `window.app`.
 - `ui.js` — DOM update functions called after state changes.
-- `chart.js` — real-time Plotly shot graph (pressure, flow, groupTemperature actual + target).
-- `history.js` — shot history backed by IndexedDB via `idb.js`.
+- `chart.js` — real-time ECharts shot graph (pressure, flow, groupTemperature actual + target). Renders through `echarts-renderer.js`; the ECharts library itself is lazy-loaded via `echarts-loader.js` so it isn't in the initial boot payload.
+- `echarts-renderer.js` — turns the app's Plotly-shaped trace/layout objects into ECharts `setOption()` calls; tracks one chart instance per DOM element in a `WeakMap`. Live frames do a partial, `lazyUpdate: true` update (series/axis data only); a full redraw uses `replaceMerge` instead of `notMerge: true`, mirroring the old "`Plotly.update()` not `Plotly.react()`" perf rule.
+- `echarts-loader.js` — lazy `import()` of the pre-built `echarts-streamline.min.js` bundle (see Chart Build above); caches the loaded module so later calls are a no-op.
+- `history.js` — shot history backed by IndexedDB via `idb.js`, paged through `history-pager.js` (summaries first, full shot fetched on demand — see `getLatestShotSummaries`/`getLatestCachedShotSummaries` in `idb.js`).
 - `profileManager.js` — profile CRUD via the workflow API.
-- `router.js` — SPA page loader; swaps in `profile_selector.html` and `settings.html` as sub-pages.
+- `router.js` — SPA page loader; swaps in `profile_selector.html` and `settings.html` as sub-pages. Settings routes through `settings-shell.js`, not `settings.js`, directly (see Settings Module Roles below).
 - `reconnecting-websocket.js` — loaded as a classic script (not a module); auto-reconnect wrapper.
+
+### Settings Module Roles (`src/settings/`)
+
+- `settings-tree.js` — the nav tree (main category → subcategories, each with `id`/`name`/`settingsCategory`/optional `i18nKey`/`bengleOnly`). Single source of truth for both `settings-shell.js` and `settings.js` — never hand-copy this list into either consumer.
+- `settings-shell.js` — mounts immediately on navigating to Settings, without waiting on `settings.js`. Renders nav + search from `settings-tree.js` and lazy-loads one category module per main category via `CATEGORY_LOADERS`.
+- `categories/quick-adjustments.js`, `categories/maintenance.js` — category renderers extracted to load independently of `settings.js`.
+- `categories/legacy-category.js` — the bridge for every main category not yet extracted: lazy-imports `settings.js` and delegates to `initializeSettings()`.
+- `settings.js` — the original settings implementation; still authoritative for most categories via the legacy bridge, but no longer part of the main-page boot path.
+- `settings-data.js` — Decaid REA-settings request coalescing/caching shared across category renderers.
+- `settings-location.js` — persists the last-viewed main/sub category across settings visits.
 
 ### Data Flow
 
@@ -51,7 +72,7 @@ Single global `appState` object as source of truth. No reactive framework — UI
 ## Conventions
 
 - Styling: TailwindCSS + DaisyUI only. No custom CSS unless unavoidable. Theme via `data-theme="light"`.
-- Chart updates: use `Plotly.update()` not `Plotly.react()` for performance.
+- Chart updates: for live frames, update through `chart.js`'s live-mode path (partial `setOption` with `lazyUpdate: true`) rather than a full re-render — see `echarts-renderer.js`.
 - Chart data arrays must maintain exact equal lengths.
 - Scale readings need throttling to prevent UI flicker.
 - Profile updates require going through the workflow API wrapper, not direct REST calls.

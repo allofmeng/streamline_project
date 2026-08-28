@@ -9,64 +9,22 @@ import {
     saveSettingsData,
     startSettingsData
 } from './settings-data.js';
+import { SETTINGS_TREE as CANONICAL_SETTINGS_TREE } from './settings-tree.js';
 
-const SETTINGS_TREE = Object.freeze({
-    quickadjustments: Object.freeze([
-        ['Flow Multiplier', 'flowmultiplier'],
-        ['Steam', 'steam'],
-        ['Hot Water', 'hotwater'],
-        ['Water Tank', 'watertank'],
-        ['Flush', 'flush'],
-        ['Machine Advanced Settings', 'de1advanced']
-    ]),
-    bluetooth: Object.freeze([
-        ['1. Machine', 'ble_machine'],
-        ['2. Scale', 'ble_scale']
-    ]),
-    calibration: Object.freeze([
-        ['Default load settings', 'calib_defaultload'],
-        ['Refill Kit', 'calib_refillkit'],
-        ['Voltage', 'calib_voltage'],
-        ['Fan', 'calib_fan'],
-        ['Steam', 'calib_steam'],
-        ['Load Cells', 'calib_loadcell', true]
-    ]),
-    machine: Object.freeze([
-        ['USB', 'usbchargermode'],
-        ['Cup Warmer', 'cupwarmer', true],
-        ['Lighting', 'ledstrip', true],
-        ['Machine Information', 'machineinfo']
-    ]),
-    maintenance: Object.freeze([
-        ['Machine Descaling', 'maint_descaling'],
-        ['Transport Mode', 'maint_airpurge']
-    ]),
-    skin: Object.freeze([['Theme & Updates', 'appearance']]),
-    language: Object.freeze([['Select Language', 'language']]),
-    extensions: Object.freeze([
-        ['Visualizer', 'extensions'],
-        ['Shot Uploader', 'shotupload'],
-        ['Plugins', 'plugins'],
-        ['DYE2', 'dye2']
-    ]),
-    miscellaneous: Object.freeze([
-        ['Decaid Settings', 'rea'],
-        ['Brightness', 'brightness'],
-        ['Wake Lock', 'wakelock'],
-        ['Presence Detection', 'presence'],
-        ['Display Size', 'fontsize'],
-        ['Temperature', 'tempunit'],
-        ['Screen Saver', 'screensaver'],
-        ['Keyboard Shortcuts', 'keyboard_shortcuts'],
-        ['Home Assistant', 'homeassistant']
-    ]),
-    updates: Object.freeze([['Firmware Update', 'firmware']]),
-    usermanual: Object.freeze([
-        ['Quick Start Guide', 'quickstart'],
-        ['Talk to Decent', 'talkdecent'],
-        ['Send Feedback', 'feedback']
-    ])
-});
+// [name, category, bengleOnly?] tuples for the pre-legacy-load nav and search,
+// derived from the canonical tree (settings-tree.js) so the two can't drift —
+// name matches what translatePage() will show: i18nKey when set, else the
+// (prefix-stripped) name, since data-i18n-key is what actually drives the text.
+const SETTINGS_TREE = Object.freeze(
+    Object.fromEntries(Object.entries(CANONICAL_SETTINGS_TREE).map(([mainCategory, category]) => [
+        mainCategory,
+        Object.freeze(category.subcategories.map(sub => {
+            const prefix = sub.name.match(/^(\d+\.\s*)/)?.[0] || '';
+            const name = prefix + (sub.i18nKey || sub.name.slice(prefix.length));
+            return Object.freeze(sub.bengleOnly ? [name, sub.settingsCategory, true] : [name, sub.settingsCategory]);
+        }))
+    ]))
+);
 
 const CATEGORY_LOADERS = Object.freeze({
     quickadjustments: () => import('./categories/quick-adjustments.js'),
