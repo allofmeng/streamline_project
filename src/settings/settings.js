@@ -5820,6 +5820,41 @@ async function setupPrintTheShotListeners() {
         }
     });
 
+    // Auto-upload: subscribe to the plugin's events websocket (shotStored ids
+    // forwarded by the plugin). Uploads only run while this page is open.
+    let eventsWs = null;
+    let wsRetryTimer = null;
+    const scheduleWsReconnect = () => {
+        if (wsRetryTimer) return;
+        wsRetryTimer = setTimeout(() => { wsRetryTimer = null; connectEventsWs(); }, 5000);
+    };
+    const connectEventsWs = () => {
+        try {
+            eventsWs = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/plugins/${PRINT_THE_SHOT_PLUGIN_ID}/events`);
+        } catch (e) {
+            scheduleWsReconnect();
+            return;
+        }
+        eventsWs.onmessage = (evt) => {
+            try {
+                const msg = JSON.parse(evt.data);
+                if (msg && typeof msg.id === 'string') {
+                    log(`Shot stored: ${msg.id.slice(0, 8)}`, 'info');
+                    if (PRINT_THE_SHOT_STATE.settings && PRINT_THE_SHOT_STATE.settings.AutoUpload) {
+                        log('Auto-upload enabled — printing shot', 'info');
+                        uploadShot({ id: msg.id });
+                    } else {
+                        log('Auto-upload disabled — skipping', 'info');
+                    }
+                }
+            } catch (e) {
+                log('Bad event payload', 'warn');
+            }
+        };
+        eventsWs.onclose = scheduleWsReconnect;
+    };
+    connectEventsWs();
+
     await loadShot();
     log(`Print The Shot v${plugin.version} initialized`, 'info');
 }
