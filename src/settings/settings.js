@@ -5830,11 +5830,13 @@ async function setupPrintTheShotListeners() {
     };
     const connectEventsWs = () => {
         try {
-            eventsWs = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/plugins/${PRINT_THE_SHOT_PLUGIN_ID}/events`);
+            eventsWs = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws').replace('/api/v1', '/ws/v1')}/plugins/${PRINT_THE_SHOT_PLUGIN_ID}/events`);
         } catch (e) {
             scheduleWsReconnect();
             return;
         }
+        eventsWs.onopen = () => log('Events connection live', 'success');
+        eventsWs.onerror = () => log('Events connection error', 'error');
         eventsWs.onmessage = (evt) => {
             try {
                 const msg = JSON.parse(evt.data);
