@@ -687,6 +687,8 @@ export function renderSettingsContent(category) {
             return renderShotUploadSettings();
         case 'dye2':
             return renderDye2Settings();
+        case 'printtheshot':
+            return renderPrintTheShotSettings();
         case 'extensions':
         case 'extention1':
         case 'extention2':
@@ -5565,6 +5567,24 @@ export function renderExtensionsSettings() {
     setTimeout(setupVisualizerEventListeners, 0);
 
     return template;
+}
+
+// Render Print The Shot settings — its own Extensions sub-page, embedding the
+// print-the-shot.reaplugin UI (shot browser, curve preview, print controls).
+export function renderPrintTheShotSettings() {
+    const host = localStorage.getItem('reaHostname') || window.location.hostname;
+    return `
+        <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+            <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
+                <p class="leading-[1.2]" data-i18n-key="Print The Shot">Print The Shot</p>
+            </div>
+            <div class="content-stretch flex flex-col items-start relative w-full">
+                <iframe
+                    src="http://${host}:8080/api/v1/plugins/print-the-shot.reaplugin/ui"
+                    style="width: 100%; min-height: 82vh; border: none; border-radius: 12px; background: #1a1a2e;"
+                    title="Print The Shot"></iframe>
+            </div>
+        </div>`;
 }
 
 // Render DYE2 (Describe Your Espresso 2) settings — its own Extensions sub-page.
