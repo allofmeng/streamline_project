@@ -5569,22 +5569,259 @@ export function renderExtensionsSettings() {
     return template;
 }
 
-// Render Print The Shot settings — its own Extensions sub-page, embedding the
-// print-the-shot.reaplugin UI (shot browser, curve preview, print controls).
+// Print The Shot — settings UI for the bundled print-the-shot.reaplugin,
+// which uploads finished shots in TCL print format to a local print server.
+// Layout follows the other Extensions pages: native skin styling, stacked
+// vertically, with a plain-text shot browser instead of a chart.
+const PRINT_THE_SHOT_PLUGIN_ID = 'print-the-shot.reaplugin';
+const PRINT_THE_SHOT_DEFAULT_SETTINGS = {
+    AutoUpload: true,
+    ServerUrl: '',
+    ServerEndpoint: 'upload',
+    UseHttp: true,
+    MachineName: '',
+    MinSeconds: 6,
+};
+const PRINT_THE_SHOT_STATE = { offset: 0, shot: null, settings: null, processing: false };
+
 export function renderPrintTheShotSettings() {
-    const host = localStorage.getItem('reaHostname') || window.location.hostname;
+    setTimeout(setupPrintTheShotListeners, 0);
+
     return `
-        <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+        <div class="content-stretch flex flex-col gap-[40px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
                 <p class="leading-[1.2]" data-i18n-key="Print The Shot">Print The Shot</p>
+                <p id="printtheshot-description" class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full opacity-75"></p>
             </div>
-            <div class="content-stretch flex flex-col items-start relative w-full">
-                <iframe
-                    src="http://${host}:8080/api/v1/plugins/print-the-shot.reaplugin/ui"
-                    style="width: 100%; min-height: 82vh; border: none; border-radius: 12px; background: #1a1a2e;"
-                    title="Print The Shot"></iframe>
+
+            <!-- Current shot -->
+            <div class="content-stretch flex flex-col gap-[16px] items-start relative w-full">
+                <div class="content-stretch flex items-center justify-between relative w-full">
+                    <button id="printtheshot-prev" class="bg-[#385a92] h-[52px] px-[22px] rounded-[64px] text-white text-[20px] font-bold" data-i18n-key="Previous shot">◀ Previous shot</button>
+                    <div class="flex flex-col items-center gap-[4px] flex-1 text-center px-[16px]">
+                        <p id="printtheshot-shot-title" class="text-[24px] font-bold text-[var(--text-primary)] leading-[1.2]">Loading…</p>
+                        <p id="printtheshot-shot-meta" class="text-[20px] text-[var(--low-contrast-white)] leading-[1.3]"></p>
+                    </div>
+                    <button id="printtheshot-next" class="bg-[#385a92] h-[52px] px-[22px] rounded-[64px] text-white text-[20px] font-bold" data-i18n-key="Next shot">Next shot ▶</button>
+                </div>
+            </div>
+
+            <!-- Settings -->
+            <div class="content-stretch flex flex-col gap-[24px] items-start relative w-full">
+                <div class="content-stretch flex flex-col gap-[14px] items-start relative w-full">
+                    <label class="text-[var(--text-primary)] text-[22px]" for="printtheshot-server-url" data-i18n-key="Server address">Server address</label>
+                    <input id="printtheshot-server-url" type="text" class="w-full max-w-[500px] p-[12px] rounded-[10px] border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[22px] focus:outline-none focus:ring-2 focus:ring-[#385a92]" placeholder="192.168.1.20:8000">
+                </div>
+                <div class="content-stretch flex flex-col gap-[14px] items-start relative w-full">
+                    <label class="text-[var(--text-primary)] text-[22px]" for="printtheshot-server-endpoint" data-i18n-key="Upload path">Upload path</label>
+                    <input id="printtheshot-server-endpoint" type="text" class="w-full max-w-[500px] p-[12px] rounded-[10px] border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[22px] focus:outline-none focus:ring-2 focus:ring-[#385a92]">
+                </div>
+                <div class="content-stretch flex flex-col gap-[14px] items-start relative w-full">
+                    <label class="text-[var(--text-primary)] text-[22px]" for="printtheshot-machine-name" data-i18n-key="Machine name">Machine name</label>
+                    <input id="printtheshot-machine-name" type="text" class="w-full max-w-[500px] p-[12px] rounded-[10px] border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[22px] focus:outline-none focus:ring-2 focus:ring-[#385a92]" placeholder="DE1">
+                </div>
+                <div class="content-stretch flex flex-col gap-[14px] items-start relative w-full">
+                    <label class="text-[var(--text-primary)] text-[22px]" for="printtheshot-min-seconds" data-i18n-key="Minimum shot length (s)">Minimum shot length (s)</label>
+                    <input id="printtheshot-min-seconds" type="number" min="0" class="w-full max-w-[300px] p-[12px] rounded-[10px] border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[22px] focus:outline-none focus:ring-2 focus:ring-[#385a92]">
+                </div>
+                <div class="content-stretch flex items-center gap-[20px] relative w-full">
+                    <input id="printtheshot-use-http" type="checkbox" class="w-[36px] h-[36px] accent-[#385a92]">
+                    <label class="text-[var(--text-primary)] text-[22px]" for="printtheshot-use-http" data-i18n-key="Use HTTP">Use HTTP</label>
+                </div>
+                <div class="content-stretch flex items-center gap-[20px] relative w-full">
+                    <input id="printtheshot-auto-upload" type="checkbox" class="w-[36px] h-[36px] accent-[#385a92]">
+                    <label class="text-[var(--text-primary)] text-[22px]" for="printtheshot-auto-upload" data-i18n-key="Auto upload">Auto upload</label>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="content-stretch flex flex-wrap gap-[16px] items-center relative w-full">
+                <button id="printtheshot-print" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[22px] font-bold" data-i18n-key="Print current shot">Print current shot</button>
+                <button id="printtheshot-upload-last" class="bg-[var(--profile-button-background-color)] border border-[var(--border-color)] h-[56px] px-[28px] rounded-[64px] text-[var(--text-primary)] text-[22px] font-bold" data-i18n-key="Upload last shot">Upload last shot</button>
+                <button id="printtheshot-save" class="bg-[var(--profile-button-background-color)] border border-[var(--border-color)] h-[56px] px-[28px] rounded-[64px] text-[var(--text-primary)] text-[22px] font-bold" data-i18n-key="Save settings">Save settings</button>
+                <span id="printtheshot-status" class="text-[20px] text-[var(--low-contrast-white)]"></span>
+            </div>
+
+            <!-- Log -->
+            <div class="content-stretch flex flex-col gap-[10px] items-start relative w-full">
+                <div id="printtheshot-log" class="w-full min-h-[120px] max-h-[260px] overflow-y-auto p-[16px] rounded-[12px] border border-[var(--border-color)] bg-[var(--box-color)] text-[16px] leading-[1.5] text-[var(--text-primary)] font-mono"></div>
             </div>
         </div>`;
+}
+
+async function setupPrintTheShotListeners() {
+    const $ = (id) => document.getElementById(id);
+    const logEl = $('printtheshot-log');
+    const statusEl = $('printtheshot-status');
+    if (!logEl) return;
+
+    const log = (msg, level = 'info') => {
+        const line = document.createElement('div');
+        const time = new Date().toISOString().slice(11, 19);
+        line.textContent = `${time}  ${msg}`;
+        line.style.color = level === 'error' ? '#f87171' : level === 'success' ? '#4ade80' : 'var(--text-primary)';
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+        while (logEl.childElementCount > 100) logEl.removeChild(logEl.firstChild);
+    };
+
+    const setStatus = (text) => { if (statusEl) statusEl.textContent = text || ''; };
+    const pluginApi = (endpoint) => `${API_BASE_URL}/plugins/${PRINT_THE_SHOT_PLUGIN_ID}/${endpoint}`;
+
+    const plugins = await getPlugins();
+    const plugin = Array.isArray(plugins) ? plugins.find(p => p?.id === PRINT_THE_SHOT_PLUGIN_ID) : null;
+    if (!plugin) {
+        log('Print The Shot plugin not loaded — update Decaid', 'error');
+        setStatus('Plugin not loaded');
+        return;
+    }
+    const descriptionEl = $('printtheshot-description');
+    if (descriptionEl && plugin.description) descriptionEl.textContent = getTranslation(plugin.description);
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/plugins/${PRINT_THE_SHOT_PLUGIN_ID}/settings`);
+        if (res.ok) PRINT_THE_SHOT_STATE.settings = Object.assign({}, PRINT_THE_SHOT_DEFAULT_SETTINGS, await res.json());
+    } catch (e) {
+        PRINT_THE_SHOT_STATE.settings = Object.assign({}, PRINT_THE_SHOT_DEFAULT_SETTINGS);
+        log('Failed to load settings: ' + e.message, 'error');
+    }
+    const s = PRINT_THE_SHOT_STATE.settings;
+    $('printtheshot-server-url').value = s.ServerUrl || '';
+    $('printtheshot-server-endpoint').value = s.ServerEndpoint || '';
+    $('printtheshot-machine-name').value = s.MachineName || '';
+    $('printtheshot-min-seconds').value = s.MinSeconds ?? 6;
+    $('printtheshot-use-http').checked = !!s.UseHttp;
+    $('printtheshot-auto-upload').checked = !!s.AutoUpload;
+
+    const fetchShotAt = async (offset) => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/shots?limit=1&offset=${offset}`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            return (data.items || [])[0] || null;
+        } catch (e) {
+            log('Failed to load shot: ' + e.message, 'error');
+            return null;
+        }
+    };
+
+    const showShot = (shot) => {
+        const titleEl = $('printtheshot-shot-title');
+        const metaEl = $('printtheshot-shot-meta');
+        if (!shot) { titleEl.textContent = 'No shots yet'; metaEl.textContent = ''; return; }
+        const wf = shot.workflow || {};
+        const when = new Date(shot.timestamp).toLocaleString();
+        const profile = (wf.profile && wf.profile.title) || '—';
+        const ann = shot.annotations || {};
+        const bean = ((shot.workflow || {}).context || {}).coffeeName || '';
+        titleEl.textContent = `${profile} · ${when}`;
+        metaEl.textContent = `in ${ann.actualDoseWeight ?? '?'}g · out ${ann.actualYield ?? '?'}g${bean ? ' · ' + bean : ''}`;
+    };
+
+    const loadShot = async () => {
+        const shot = await fetchShotAt(PRINT_THE_SHOT_STATE.offset);
+        if (!shot) {
+            if (PRINT_THE_SHOT_STATE.offset > 0) { log('No older shots', 'info'); PRINT_THE_SHOT_STATE.offset -= 1; }
+            else { log('Already at the latest shot', 'info'); }
+            return;
+        }
+        PRINT_THE_SHOT_STATE.shot = shot;
+        showShot(shot);
+    };
+
+    const machineId = (name) => {
+        const clean = String(name || '').replace(/[^A-Za-z0-9]/g, '');
+        return clean ? clean.slice(0, 20) : 'UNKNOWN';
+    };
+
+    const uploadShot = async (shot) => {
+        if (!shot) { log('No shot selected', 'warn'); return; }
+        const settings = PRINT_THE_SHOT_STATE.settings;
+        if (!settings.ServerUrl) { log('No server configured — set Server address and save', 'error'); return; }
+        if (PRINT_THE_SHOT_STATE.processing) return;
+        PRINT_THE_SHOT_STATE.processing = true;
+        try {
+            const fullRes = await fetch(`${API_BASE_URL}/shots/${shot.id}`);
+            if (!fullRes.ok) throw new Error('HTTP ' + fullRes.status);
+            const full = await fullRes.json();
+            const ms = full.measurements || [];
+            let duration = 0;
+            if (ms.length >= 2) {
+                const first = ms[0].machine && ms[0].machine.timestamp;
+                const last = ms[ms.length - 1].machine && ms[ms.length - 1].machine.timestamp;
+                duration = first && last ? Math.round((new Date(last).getTime() - new Date(first).getTime()) / 1000) : Math.round(ms.length * 0.24);
+            }
+            if (duration < settings.MinSeconds) { log(`Shot too short (${duration}s < ${settings.MinSeconds}s), skipping`, 'warn'); return; }
+
+            const ts = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+            const protocol = settings.UseHttp ? 'http' : 'https';
+            const server = String(settings.ServerUrl).replace(/^https?:[/][/]/, '');
+            const url = `${protocol}://${server}/${settings.ServerEndpoint}?machine_id=${machineId(settings.MachineName)}&timestamp=${ts}&plugin_version=${plugin.version}`;
+
+            log(`Printing shot ${shot.id.slice(0, 8)} → ${url}`, 'info');
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const res = await fetch(pluginApi('upload'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url, shot: full }),
+                    });
+                    const data = await res.json();
+                    if (data && data.success) {
+                        log(`Print OK (attempt ${attempt})`, 'success');
+                        setStatus('OK');
+                        return;
+                    }
+                    log(`Attempt ${attempt} failed: ${(data && data.message) || (data && data.statusCode ? 'HTTP ' + data.statusCode : 'HTTP ' + res.status)}`, 'warn');
+                } catch (e) {
+                    log(`Attempt ${attempt} error: ${e.message}`, 'warn');
+                }
+                if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+            }
+            log('Print FAILED after 3 attempts', 'error');
+            setStatus('FAILED');
+        } catch (e) {
+            log('Upload error: ' + e.message, 'error');
+        } finally {
+            PRINT_THE_SHOT_STATE.processing = false;
+        }
+    };
+
+    $('printtheshot-prev').addEventListener('click', () => { PRINT_THE_SHOT_STATE.offset += 1; loadShot(); });
+    $('printtheshot-next').addEventListener('click', () => {
+        if (PRINT_THE_SHOT_STATE.offset === 0) { log('Already at the latest shot', 'info'); return; }
+        PRINT_THE_SHOT_STATE.offset -= 1; loadShot();
+    });
+    $('printtheshot-print').addEventListener('click', () => uploadShot(PRINT_THE_SHOT_STATE.shot));
+    $('printtheshot-upload-last').addEventListener('click', async () => {
+        const shot = await fetchShotAt(0);
+        if (shot) { PRINT_THE_SHOT_STATE.offset = 0; PRINT_THE_SHOT_STATE.shot = shot; showShot(shot); uploadShot(shot); }
+    });
+    $('printtheshot-save').addEventListener('click', async () => {
+        const next = {
+            AutoUpload: $('printtheshot-auto-upload').checked,
+            ServerUrl: $('printtheshot-server-url').value.trim(),
+            ServerEndpoint: $('printtheshot-server-endpoint').value.trim() || 'upload',
+            UseHttp: $('printtheshot-use-http').checked,
+            MachineName: $('printtheshot-machine-name').value.trim(),
+            MinSeconds: parseInt($('printtheshot-min-seconds').value, 10) || 0,
+        };
+        try {
+            const res = await fetch(`${API_BASE_URL}/plugins/${PRINT_THE_SHOT_PLUGIN_ID}/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(next),
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            PRINT_THE_SHOT_STATE.settings = next;
+            log('Settings saved', 'success');
+        } catch (e) {
+            log('Failed to save settings: ' + e.message, 'error');
+        }
+    });
+
+    await loadShot();
+    log(`Print The Shot v${plugin.version} initialized`, 'info');
 }
 
 // Render DYE2 (Describe Your Espresso 2) settings — its own Extensions sub-page.
