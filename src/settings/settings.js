@@ -653,6 +653,8 @@ export function renderSettingsContent(category) {
             return renderFlushSettingsForm(settingsCache.de1);
         case 'ble_scale':
             return renderBluetoothScaleSettings(settingsCache.rea);
+        case 'ble_grinder':
+            return renderBluetoothGrinderSettings();
         case 'ble_machine':
             return renderBluetoothMachineSettings();
         case 'calib_fan':
@@ -8504,8 +8506,34 @@ function renderDeviceListFromCache() {
 
     renderDeviceList('bluetooth-machine-devices-container', machines, 'Machine',
         settingsCache.rea?.preferredMachineId || '', 'preferredMachineId');
+    const grinders = deviceStateCache.devices.filter(device =>
+        device.type === 'grinder' ||
+        (device.name && device.name.toLowerCase().includes('motto80'))
+    );
+
     renderDeviceList('bluetooth-scale-devices-container', scales, 'Scale',
         settingsCache.rea?.preferredScaleId || '', 'preferredScaleId');
+    renderDeviceList('bluetooth-grinder-devices-container', grinders, 'Grinder',
+        settingsCache.rea?.preferredGrinderId || '', 'preferredGrinderId');
+    if (grinders.length) updateGrinderStatus(grinders[0].id);
+}
+
+async function updateGrinderStatus(deviceId) {
+    const el = document.getElementById('grinder-status');
+    if (!el) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/grinder`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.connected) { el.textContent = ''; return; }
+        const s = data.snapshot || {};
+        const state = s.devState || '';
+        const parts = [];
+        if (s.grindSetting !== null && s.grindSetting !== undefined) parts.push('Grind ' + s.grindSetting);
+        if (s.feedingRpm !== null && s.feedingRpm !== undefined) parts.push('Feed ' + s.feedingRpm);
+        if (s.grindRpm !== null && s.grindRpm !== undefined) parts.push('Speed ' + s.grindRpm);
+        el.textContent = `${state}  ${parts.join('  ')}`;
+    } catch (e) { /* decaid unreachable */ }
 }
 
 // Bluetooth Functions
@@ -8838,6 +8866,47 @@ export function renderBluetoothMachineSettings() {
 }
 
 // Render Bluetooth Scale settings
+export function renderBluetoothGrinderSettings() {
+    setTimeout(() => {
+        renderDeviceListFromCache();
+    }, 0);
+
+    return `
+        <div class="flex flex-col gap-[32px] items-start relative w-full max-w-full overflow-x-hidden">
+            <div class="flex items-center w-full">
+                <div class="w-[139px] shrink-0"></div>
+                <p class="flex-1 text-center font-['Inter:Semi_Bold',sans-serif] font-semibold not-italic text-[var(--text-primary)] text-[36px] leading-[1.2]" data-i18n-key="Grinder">Grinder</p>
+                <button id="scan-grinder-btn"
+                        class="w-[139px] shrink-0 border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] h-[62px] rounded-[67.5px] border text-[24px] transition-colors duration-200 hover:bg-[var(--mimoja-blue)] hover:text-white"
+                        onclick="window.scanForGrinders()" data-i18n-key="Search">
+                    Search
+                </button>
+            </div>
+
+            <hr class="border-t border-[#c9c9c9] w-full" />
+
+            <div class="flex flex-col gap-[16px] items-start relative w-full">
+                <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                    <p class="leading-[1.2]" data-i18n-key="Connected Device">Connected Device</p>
+                </div>
+                <div id="bluetooth-grinder-devices-container" class="w-full">
+                </div>
+                <div id="grinder-status" class="w-full text-[22px] text-[var(--text-primary)]"></div>
+            </div>
+        </div>`;
+}
+
+window.scanForGrinders = async function() {
+    try {
+        ui.showToast('Scanning for grinders...', 2000, 'info');
+        sendDeviceCommand({ command: 'scan' });
+        ui.showToast('Scanning started, results will appear shortly', 3000, 'info');
+    } catch (error) {
+        console.error('Error scanning for grinders:', error);
+        ui.showToast(`Error scanning for grinders: ${error.message}`, 5000, 'error');
+    }
+};
+
 export function renderBluetoothScaleSettings(settings) {
     // Render devices from WebSocket cache on initial render
     setTimeout(() => {

@@ -84,12 +84,32 @@
         <aside id="shot-settings" class="bg-[var(--box-color)] pl-9 pr-3 md:pr-[6px] py-3 flex flex-col justify-around border-r border-base-400 w-[480px] h-[1036px]" aria-label="Shot Settings">
             <!-- Grind -->
             <div id="grind-section" class="flex justify-start items-center gap-[20px]">
-                <span id="grind-label" class="w-[130px] text-[var(--left-label-text)] text-[26px] font-bold break-words" data-i18n-key="Grind">Grind</span>
+                <div class="w-[130px]">
+                    <span id="grind-label" class="text-[var(--left-label-text)] text-[26px] font-bold block" data-i18n-key="Grind">Grind</span>
+                    <span id="grind-mode-options" class="flex items-center gap-[6px] text-[16px] font-semibold leading-4" style="display:none" role="group" aria-label="Grind Mode">
+                        <span id="grind-mode-gap" class="grind-mode-opt cursor-pointer" data-grind-mode="gap" data-i18n-key="Gap">Gap</span>
+                        <span class="text-[var(--low-contrast-white)]">|</span>
+                        <span id="grind-mode-feed" class="grind-mode-opt cursor-pointer" data-grind-mode="feed" data-i18n-key="Feed">Feed</span>
+                        <span class="text-[var(--low-contrast-white)]">|</span>
+                        <span id="grind-mode-spd" class="grind-mode-opt cursor-pointer" data-grind-mode="spd" data-i18n-key="Spd">Spd</span>
+                    </span>
+                </div>
                 <div class="relative w-[256px] h-[72px]">
                     <button id="grind-minus" class="absolute left-[4px] top-[38px] -translate-y-1/2 w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center" aria-label="Decrease Grind"><svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-                    <span id="grind-value" class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[88px] text-center text-[var(--text-primary)] text-[26px] font-bold" aria-labelledby="grind-label">1.4</span>
+                    <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[88px] text-center" aria-labelledby="grind-label">
+                        <span id="grind-value" class="text-[var(--text-primary)] text-[26px] font-bold block">1.4</span>
+                        <span id="grind-gap-value" class="text-[var(--text-primary)] text-[22px] font-bold block" style="display:none">--µm</span>
+                        <span id="grind-feed-value" class="text-[var(--text-primary)] text-[18px] block" style="display:none">--RPM</span>
+                        <span id="grind-spd-value" class="text-[var(--text-primary)] text-[18px] block" style="display:none">--RPM</span>
+                    </div>
                     <button id="grind-plus" class="absolute left-[178px]  top-[38px] -translate-y-1/2 w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center" aria-label="Increase Grind"><svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
+            </div>
+            <div id="grind-presets" class="w-[398px] h-[42px] flex justify-between items-center" style="display:none" aria-label="Grind presets">
+                <button id="grind-preset-0" class="justify-center text-[var(--preset-value-color)] text-[20px] font-semibold">--</button>
+                <button id="grind-preset-1" class="justify-center text-[var(--preset-value-color)] text-[20px] font-semibold">--</button>
+                <button id="grind-preset-2" class="justify-center text-[var(--preset-value-color)] text-[20px] font-semibold">--</button>
+                <button id="grind-preset-3" class="justify-center text-[var(--preset-value-color)] text-[20px] font-semibold">--</button>
             </div>
             <!-- Dose In -->
             <div id="dose-section" class="flex justify-start items-center gap-[20px]">
