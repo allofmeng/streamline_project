@@ -118,23 +118,22 @@ let grinderPollTimer = null;
 
 const GRINDER_MODE_KEYS = { grind: 'grindSetting', feed: 'feedingRpm', speed: 'grindRpm' };
 
-function toggleGrindMode() {
-    const modes = ['grind', 'feed', 'speed'];
-    grindMode = modes[(modes.indexOf(grindMode) + 1) % modes.length];
+function selectGrindMode(mode) {
+    if (!['grind', 'feed', 'speed'].includes(mode)) return;
+    grindMode = mode;
     logger.info(`Grind mode switched to: ${grindMode}`);
-    renderGrindModeToggle();
+    renderGrindModeOptions();
     updateGrindValueDisplay();
 }
 
-function renderGrindModeToggle() {
-    const order = ['grind', 'feed', 'speed'];
-    let html = '';
-    for (const m of order) {
-        const visible = m === grindMode;
-        html += `<span id="grind-mode-${m}" style="${visible ? '' : 'display:none'}">${m}</span>`;
-    }
-    const toggle = document.getElementById('grind-mode-toggle');
-    if (toggle) toggle.innerHTML = html;
+function renderGrindModeOptions() {
+    const options = document.getElementById('grind-mode-options');
+    if (!options) return;
+    options.querySelectorAll('.grind-mode-opt').forEach((el) => {
+        const isActive = el.dataset.grindMode === grindMode;
+        el.style.color = isActive ? '#385a92' : '';
+        el.style.fontWeight = isActive ? '700' : '';
+    });
 }
 
 function updateGrindValueDisplay() {
@@ -178,10 +177,9 @@ async function pollGrinderState() {
         if (data.snapshot) updateGrinderFromSnapshot(data.snapshot);
         if (grinderConnected !== wasConnected) {
             logger.info(`Grinder ${grinderConnected ? 'connected' : 'disconnected'}`);
-            renderGrindModeToggle();
             if (grinderConnected) {
                 grindMode = 'grind';
-                renderGrindModeToggle();
+                renderGrindModeOptions();
                 updateGrinderValueDisplay();
             }
         }
@@ -191,11 +189,13 @@ async function pollGrinderState() {
 }
 
 function initGrinderMode() {
-    const toggle = document.getElementById('grind-mode-toggle');
-    if (toggle) {
-        toggle.addEventListener('click', toggleGrindMode);
-        toggle.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGrindMode(); }
+    const options = document.getElementById('grind-mode-options');
+    if (options) {
+        options.querySelectorAll('.grind-mode-opt').forEach((el) => {
+            el.addEventListener('click', () => selectGrindMode(el.dataset.grindMode));
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectGrindMode(el.dataset.grindMode); }
+            });
         });
     }
     pollGrinderState();
