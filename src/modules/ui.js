@@ -277,7 +277,21 @@ async function pollGrinderState() {
     }
 }
 
+let grinderSocket = null;
+
 function initGrinderMode() {
+    const wsUrl = API_BASE_URL.replace(/^http/, 'ws').replace('/api/v1', '/ws/v1') + '/grinder/snapshot';
+    try {
+        grinderSocket = new ReconnectingWebSocket(wsUrl, [], { reconnectInterval: 3000 });
+        grinderSocket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data && typeof data === 'object') updateGrinderFromSnapshot(data);
+            } catch (e) { /* bad frame */ }
+        };
+    } catch (e) {
+        logger.error('Grinder socket init failed:', e);
+    }
     const options = document.getElementById('grind-mode-options');
     if (options) {
         options.querySelectorAll('.grind-mode-opt').forEach((el) => {
