@@ -124,6 +124,7 @@ const GRINDER_PRESET_DEFAULTS = {
     spd: [700, 800, 900, 1000],
 };
 const GRINDER_PRESET_KEY = 'grinderPresets';
+const GRINDER_STEPS = { gap: 5, feed: 5, spd: 50 };
 
 function selectGrindMode(mode) {
     if (!['gap', 'feed', 'spd'].includes(mode)) return;
@@ -218,6 +219,15 @@ async function updateGrinderSetting(value) {
     }
 }
 
+function grinderStep(dir) {
+    if (!grinderSnapshot) return;
+    const key = GRINDER_MODE_KEYS[grindMode];
+    const current = grinderSnapshot[key];
+    if (current === undefined || current === null) return;
+    const step = GRINDER_STEPS[grindMode];
+    updateGrinderSetting(Math.max(0, current + dir * step));
+}
+
 function updateGrinderFromSnapshot(snapshot) {
     const prev = grinderSnapshot || {};
     const changed = [];
@@ -301,6 +311,10 @@ function initGrinderMode() {
             });
         });
     }
+    const minusBtn = document.getElementById('grind-minus');
+    const plusBtn = document.getElementById('grind-plus');
+    if (minusBtn) minusBtn.addEventListener('click', () => grinderStep(-1));
+    if (plusBtn) plusBtn.addEventListener('click', () => grinderStep(1));
     pollGrinderState();
     grinderPollTimer = setInterval(pollGrinderState, 3000);
 }
@@ -2384,7 +2398,7 @@ export function initUI(callbacks) {
     const grindStepForMode = () => (grinderConnected && grindMode !== 'grind') ? 5 : grindStep;
     setupValueAdjuster('grind-minus', 'grind-plus', 'grind-value', grindStepForMode, 0, (val) => grindStepForMode() === 1 ? String(Math.round(val)) : val.toFixed(1),
         grinderConnected
-            ? (val) => updateGrinderSetting(grindMode === 'grind' ? Math.round(val) : Math.round(val))
+            ? () => {}
             : updateGrindValue);
     setupValueAdjuster('flush-minus', 'flush-plus', 'flush-value', 1, 0, (val) => `${val}s`, (val) => {
         updateFlushValue(val);
