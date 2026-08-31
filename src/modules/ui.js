@@ -163,7 +163,22 @@ async function updateGrinderSetting(value) {
 }
 
 function updateGrinderFromSnapshot(snapshot) {
+    const prev = grinderSnapshot || {};
+    const changed = [];
+    const modeKeys = [
+        ['grindSetting', 'grind'],
+        ['feedingRpm', 'feed'],
+        ['grindRpm', 'speed'],
+    ];
+    for (const [key, mode] of modeKeys) {
+        const v = snapshot[key];
+        if (v !== undefined && v !== null && v !== prev[key]) changed.push(mode);
+    }
     grinderSnapshot = snapshot;
+    // A single field moving means that parameter is being adjusted (e.g. from
+    // the decaid debug view) — follow it. Initial/backfill frames change many
+    // fields at once and must not yank the selection.
+    if (changed.length === 1) selectGrindMode(changed[0]);
     updateGrinderValueDisplay();
 }
 
