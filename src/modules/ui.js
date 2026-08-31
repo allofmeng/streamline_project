@@ -1,4 +1,4 @@
-import { getProfile, getWorkflow, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp, setTargetHotWaterDuration, setDe1Settings, setTargetSteamFlow, setTargetSteamDuration, setStopAtTemperature, resyncSteamFromStore, MachineState, getPlugins, persistSharedValue, FLUSH_DURATION_LAST_VALUE_KEY, isBlackScreenSaver } from './api.js';
+import { API_BASE_URL, getProfile, getWorkflow, updateWorkflow, setMachineState, setTargetHotWaterVolume, setTargetHotWaterTemp, setTargetHotWaterDuration, setDe1Settings, setTargetSteamFlow, setTargetSteamDuration, setStopAtTemperature, resyncSteamFromStore, MachineState, getPlugins, persistSharedValue, FLUSH_DURATION_LAST_VALUE_KEY, isBlackScreenSaver } from './api.js';
 import { openDB, getSetting, setSetting } from './idb.js';
 import { deriveSleepButtonAction, isWakePending } from './screensaver-policy.js';
 import { isBengleMachine, isBengleModel } from './machine.js';
@@ -107,6 +107,100 @@ function markTileInteraction() { lastTileInteractionAt = Date.now(); }
 export function msSinceTileInteraction() { return Date.now() - lastTileInteractionAt; }
 
 let grindStep = 0.1;
+
+// Grinder live-control mode (skin side of the MOTTO80 support): when a
+// grinder is connected the Grind tile cycles Grind|Feed|Speed and drives the
+// device over the decaid grinder API instead of the recipe grindSetting.
+let grindMode = 'grind'; // 'grind' | 'feed' | 'speed'
+let grinderConnected = false;
+let grinderSnapshot = null;
+let grinderPollTimer = null;
+
+const GRINDER_MODE_KEYS = { grind: 'grindSetting', feed: 'feedingRpm', speed: 'grindRpm' };
+
+function toggleGrindMode() {
+    const modes = ['grind', 'feed', 'speed'];
+    grindMode = modes[(modes.indexOf(grindMode) + 1) % modes.length];
+    logger.info(`Grind mode switched to: ${grindMode}`);
+    renderGrindModeToggle();
+    updateGrindValueDisplay();
+}
+
+function renderGrindModeToggle() {
+    const order = ['grind', 'feed', 'speed'];
+    let html = '';
+    for (const m of order) {
+        const visible = m === grindMode;
+        html += `<span id="grind-mode-${m}" style="${visible ? '' : 'display:none'}">${m}</span>`;
+    }
+    const toggle = document.getElementById('grind-mode-toggle');
+    if (toggle) toggle.innerHTML = html;
+}
+
+function updateGrindValueDisplay() {
+    const el = document.getElementById('grind-value');
+    if (!el) return;
+    if (!grinderConnected || !grinderSnapshot) return;
+    const key = GRINDER_MODE_KEYS[grindMode];
+    const v = grinderSnapshot[key];
+    if (v !== undefined && v !== null) {
+        el.textContent = Number.isInteger(v) ? String(v) : parseFloat(v).toFixed(1);
+    }
+}
+
+async function updateGrinderSetting(value) {
+    const key = GRINDER_MODE_KEYS[grindMode];
+    try {
+        const res = await fetch(`${API_BASE_URL}/grinder/settings`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [key]: value }),
+        });
+        if (!res.ok) logger.error(`Grinder setting ${key} failed: ${res.status}`);
+        else logger.info(`Grinder ${key} set to ${value}`);
+    } catch (e) {
+        logger.error('Grinder setting error:', e);
+    }
+}
+
+function updateGrinderFromSnapshot(snapshot) {
+    grinderSnapshot = snapshot;
+    updateGrinderValueDisplay();
+}
+
+async function pollGrinderState() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/grinder`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const wasConnected = grinderConnected;
+        grinderConnected = !!data.connected;
+        if (data.snapshot) updateGrinderFromSnapshot(data.snapshot);
+        if (grinderConnected !== wasConnected) {
+            logger.info(`Grinder ${grinderConnected ? 'connected' : 'disconnected'}`);
+            renderGrindModeToggle();
+            if (grinderConnected) {
+                grindMode = 'grind';
+                renderGrindModeToggle();
+                updateGrinderValueDisplay();
+            }
+        }
+    } catch (e) {
+        /* decaid unreachable */
+    }
+}
+
+function initGrinderMode() {
+    const toggle = document.getElementById('grind-mode-toggle');
+    if (toggle) {
+        toggle.addEventListener('click', toggleGrindMode);
+        toggle.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGrindMode(); }
+        });
+    }
+    pollGrinderState();
+    grinderPollTimer = setInterval(pollGrinderState, 3000);
+}
 
 // How long the steam elapsed counter will pick up where it left off. Covers a
 // dropped/odd status frame; a genuine second steam session is always further
@@ -2184,7 +2278,11 @@ export function initUI(callbacks) {
         }
     }
     setupValueAdjuster('dose-in-minus', 'dose-in-plus', 'dose-in-value', 1, 0, (val) => `${val}g`, (val) => { updateDoseValue('in', val); updateDrinkRatio(); }, syncDrinkOutPresets);
-    setupValueAdjuster('grind-minus', 'grind-plus', 'grind-value', () => grindStep, 0, (val) => grindStep === 1 ? String(Math.round(val)) : val.toFixed(1), updateGrindValue);
+    const grindStepForMode = () => (grinderConnected && grindMode !== 'grind') ? 5 : grindStep;
+    setupValueAdjuster('grind-minus', 'grind-plus', 'grind-value', grindStepForMode, 0, (val) => grindStepForMode() === 1 ? String(Math.round(val)) : val.toFixed(1),
+        grinderConnected
+            ? (val) => updateGrinderSetting(grindMode === 'grind' ? Math.round(val) : Math.round(val))
+            : updateGrindValue);
     setupValueAdjuster('flush-minus', 'flush-plus', 'flush-value', 1, 0, (val) => `${val}s`, (val) => {
         updateFlushValue(val);
         updateFlushDisplay(val);
@@ -2215,6 +2313,8 @@ export function initUI(callbacks) {
         steamModeToggle.addEventListener('click', toggleSteamMode);
         steamModeToggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSteamMode(); } });
     }
+
+    initGrinderMode();
 
     updateDrinkRatio(); // Initial calculation
 }
@@ -2816,6 +2916,10 @@ export function updateFlushDisplay(duration) {
 }
 
 export function updateGrindDisplay(grinderData) {
+    if (grinderConnected && grinderSnapshot) {
+        updateGrinderValueDisplay();
+        return;
+    }
     const grindValueEl = document.getElementById('grind-value');
     // Support both new context format (grinderData.grinderSetting) and legacy format (grinderData.setting)
     // Prefer grinderSetting over setting (context takes precedence)
