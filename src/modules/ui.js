@@ -111,19 +111,27 @@ let grindStep = 0.1;
 // Grinder live-control mode (skin side of the MOTTO80 support): when a
 // grinder is connected the Grind tile cycles Grind|Feed|Speed and drives the
 // device over the decaid grinder API instead of the recipe grindSetting.
-let grindMode = 'grind'; // 'grind' | 'feed' | 'speed'
+let grindMode = 'gap'; // 'gap' | 'feed' | 'spd'
 let grinderConnected = false;
 let grinderSnapshot = null;
 let grinderPollTimer = null;
 
-const GRINDER_MODE_KEYS = { grind: 'grindSetting', feed: 'feedingRpm', speed: 'grindRpm' };
+const GRINDER_MODE_KEYS = { gap: 'grindSetting', feed: 'feedingRpm', spd: 'grindRpm' };
+const GRINDER_MODE_LABELS = { gap: 'Gap', feed: 'Feed', spd: 'Spd' };
+const GRINDER_PRESET_DEFAULTS = {
+    gap: [250, 300, 350, 400],
+    feed: [30, 40, 50, 60],
+    spd: [700, 800, 900, 1000],
+};
+const GRINDER_PRESET_KEY = 'grinderPresets';
 
 function selectGrindMode(mode) {
-    if (!['grind', 'feed', 'speed'].includes(mode)) return;
+    if (!['gap', 'feed', 'spd'].includes(mode)) return;
     grindMode = mode;
-    logger.info(`Grind mode switched to: ${grindMode}`);
+    logger.info(`Grind mode switched to: ${mode}`);
     renderGrindModeOptions();
-    updateGrindValueDisplay();
+    renderGrinderPresets();
+    updateGrinderValueDisplay();
 }
 
 function renderGrindModeOptions() {
@@ -136,15 +144,63 @@ function renderGrindModeOptions() {
     });
 }
 
-function updateGrindValueDisplay() {
-    const el = document.getElementById('grind-value');
-    if (!el) return;
+function updateGrinderValueDisplay() {
     if (!grinderConnected || !grinderSnapshot) return;
+    const rows = [
+        ['gap', 'grind-gap-value', 'grindSetting', 'µm'],
+        ['feed', 'grind-feed-value', 'feedingRpm', 'RPM'],
+        ['spd', 'grind-spd-value', 'grindRpm', 'RPM'],
+    ];
+    for (const [mode, id, key, unit] of rows) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const v = grinderSnapshot[key];
+        el.textContent = (v === undefined || v === null) ? '--' : `${v}${unit}`;
+        el.style.fontWeight = mode === grindMode ? '700' : '';
+        el.style.fontSize = mode === grindMode ? '22px' : '18px';
+    }
+}
+
+function readGrinderPresets() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(GRINDER_PRESET_KEY) || 'null');
+        if (stored && stored.gap && stored.feed && stored.spd) return stored;
+    } catch (e) { /* fall through to defaults */ }
+    return JSON.parse(JSON.stringify(GRINDER_PRESET_DEFAULTS));
+}
+
+function saveGrinderPresets(presets) {
+    try { localStorage.setItem(GRINDER_PRESET_KEY, JSON.stringify(presets)); } catch (e) { /* storage unavailable */ }
+}
+
+function renderGrinderPresets() {
+    const presets = readGrinderPresets();
+    for (let i = 0; i < 4; i++) {
+        const btn = document.getElementById(`grind-preset-${i}`);
+        if (btn) {
+            const v = presets[grindMode]?.[i];
+            btn.textContent = v === undefined ? '--' : String(v);
+        }
+    }
+}
+
+function applyGrinderPreset(i) {
+    const presets = readGrinderPresets();
+    const v = presets[grindMode]?.[i];
+    if (v === undefined) return;
+    updateGrinderSetting(v);
+}
+
+function rememberGrinderPreset(i) {
+    if (!grinderSnapshot) return;
+    const presets = readGrinderPresets();
     const key = GRINDER_MODE_KEYS[grindMode];
     const v = grinderSnapshot[key];
-    if (v !== undefined && v !== null) {
-        el.textContent = Number.isInteger(v) ? String(v) : parseFloat(v).toFixed(1);
-    }
+    if (v === undefined || v === null) return;
+    presets[grindMode][i] = v;
+    saveGrinderPresets(presets);
+    renderGrinderPresets();
+    logger.info(`Saved ${GRINDER_MODE_LABELS[grindMode]} ${v} to preset ${i + 1}`);
 }
 
 async function updateGrinderSetting(value) {
@@ -166,9 +222,9 @@ function updateGrinderFromSnapshot(snapshot) {
     const prev = grinderSnapshot || {};
     const changed = [];
     const modeKeys = [
-        ['grindSetting', 'grind'],
+        ['grindSetting', 'gap'],
         ['feedingRpm', 'feed'],
-        ['grindRpm', 'speed'],
+        ['grindRpm', 'spd'],
     ];
     for (const [key, mode] of modeKeys) {
         const v = snapshot[key];
@@ -180,6 +236,22 @@ function updateGrinderFromSnapshot(snapshot) {
     // fields at once and must not yank the selection.
     if (changed.length === 1) selectGrindMode(changed[0]);
     updateGrinderValueDisplay();
+    renderGrinderPresets();
+}
+
+function setGrinderUiVisible(visible) {
+    const options = document.getElementById('grind-mode-options');
+    const presets = document.getElementById('grind-presets');
+    const gapValue = document.getElementById('grind-gap-value');
+    const feedValue = document.getElementById('grind-feed-value');
+    const spdValue = document.getElementById('grind-spd-value');
+    const recipeValue = document.getElementById('grind-value');
+    if (options) options.style.display = visible ? '' : 'none';
+    if (presets) presets.style.display = visible ? '' : 'none';
+    if (gapValue) gapValue.style.display = visible ? '' : 'none';
+    if (feedValue) feedValue.style.display = visible ? '' : 'none';
+    if (spdValue) spdValue.style.display = visible ? '' : 'none';
+    if (recipeValue) recipeValue.style.display = visible ? 'none' : '';
 }
 
 async function pollGrinderState() {
@@ -192,9 +264,11 @@ async function pollGrinderState() {
         if (data.snapshot) updateGrinderFromSnapshot(data.snapshot);
         if (grinderConnected !== wasConnected) {
             logger.info(`Grinder ${grinderConnected ? 'connected' : 'disconnected'}`);
+            setGrinderUiVisible(grinderConnected);
             if (grinderConnected) {
-                grindMode = 'grind';
+                grindMode = 'gap';
                 renderGrindModeOptions();
+                renderGrinderPresets();
                 updateGrinderValueDisplay();
             }
         }
