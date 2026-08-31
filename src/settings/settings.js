@@ -150,6 +150,11 @@ let screensaverImagesCache = [];
 // a re-render of the Firmware page can repaint the bar and keep Upload disabled
 // instead of pretending nothing is happening. See window.uploadFirmware.
 let firmwareUploadInFlight = false;
+// Which button started the in-flight operation. Distinguishes "the manual
+// card's own Upload button is mid-upload" (card must stay visible — it's
+// showing that button's progress) from "the catalog's Download & Install
+// button is running" (the manual card is irrelevant noise and hides).
+let firmwareOperationSource = null; // 'manual' | 'catalog' | null
 let lastFirmwareProgress = null;
 // Set on window.cancelFirmwareUpdate, read once the stream's 'error' event
 // lands, so that expected termination reads as "cancelled" not "failed".
@@ -6271,33 +6276,38 @@ export function renderFirmwareUpdateSettings() {
             </div>
 
             <div class="content-stretch flex flex-col gap-[12px] items-start relative w-full">
-                <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]" data-i18n-key="DE1 Firmware File">DE1 Firmware File</p>
+                <!-- Hidden while the catalog's Download & Install is running (see
+                     runFirmwareOperation): this card's own Select File/Upload controls
+                     are moot for an update it didn't start. Stays visible when it's
+                     the one running — it's showing that button's own progress. -->
+                <div id="firmware-manual-upload-section" class="content-stretch flex flex-col gap-[12px] items-start relative w-full" style="display:${firmwareUploadInFlight && firmwareOperationSource === 'catalog' ? 'none' : ''}">
+                    <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]" data-i18n-key="DE1 Firmware File">DE1 Firmware File</p>
 
-                <!-- The file and the buttons that act on it live in one card so the
-                     "what did I pick" state reads as a unit with "what happens to it".
-                     Select File and Upload stay paired on the same row/level — they're
-                     the two steps of one action, in reading order. -->
-                <div class="rounded-[10px] border border-[#c9c9c9] p-4 bg-[var(--box-color)] flex items-center justify-between gap-[20px] flex-wrap w-full">
-                    <div class="min-w-0">
-                        <p id="firmware-filename" class="font-['Inter:Regular',sans-serif] text-[22px] text-[var(--text-primary)] truncate" data-i18n-key="No file selected">No file selected</p>
-                        <!-- Filled by onFirmwareFileSelected: size in KB/MB, plus a plain-
-                             language flag once it's bigger than any real DE1 image — a toast
-                             fades, this stays on screen next to the file it's about. -->
-                        <p id="firmware-filename-hint" class="text-[16px] text-[var(--text-secondary)]"></p>
-                    </div>
-                    <div class="flex items-center gap-[16px] flex-shrink-0">
-                        <button class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold"
-                                onclick="document.getElementById('firmware-file-input').click()">
-                            ${getTranslation('Select')} ${getTranslation('File')}
-                        </button>
-                        <button id="firmware-upload-btn" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled onclick="window.uploadFirmware()">
-                            ${getTranslation(firmwareUploadInFlight ? 'Uploading...' : 'Upload')}
-                        </button>
+                    <!-- The file and the buttons that act on it live in one card so the
+                         "what did I pick" state reads as a unit with "what happens to it".
+                         Select File and Upload stay paired on the same row/level — they're
+                         the two steps of one action, in reading order. -->
+                    <div class="rounded-[10px] border border-[#c9c9c9] p-4 bg-[var(--box-color)] flex items-center justify-between gap-[20px] flex-wrap w-full">
+                        <div class="min-w-0">
+                            <p id="firmware-filename" class="font-['Inter:Regular',sans-serif] text-[22px] text-[var(--text-primary)] truncate" data-i18n-key="No file selected">No file selected</p>
+                            <!-- Filled by onFirmwareFileSelected: size in KB/MB, plus a plain-
+                                 language flag once it's bigger than any real DE1 image — a toast
+                                 fades, this stays on screen next to the file it's about. -->
+                            <p id="firmware-filename-hint" class="text-[16px] text-[var(--text-secondary)]"></p>
+                        </div>
+                        <div class="flex items-center gap-[16px] flex-shrink-0">
+                            <button class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold"
+                                    onclick="document.getElementById('firmware-file-input').click()">
+                                ${getTranslation('Select')} ${getTranslation('File')}
+                            </button>
+                            <button id="firmware-upload-btn" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled onclick="window.uploadFirmware()">
+                                ${getTranslation(firmwareUploadInFlight ? 'Uploading...' : 'Upload')}
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-               
                 <!-- Filled by window.uploadFirmware from the NDJSON progress stream. Hidden
                      via inline display, not the hidden attribute: the flex utility would override it.
                      Seeded from lastFirmwareProgress so leaving this page and coming back
@@ -7778,7 +7788,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
     // Elements are looked up per tick, not cached: the settings router swaps
     // page HTML while the upload keeps streaming, so a cached node goes stale
     // (detached) the moment the user leaves and comes back.
-    async function runFirmwareOperation(startOperation, { onBeforeStart, onDone, onError } = {}) {
+    async function runFirmwareOperation(startOperation, { onBeforeStart, onDone, onError, source } = {}) {
         // One POST holds the NDJSON stream open for the whole update, so a second
         // click (e.g. after navigating away and back, which re-renders a button
         // enabled) would only earn a 409 from the endpoint.
@@ -7787,6 +7797,13 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             return;
         }
         onBeforeStart?.();
+        firmwareOperationSource = source;
+        // The manual card is the catalog flow's own Upload/Select File button's
+        // page real-estate, not a second control surface for it — hide it while
+        // the catalog is running. When the manual card started the operation, it
+        // stays visible: it's showing that button's own in-progress state.
+        const manualSection = document.getElementById('firmware-manual-upload-section');
+        if (manualSection) manualSection.style.display = source === 'catalog' ? 'none' : '';
 
         // Erase and CRC verification emit no percentages, so the bar sits still at
         // both ends of the upload; the step tracker + label name the phase so a
@@ -7887,6 +7904,9 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             onError?.(error);
         } finally {
             firmwareUploadInFlight = false;
+            firmwareOperationSource = null;
+            const manualSectionEl = document.getElementById('firmware-manual-upload-section');
+            if (manualSectionEl) manualSectionEl.style.display = '';
             firmwareCancelRequested = false;
             // Stop the clock. The terminal lines ("upgraded", "cancelled",
             // "failed") are painted in the try/catch above and must not end up
@@ -7935,6 +7955,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         if (!file) return;
 
         await runFirmwareOperation((showProgress) => uploadFirmware(file, showProgress), {
+            source: 'manual',
             onBeforeStart: () => {
                 const uploadBtn = document.getElementById('firmware-upload-btn');
                 if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = getTranslation('Uploading...'); }
@@ -7955,6 +7976,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         if (!confirm(`${getTranslation(FIRMWARE_DURATION_NOTE)}\n\n${getTranslation('Install this firmware update? Restart the machine once the update is done.')}`)) return;
 
         await runFirmwareOperation((showProgress) => applyFirmware(artifactId, showProgress), {
+            source: 'catalog',
             onBeforeStart: () => {
                 const btn = document.getElementById('firmware-apply-btn');
                 if (btn) { btn.disabled = true; btn.textContent = getTranslation('Installing...'); }
