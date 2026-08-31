@@ -206,6 +206,20 @@ let isInWakeGracePeriod = false;
 let wakeGraceTimeout = null;
 const WAKE_RECONNECT_GRACE_MS = 4000;
 
+// Whether the devices feed currently lists any scale-type entry, connected or
+// not (see handleDeviceWsData). This is what decides whether the not-connected
+// weight slot shows "Retry" (a scale exists somewhere, worth retrying) or hides
+// outright (nothing has ever been discovered/paired — nothing to retry). The
+// devices feed is shared across the whole session (see connectDeviceWebSocket
+// in api.js), so a scale connected from the Settings page while this page is
+// hidden behind it updates this the same way and the slot is already showing
+// the right thing by the time the user navigates back.
+let isScaleKnown = false;
+function deviceListHasScale(devices) {
+    return devices.some(d => d.type === 'scale' ||
+        (d.name && (d.name.toLowerCase().includes('scale') || d.name.toLowerCase().includes('weight'))));
+}
+
 // Scale auto-retry on disconnect
 let scaleAutoRetryCount = 0;
 let scaleAutoRetryTimer = null;
@@ -249,11 +263,20 @@ function renderScanIcon() {
     }
 }
 
+// Renders the not-connected weight slot. Two outcomes:
+// - No scale has ever been discovered/paired (isScaleKnown false): hide the
+//   slot outright. "Retry" implies there is something to retry; there isn't.
+// - A scale is known but not currently connected: show it, with a scanning
+//   spinner while a scan/wake-retry is actually in flight, "Retry" otherwise.
+// Container is display:none by default in the HTML and only ever revealed
+// here or on the first real weight frame (handleScaleData).
 function renderScaleDisconnectedText() {
     if (isScaleConnected) return;
-    // Container is display:none by default and only revealed on first weight frame.
-    // Force it visible here so the Retry text / Scan spinner — and the tap target — render.
     const scaleInfoContainer = document.getElementById('scale-info-container');
+    if (!isScaleKnown) {
+        if (scaleInfoContainer) scaleInfoContainer.style.display = 'none';
+        return;
+    }
     if (scaleInfoContainer) scaleInfoContainer.style.display = '';
     const showScanning = isScaleScanning || isInWakeGracePeriod;
     if (showScanning) {
@@ -334,6 +357,15 @@ function handleDeviceWsData(data) {
         if (next !== isScaleScanning) {
             isScaleScanning = next;
             renderScaleDisconnectedText();
+        }
+    }
+    // Same predicate settings.js's Bluetooth device list uses (renderDeviceListFromCache)
+    // so "found" means the same thing in both places.
+    if (data && Array.isArray(data.devices)) {
+        const knownNow = deviceListHasScale(data.devices);
+        if (knownNow !== isScaleKnown) {
+            isScaleKnown = knownNow;
+            if (!isScaleConnected) renderScaleDisconnectedText();
         }
     }
     // Edge-triggered, NOT id-diffed: the USB device id is byte-identical across a
@@ -801,6 +833,11 @@ function throttle(func, limit) {
 const throttledUpdateWeight = throttle(ui.updateWeight, 100); // 100ms throttle interval
 
 function handleScaleData(data) {
+    // Any message at all on the scale's own snapshot socket proves one exists,
+    // regardless of whether the devices feed has confirmed it yet — don't let
+    // renderScaleDisconnectedText's isScaleKnown gate hide a scale that is
+    // demonstrably right here sending us frames (e.g. a battery-only frame).
+    isScaleKnown = true;
     const scaleInfoContainer = document.getElementById('scale-info-container');
     const currentWeight = data.weight;
     latestScaleWeight = currentWeight;
@@ -910,12 +947,9 @@ async function handleWeightClick() {
                 clearInterval(poll);
                 ui.showToast('Scale Not Found', 3000, 'error');
                 isConnectingScale = false;
+                // Show vs. hide is decided by isScaleKnown (the live devices feed),
+                // not by this one attempt's own outcome — see renderScaleDisconnectedText.
                 renderScaleDisconnectedText();
-                // Never truly connected, so hide the container.
-                const scaleInfoContainer = document.getElementById('scale-info-container');
-                if (scaleInfoContainer) {
-                    scaleInfoContainer.style.display = 'none';
-                }
                 return;
             }
 
@@ -943,13 +977,6 @@ async function handleWeightClick() {
         ui.showToast('Failed to initiate scale connection', 3000, 'error');
         isConnectingScale = false;
         renderScaleDisconnectedText();
-        // If initial connection failed, hide the container if it was never truly connected
-        // if (!isScaleConnected) {
-        //     const scaleInfoContainer = document.getElementById('scale-info-container');
-        //     if (scaleInfoContainer) {
-        //         scaleInfoContainer.style.display = 'none';
-        //     }
-        // }
     }
 }
 

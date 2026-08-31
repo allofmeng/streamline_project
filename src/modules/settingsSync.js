@@ -46,6 +46,10 @@ export const SYNCED_KEYS = [
     'streamline.steamStopModeFallback',
     'streamline.cupWarmerTarget',
     'streamline.dye2Enabled',
+    'streamline.dyeStripMode',
+    'streamline.ecoSteam',
+    'streamline.settings.location',
+    'tempUnit',
     'visualizerEnabled',
     'visualizerAutoUpload',
 ];

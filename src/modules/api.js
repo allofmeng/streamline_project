@@ -2233,6 +2233,9 @@ export async function uploadFirmware(firmwareFile, onProgress) {
         const byStatus = {
             400: 'Firmware file is empty',
             409: 'A firmware update is already in progress',
+            // Real DE1 images are well under 1 MB; a 413 here almost always means
+            // the wrong file was picked (the picker has no accept filter).
+            413: 'Firmware file is too large (max 16 MB) — check you selected the correct file',
             503: 'No machine connected',
         };
         throw new Error(byStatus[response.status] || `Failed to upload firmware (${response.status})`);

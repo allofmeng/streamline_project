@@ -143,6 +143,29 @@ export function formatDuration(totalSeconds) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+// The whole-operation ballpark shown before there is any real upload rate to
+// extrapolate from (erase, and the slow trickle before the first upload tick —
+// see the comment on firmwareStartedAt in settings.js). Matches the number
+// FIRMWARE_DURATION_NOTE already promises the user, so the UI never states two
+// different durations. This is a floor, not a measurement: decaid's own erase
+// and verify BLE timeouts are 30s each (unified_de1.dart), but the label can sit
+// on "Erase…" for minutes past that while it waits for the first 1%-granularity
+// upload event, so a countdown pinned to those short timeouts would hit 0:00
+// and then freeze — exactly the "looks hung" symptom this is meant to fix.
+export const FIRMWARE_ESTIMATED_TOTAL_SECONDS = 50 * 60;
+
+/**
+ * Ballpark countdown against FIRMWARE_ESTIMATED_TOTAL_SECONDS, for the
+ * stretches where estimateRemainingSeconds has nothing to extrapolate from.
+ * Returns null once the estimate is exhausted — the caller then says "taking
+ * longer than usual" instead of showing a countdown that lied about being done.
+ */
+export function estimateTotalRemainingSeconds(startedAt, now = Date.now()) {
+    if (!startedAt) return null;
+    const remaining = FIRMWARE_ESTIMATED_TOTAL_SECONDS - (now - startedAt) / 1000;
+    return remaining > 0 ? Math.round(remaining) : null;
+}
+
 /**
  * Reduce a GET /machine/firmware catalog to what the update check displays.
  *

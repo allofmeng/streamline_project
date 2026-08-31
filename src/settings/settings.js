@@ -8,7 +8,7 @@ import { loadPage } from '../modules/router.js'; // Singular and correctly forma
 import { logger } from '../modules/logger.js';
 import { isBengleMachine, setMachineModel } from '../modules/machine.js';
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
-import { summarizeFirmwareCatalog, isFirmwareCancellationError, estimateRemainingSeconds, formatDuration } from '../modules/firmware-progress.js';
+import { summarizeFirmwareCatalog, isFirmwareCancellationError, estimateRemainingSeconds, estimateTotalRemainingSeconds, formatDuration } from '../modules/firmware-progress.js';
 import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewComposite } from '../modules/led-color.js';
 import { isCupWarmerOn, readCupWarmerTarget, clampCupWarmerTarget, clampPrewarmMinutes, resolvePrewarm, prewarmWarnings, prewarmShapeSignature, cupWarmerViewMode, formatCurrentMatTemp, getCupWarmerState, setCupWarmerState, patchCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY, PREWARM_MIN_MINUTES, PREWARM_MAX_MINUTES } from '../modules/cup-warmer.js';
@@ -6125,11 +6125,13 @@ async function initFirmwareCheck() {
 
 // Said before the update starts, everywhere it can be started from: the manual
 // upload block, the "update available" block, and the install confirm. A flash is
-// ~30 minutes of erase, upload and CRC verification, most of it with the bar
+// ~50 minutes of erase, upload and CRC verification, most of it with the bar
 // barely moving — someone who expected "a few minutes" reads that as a hang and
 // pulls the plug, which is the one thing that turns a slow update into a broken
 // machine. One constant so the number cannot drift between the three places.
-const FIRMWARE_DURATION_NOTE = 'The whole update takes at least 30 minutes. Do not power off the machine or leave this page until it finishes.';
+// Keep in sync with FIRMWARE_ESTIMATED_TOTAL_SECONDS in firmware-progress.js —
+// that's this same number driving the countdown, not an independent guess.
+const FIRMWARE_DURATION_NOTE = 'The whole update takes at least 50 minutes. Do not power off the machine or leave this page until it finishes.';
 
 // Phase -> user-facing line. Shared by the live progress callback and the page
 // re-render, so a rejoined update reads identically to one watched throughout.
@@ -6150,11 +6152,15 @@ function firmwareProgressLabel(progress) {
 }
 
 // The clock beside the phase. Counts DOWN through the upload — " — 2:10
-// remaining", from the rate the upload is actually running at. Erase and
-// verification report no percentage, so there is nothing to count down from and
-// it falls back to counting up: a bare " — 0:42" reads as time spent, which is
-// still what separates "silent because it is working" from "silent because it
-// is dead". Returns '' when nothing is running.
+// remaining", from the rate the upload is actually running at (precise: it
+// comes from bytes actually sent). Erase and verification report no
+// percentage, so there is nothing to extrapolate from there — those fall back
+// to a "~m:ss remaining" ballpark against FIRMWARE_ESTIMATED_TOTAL_SECONDS (the
+// same "at least 50 minutes" already promised by FIRMWARE_DURATION_NOTE), so a
+// silent stretch reads as "still within the estimate" instead of a bare
+// climbing elapsed-time clock that never says whether it's normal. Past that
+// estimate, it says so plainly instead of showing a countdown that lied about
+// being done. Returns '' when nothing is running.
 function firmwareClock(percent, now = Date.now()) {
     const remaining = estimateRemainingSeconds({
         startedAt: firmwareUploadStartedAt,
@@ -6165,7 +6171,58 @@ function firmwareClock(percent, now = Date.now()) {
     });
     if (remaining !== null) return ` — ${formatDuration(remaining)} ${getTranslation('remaining')}`;
     if (!firmwareStartedAt) return '';
-    return ` — ${formatDuration((now - firmwareStartedAt) / 1000)}`;
+    const estimated = estimateTotalRemainingSeconds(firmwareStartedAt, now);
+    if (estimated !== null) return ` — ~${formatDuration(estimated)} ${getTranslation('remaining')}`;
+    return ` — ${getTranslation('taking longer than usual')}`;
+}
+
+// Which of the four real phases a flash is in, as a step index (0-3). 'verify'
+// is synthetic on the wire — the stream never says it, it's just 'uploading'
+// with all bytes sent (see the phase === 'done' comment in firmwareProgressLabel) —
+// but it is a real, distinct wait server-side (its own 30s BLE timeout, same as
+// erase; see unified_de1.dart's firmwareVerificationTimeout) and worth its own
+// node rather than looking like Upload is still running at 100%.
+function firmwareStepIndex(progress) {
+    if (!progress) return -1;
+    const { phase, percent } = progress;
+    if (phase === 'erasing') return 0;
+    if (phase === 'uploading') return (percent ?? 0) >= 100 ? 2 : 1;
+    if (phase === 'done') return 3;
+    return -1;
+}
+
+// Erase, Upload, Verify, Done: the actual, ordered phases a flash goes through
+// (FirmwareHandler._streamFirmwareUpload on the decaid side emits exactly this
+// sequence). Shown as a tracker instead of a single bar because most of a
+// ~50-minute flash is spent on the two silent phases either side of Upload —
+// someone watching a bar that hasn't moved in ten minutes can't tell "step 1 of
+// 4, working" from "hung"; a lit-up node can.
+const FIRMWARE_STEP_LABELS = ['Erase', 'Upload', 'Verify', 'Done'];
+
+function renderFirmwareSteps(progress, { failed = false, cancelled = false } = {}) {
+    const current = firmwareStepIndex(progress);
+    if (current < 0) return '';
+    const last = FIRMWARE_STEP_LABELS.length - 1;
+    return `<div class="flex w-full">${FIRMWARE_STEP_LABELS.map((key, i) => {
+        // Done (current === last) means every node completed, this one included.
+        const isPast = current === last ? true : i < current;
+        const isCurrent = i === current && current !== last;
+        const stoppedHere = isCurrent && (failed || cancelled);
+        const circleCls = stoppedHere
+            ? (failed ? 'bg-[#da515e] text-white' : 'bg-[var(--text-secondary)] text-white')
+            : isPast ? 'bg-[#0CA581] text-white'
+            : isCurrent ? 'bg-[#385a92] text-white'
+            : 'bg-transparent border-2 border-[#c9c9c9]';
+        const glyph = stoppedHere ? '✕' : isPast ? '✓' : '';
+        const lineCls = isPast && i < last ? 'bg-[#0CA581]' : 'bg-[#c9c9c9]';
+        const labelCls = isCurrent || isPast ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]';
+        return `
+            <div class="relative flex-1 flex flex-col items-center gap-[8px]">
+                ${i < last ? `<div class="absolute top-[17px] left-1/2 w-full h-[3px] ${lineCls}"></div>` : ''}
+                <div class="relative z-10 flex items-center justify-center size-[36px] rounded-full text-[18px] font-bold ${circleCls}">${glyph}</div>
+                <p class="text-[16px] font-bold ${labelCls}">${getTranslation(key)}</p>
+            </div>`;
+    }).join('')}</div>`;
 }
 
 export function renderFirmwareUpdateSettings() {
@@ -6213,39 +6270,46 @@ export function renderFirmwareUpdateSettings() {
                 <div id="firmware-check-section">${renderFirmwareCheckBlock(settingsCache.firmwareCheck)}</div>
             </div>
 
-            <!-- Pick and upload share one row: they are two halves of one action, and
-                 splitting them into two sections was most of the page's height. -->
             <div class="content-stretch flex flex-col gap-[12px] items-start relative w-full">
-                <div class="content-stretch flex items-center justify-between gap-[20px] relative w-full">
-                    <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold not-italic relative text-[#385a92] text-[30px] min-w-0">
-                        <p class="leading-[1.2] whitespace-nowrap" data-i18n-key="DE1 Firmware File">DE1 Firmware File</p>
-                        <p id="firmware-filename" class="font-['Inter:Regular',sans-serif] font-normal text-[20px] text-[var(--text-secondary)] truncate" data-i18n-key="No file selected">No file selected</p>
+                <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]" data-i18n-key="DE1 Firmware File">DE1 Firmware File</p>
+
+                <!-- The file and the buttons that act on it live in one card so the
+                     "what did I pick" state reads as a unit with "what happens to it".
+                     Select File and Upload stay paired on the same row/level — they're
+                     the two steps of one action, in reading order. -->
+                <div class="rounded-[10px] border border-[#c9c9c9] p-4 bg-[var(--box-color)] flex items-center justify-between gap-[20px] flex-wrap w-full">
+                    <div class="min-w-0">
+                        <p id="firmware-filename" class="font-['Inter:Regular',sans-serif] text-[22px] text-[var(--text-primary)] truncate" data-i18n-key="No file selected">No file selected</p>
+                        <!-- Filled by onFirmwareFileSelected: size in KB/MB, plus a plain-
+                             language flag once it's bigger than any real DE1 image — a toast
+                             fades, this stays on screen next to the file it's about. -->
+                        <p id="firmware-filename-hint" class="text-[16px] text-[var(--text-secondary)]"></p>
                     </div>
                     <div class="flex items-center gap-[16px] flex-shrink-0">
-                        <button class="bg-[#385a92] h-[64px] px-[36px] rounded-[64px] text-white text-[24px] font-bold"
+                        <button class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold"
                                 onclick="document.getElementById('firmware-file-input').click()">
                             ${getTranslation('Select')} ${getTranslation('File')}
                         </button>
-                        <button id="firmware-upload-btn" class="bg-[#385a92] h-[64px] px-[36px] rounded-[64px] text-white text-[24px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                        <button id="firmware-upload-btn" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                                 disabled onclick="window.uploadFirmware()">
                             ${getTranslation(firmwareUploadInFlight ? 'Uploading...' : 'Upload')}
                         </button>
                     </div>
                 </div>
-                <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.35] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="Select a firmware file… Restart the machine once the update is done.">
-                    Select a firmware file… Restart the machine once the update is done.
-                </p>
-                <p class="font-['Inter:Regular',sans-serif] font-bold leading-[1.35] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="${escapeHtml(FIRMWARE_DURATION_NOTE)}">
-                    ${getTranslation(FIRMWARE_DURATION_NOTE)}
-                </p>
+
+               
                 <!-- Filled by window.uploadFirmware from the NDJSON progress stream. Hidden
                      via inline display, not the hidden attribute: the flex utility would override it.
                      Seeded from lastFirmwareProgress so leaving this page and coming back
-                     mid-update rejoins the bar where it is, not at zero-and-hidden. -->
-                <div id="firmware-progress" class="w-full flex flex-col gap-2" style="display:${lastFirmwareProgress ? 'flex' : 'none'}">
-                    <p id="firmware-progress-label" class="text-[22px] text-[var(--text-primary)]">${firmwareProgressLabel(lastFirmwareProgress)}</p>
-                    <div class="w-full h-[10px] rounded-full bg-[#c9c9c9] overflow-hidden">
-                        <div id="firmware-progress-bar" class="h-full bg-[#385a92] transition-[width] duration-200" style="width:${lastFirmwareProgress?.phase === 'erasing' ? 0 : (lastFirmwareProgress?.percent ?? 0)}%"></div>
+                     mid-update rejoins it where it is, not at zero-and-hidden. -->
+                <div id="firmware-progress" class="w-full flex flex-col gap-3" style="display:${lastFirmwareProgress ? 'flex' : 'none'}">
+                    <div id="firmware-steps">${renderFirmwareSteps(lastFirmwareProgress)}</div>
+                    <p id="firmware-progress-label" class="text-[20px] font-bold text-[var(--text-primary)]">${firmwareProgressLabel(lastFirmwareProgress)}</p>
+                    <!-- Only Upload has a real byte-level percentage (see firmwareStepIndex) —
+                         showing this bar during the silent erase/verify phases would just be
+                         a second thing sitting still next to the tracker. -->
+                    <div id="firmware-progress-bar-wrap" class="w-full h-[10px] rounded-full bg-[#c9c9c9] overflow-hidden" style="display:${lastFirmwareProgress?.phase === 'uploading' && lastFirmwareProgress?.percent < 100 ? 'block' : 'none'}">
+                        <div id="firmware-progress-bar" class="h-full bg-[#385a92] transition-[width] duration-200" style="width:${lastFirmwareProgress?.phase === 'uploading' && lastFirmwareProgress?.percent < 100 ? lastFirmwareProgress.percent : 0}%"></div>
                     </div>
                     <!-- Visibility toggled imperatively by runFirmwareOperation, not re-render:
                          it must appear the instant an update starts and disappear once the
@@ -6261,7 +6325,8 @@ export function renderFirmwareUpdateSettings() {
 
             <!-- No accept filter: firmware ships as .dat as well as .bin/.fw/.dfu, and a
                  picker that hides the file you were given is worse than no filter at all.
-                 The endpoint validates the payload (400 on empty, error event on bad CRC). -->
+                 onFirmwareFileSelected blocks anything drastically bigger than a real DE1
+                 image; the endpoint is the backstop (400 on empty, error event on bad CRC). -->
             <input type="file" id="firmware-file-input" class="hidden"
                    onchange="window.onFirmwareFileSelected(this)">
 
@@ -7002,6 +7067,37 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         }
     };
 
+    const DYE2_PLUGIN_ID = 'dye2.reaplugin';
+
+    // Bean/grinder identity lives in Decaid's workflow context, not inside DYE2,
+    // and every ShotRecord embeds a copy of the workflow at pull time. DYE2 cannot
+    // clear it on the way out: Decaid bumps the plugin generation *before* calling
+    // onUnload, so any fetch from onUnload is rejected as "plugin generation
+    // changed" and never leaves the tablet. Nothing else in the UI writes these
+    // fields either, so a disabled DYE2 would leave the last bean stamping every
+    // future shot indefinitely. Clear here, where switching the plugin off is the
+    // user's explicit intent -- unlike a reload, upgrade, or failed load, which
+    // also unload the plugin but must keep the selection.
+    //
+    // Cleared: everything DYE2 alone writes as equipment/bean identity, including
+    // the basket and grinder RPM it stores under extras. Left alone on purpose:
+    // targetDoseWeight/targetYield (core shot params with app defaults) and
+    // extras.note (the user's own tasting prose, not machine metadata).
+    async function clearDye2WorkflowContext() {
+        try {
+            await updateWorkflow({
+                context: {
+                    beanBatchId: null, coffeeName: null, coffeeRoaster: null,
+                    grinderId: null, grinderModel: null, grinderSetting: null,
+                    extras: { basketId: null, basketName: null, rpm: null },
+                }
+            });
+        } catch (err) {
+            // Turning the plugin off matters more than the cleanup succeeding.
+            logger.warn('Failed to clear DYE2 workflow context:', err);
+        }
+    }
+
     window.togglePlugin = async function(pluginId, enable, toggleEl) {
         const toggle = toggleEl || null;
         // The input sits inside the <label> that draws the switch; the status text
@@ -7013,6 +7109,11 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             if (enable) {
                 await enablePlugin(pluginId);
             } else {
+                // Before the plugin loses its ability to do this itself.
+                // ponytail: covers the switch in this skin only -- disabling DYE2
+                // from Decaid's own settings page bypasses it. Move to
+                // PluginLoaderService.disablePlugin upstream if that path matters.
+                if (pluginId === DYE2_PLUGIN_ID) await clearDye2WorkflowContext();
                 await disablePlugin(pluginId);
             }
             if (label) label.textContent = enable ? 'Enabled' : 'Disabled';
@@ -7624,15 +7725,48 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         }
     };
 
+    // Real DE1 images are a fixed ~454 KB (reaprime's firmware manifest reports
+    // byteLength: 463872 for every bundled build). The picker has no accept
+    // filter by design (see the input below), so catch an obviously-wrong file
+    // here instead of letting it round-trip to decaid's 16 MiB hard cap and come
+    // back as a bare "(413)".
+    const MAX_REASONABLE_FIRMWARE_BYTES = 2 * 1024 * 1024;
+
+    function formatFileSize(bytes) {
+        return bytes >= 1024 * 1024
+            ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+            : `${Math.round(bytes / 1024)} KB`;
+    }
+
     window.onFirmwareFileSelected = function(input) {
         const file = input.files[0];
         const label = document.getElementById('firmware-filename');
+        const hint = document.getElementById('firmware-filename-hint');
         const uploadBtn = document.getElementById('firmware-upload-btn');
+        if (file && file.size > MAX_REASONABLE_FIRMWARE_BYTES) {
+            if (label) label.textContent = file.name;
+            if (hint) {
+                hint.textContent = `${formatFileSize(file.size)} — ${getTranslation('too large for a DE1 firmware image')}`;
+                hint.className = 'text-[16px] font-bold text-[#da515e]';
+            }
+            if (uploadBtn) uploadBtn.disabled = true;
+            ui.showToast(
+                getTranslation('That file is too large to be a DE1 firmware image (real ones are about 450 KB). Check you selected the right file.'),
+                6000, 'error'
+            );
+            input.value = '';
+            return;
+        }
         if (file) {
             if (label) label.textContent = file.name;
+            if (hint) {
+                hint.textContent = formatFileSize(file.size);
+                hint.className = 'text-[16px] text-[var(--text-secondary)]';
+            }
             if (uploadBtn) uploadBtn.disabled = false;
         } else {
             if (label) label.textContent = getTranslation('No file selected');
+            if (hint) hint.textContent = '';
             if (uploadBtn) uploadBtn.disabled = true;
         }
     };
@@ -7655,8 +7789,8 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         onBeforeStart?.();
 
         // Erase and CRC verification emit no percentages, so the bar sits still at
-        // both ends of the upload; the label names the phase so a stalled-looking
-        // bar reads as "Erasing…" / "Verifying…" rather than as a hang.
+        // both ends of the upload; the step tracker + label name the phase so a
+        // stalled-looking bar reads as "step 1 of 4" rather than as a hang.
         const showProgress = ({ phase, percent }) => {
             lastFirmwareProgress = { phase, percent };
             // First real upload tick starts the countdown's clock; every tick
@@ -7667,11 +7801,17 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
                 firmwareUploadStartPercent = percent;
             }
             const panel = document.getElementById('firmware-progress');
+            const steps = document.getElementById('firmware-steps');
             const label = document.getElementById('firmware-progress-label');
+            const barWrap = document.getElementById('firmware-progress-bar-wrap');
             const bar = document.getElementById('firmware-progress-bar');
             if (panel) panel.style.display = 'flex';
+            if (steps) steps.innerHTML = renderFirmwareSteps(lastFirmwareProgress);
             if (label) label.textContent = firmwareProgressLabel(lastFirmwareProgress);
-            if (bar) bar.style.width = `${phase === 'erasing' ? 0 : percent}%`;
+            // Only Upload has a real byte-level percentage — see firmwareStepIndex.
+            const uploading = phase === 'uploading' && percent < 100;
+            if (barWrap) barWrap.style.display = uploading ? 'block' : 'none';
+            if (bar) bar.style.width = `${uploading ? percent : 0}%`;
         };
 
         firmwareUploadInFlight = true;
@@ -7718,17 +7858,27 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             onDone?.();
         } catch (error) {
             logger.error('Error updating firmware:', error);
+            const stoppedAt = lastFirmwareProgress;
             lastFirmwareProgress = null;
+            const steps = document.getElementById('firmware-steps');
             const label = document.getElementById('firmware-progress-label');
+            const barWrap = document.getElementById('firmware-progress-bar-wrap');
             const bar = document.getElementById('firmware-progress-bar');
             // A cancel resolves through this same stream-error path (the DELETE
             // just requests it; the NDJSON stream's 'error' event is what
             // actually ends the in-flight promise) -- read as "cancelled", not "failed".
             const cancelled = firmwareCancelRequested || isFirmwareCancellationError(error);
+            // Freeze the tracker on whichever node it was on — a red ✕ for a real
+            // failure, a neutral grey one for a cancel, so it's obvious which of
+            // the four steps didn't finish instead of the tracker just vanishing.
+            if (steps) steps.innerHTML = renderFirmwareSteps(stoppedAt, { failed: !cancelled, cancelled });
             if (label) {
                 label.textContent = cancelled ? getTranslation('Update cancelled') : `${getTranslation('Update failed')}: ${error.message}`;
-                label.classList.add('text-[#da515e]');
+                // Grey for a cancel (expected, user-requested), red only for an
+                // actual failure — matching the tracker node's own colour above.
+                label.classList.add(cancelled ? 'text-[var(--text-secondary)]' : 'text-[#da515e]');
             }
+            if (barWrap) barWrap.style.display = 'none';
             if (bar) bar.style.width = '0%';
             ui.showToast(
                 cancelled ? getTranslation('Firmware update cancelled') : `${getTranslation('Update failed')}: ${error.message}`,

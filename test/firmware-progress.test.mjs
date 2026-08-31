@@ -8,6 +8,8 @@ import {
     initialFirmwareState,
     summarizeFirmwareCatalog,
     estimateRemainingSeconds,
+    estimateTotalRemainingSeconds,
+    FIRMWARE_ESTIMATED_TOTAL_SECONDS,
     formatDuration,
 } from '../src/modules/firmware-progress.js';
 
@@ -209,6 +211,22 @@ test('no countdown before the upload, in the first few percent, or while verifyi
     assert.equal(estimateRemainingSeconds({ ...base, percent: 100 }), null,
         'the bytes are sent; verification carries no percentage to project');
     assert.equal(estimateRemainingSeconds({ ...base, percent: null }), null);
+});
+
+// ── Ballpark countdown (erase / pre-first-tick) ─────────────────────────────
+// Used only where estimateRemainingSeconds has nothing to extrapolate from —
+// see firmwareClock in settings.js.
+test('ballpark counts down from the published total estimate', () => {
+    assert.equal(estimateTotalRemainingSeconds(T0, T0), FIRMWARE_ESTIMATED_TOTAL_SECONDS);
+    assert.equal(estimateTotalRemainingSeconds(T0, T0 + 60_000), FIRMWARE_ESTIMATED_TOTAL_SECONDS - 60);
+});
+
+test('ballpark is null once the estimate is exhausted, not negative', () => {
+    assert.equal(estimateTotalRemainingSeconds(T0, T0 + (FIRMWARE_ESTIMATED_TOTAL_SECONDS + 1) * 1000), null);
+});
+
+test('ballpark is null with nothing started', () => {
+    assert.equal(estimateTotalRemainingSeconds(0, T0), null);
 });
 
 test('m:ss formatting pads the seconds', () => {
