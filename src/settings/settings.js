@@ -1,5 +1,5 @@
 import { isEcoSteamEnabled, setEcoSteamEnabled } from '../modules/eco-steam.js';
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, getWebuiServerStatus, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin, getShots } from '../modules/api.js';
+import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, getWebuiServerStatus, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation } from '../modules/i18n.js';
@@ -5598,22 +5598,29 @@ export function renderExtensionsSettings() {
     return template;
 }
 
-// Print The Shot -- settings UI for print-the-shot.reaplugin, which sends a
+// Decaid routes /api/v1/plugins/<id>/<endpoint> from the manifest's api
+// declarations, so a plugin's page is only real when the manifest declares an
+// http endpoint named "ui" -- anything else 404s. Module scope because both the
+// Plugins list and the Print The Shot page link to one.
+function pluginUiUrl(plugin) {
+    const endpoints = Array.isArray(plugin?.api) ? plugin.api : [];
+    const hasUi = endpoints.some(e => e?.type === 'http' && e?.id === 'ui');
+    return hasUi ? `${API_BASE_URL}/plugins/${encodeURIComponent(plugin.id)}/ui` : null;
+}
+
+// Print The Shot -- the settings half of print-the-shot.reaplugin, which sends a
 // finished shot to a local print server that renders it as a paper receipt.
 //
-// The page owns none of the printing: which server, which path, how long a shot
-// has to be and whether finished shots go out automatically are the plugin's
-// settings, and the plugin subscribes to shot events itself. So this page is the
-// same shape as the Shot Uploader -- controls generated from the manifest schema
-// (see the note above renderShotUploadSettings for why they are not hand-written),
-// plus the one thing the plugin cannot offer on its own: picking which stored
-// shot to print, rather than only the last one.
+// Settings only, on purpose. The plugin ships its own complete page at its `ui`
+// endpoint -- shot browser, log, print buttons, the 3x retry -- and printing
+// there means converting the shot to the TCL wire format the print server wants,
+// which is ~130 lines living inside the plugin's own bundle. A copy of that here
+// would be wrong the first time the plugin's format changed, for the same reason
+// hand-written setting controls go stale (see renderShotUploadSettings). So this
+// page owns what the skin is better at -- the settings, in the skin's own
+// styling, generated from the manifest -- and hands printing to the page that
+// owns the format.
 const PRINT_THE_SHOT_PLUGIN_ID = 'print-the-shot.reaplugin';
-
-// Which stored shot the browser is sitting on, as an offset back from the most
-// recent. Module-level so returning to the page lands where it was left.
-let printTheShotOffset = 0;
-let printTheShotShot = null;
 
 export function renderPrintTheShotSettings() {
     setTimeout(setupPrintTheShotListeners, 0);
@@ -5637,23 +5644,8 @@ export function renderPrintTheShotSettings() {
                 <!-- Filled from the manifest schema by setupPrintTheShotListeners. -->
                 <div id="printtheshot-controls" class="content-stretch flex flex-col gap-[30px] items-start relative w-full"></div>
 
-                <!-- Shot picker. The plugin can only ever print "the last shot";
-                     this is how an older one gets printed. -->
-                <div class="content-stretch flex flex-col gap-[16px] items-start relative w-full">
-                    <div class="content-stretch flex items-center justify-between relative w-full">
-                        <button id="printtheshot-prev" class="bg-[#385a92] h-[52px] px-[22px] rounded-[64px] text-white text-[20px] font-bold">&#9664; <span data-i18n-key="Older">Older</span></button>
-                        <div class="flex flex-col items-center gap-[4px] flex-1 text-center px-[16px]">
-                            <p id="printtheshot-shot-title" class="text-[24px] font-bold text-[var(--text-primary)] leading-[1.2]" data-i18n-key="Loading">Loading</p>
-                            <p id="printtheshot-shot-meta" class="text-[20px] text-[var(--low-contrast-white)] leading-[1.3]"></p>
-                        </div>
-                        <button id="printtheshot-next" class="bg-[#385a92] h-[52px] px-[22px] rounded-[64px] text-white text-[20px] font-bold"><span data-i18n-key="Newer">Newer</span> &#9654;</button>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-[14px] flex-wrap w-full">
-                    <button id="printtheshot-print" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[22px] font-bold" data-i18n-key="Print this shot">Print this shot</button>
-                    <span id="printtheshot-status" class="text-[20px] text-[var(--text-primary)] opacity-60"></span>
-                </div>
+                <!-- Filled with a link to the plugin's own page once we know it has one. -->
+                <div id="printtheshot-ui-link" class="w-full"></div>
             </div>
         </div>
     `;
@@ -5664,13 +5656,6 @@ function setupPrintTheShotListeners() {
     const controlsEl = document.getElementById('printtheshot-controls');
     if (!gateEl || !controlsEl) return;
 
-    const printBtn = document.getElementById('printtheshot-print');
-    const prevBtn = document.getElementById('printtheshot-prev');
-    const nextBtn = document.getElementById('printtheshot-next');
-    const statusEl = document.getElementById('printtheshot-status');
-    const titleTextEl = document.getElementById('printtheshot-shot-title');
-    const metaEl = document.getElementById('printtheshot-shot-meta');
-
     const notice = (title, body) => `
         <div class="flex flex-col gap-[24px] p-[36px] rounded-[20px] border-2 border-dashed border-[var(--profile-button-outline-color)] bg-[var(--box-color)] items-center text-center">
             <div class="flex flex-col gap-[8px]">
@@ -5679,65 +5664,8 @@ function setupPrintTheShotListeners() {
             </div>
         </div>`;
 
-    const setStatus = (text) => { if (statusEl) statusEl.textContent = text || ''; };
-
-    // The shot browser is the app's own feature, not the plugin's -- it keeps
-    // working (minus the print button) when the plugin is missing, rather than
-    // the whole page going dead.
-    const showShot = (shot) => {
-        if (!titleTextEl || !metaEl) return;
-        if (!shot) {
-            titleTextEl.textContent = getTranslation('No shots yet');
-            titleTextEl.removeAttribute('data-i18n-key');
-            metaEl.textContent = '';
-            return;
-        }
-        const wf = shot.workflow || {};
-        const context = wf.context || {};
-        const when = new Date(shot.timestamp).toLocaleString();
-        const profile = wf.profile?.title || '—';
-        const ann = shot.annotations || {};
-        const bean = context.coffeeName || '';
-        titleTextEl.textContent = `${profile} · ${when}`;
-        titleTextEl.removeAttribute('data-i18n-key');
-        metaEl.textContent = `${getTranslation('in')} ${ann.actualDoseWeight ?? '?'}g · ${getTranslation('out')} ${ann.actualYield ?? '?'}g${bean ? ' · ' + bean : ''}`;
-    };
-
-    // Offsets are clamped against `total` so prev/next can be disabled at the
-    // ends instead of the user finding out by clicking into an empty page.
-    const loadShot = async () => {
-        let page;
-        try {
-            page = await getShots({ limit: 1, offset: printTheShotOffset });
-        } catch (e) {
-            logger.warn('Print The Shot: could not read shot history', e);
-            if (titleTextEl) titleTextEl.textContent = getTranslation('Could not read shot history');
-            return;
-        }
-        if (!document.getElementById('printtheshot-shot-title')) return;
-        const total = page?.total ?? 0;
-        if (printTheShotOffset >= total && total > 0) {
-            printTheShotOffset = total - 1;
-            return loadShot();
-        }
-        printTheShotShot = (page?.items || [])[0] || null;
-        showShot(printTheShotShot);
-        if (prevBtn) prevBtn.disabled = printTheShotOffset >= total - 1;
-        if (nextBtn) nextBtn.disabled = printTheShotOffset <= 0;
-        if (printBtn) printBtn.disabled = !printTheShotShot || printBtn.dataset.pluginMissing === '1';
-    };
-
-    prevBtn?.addEventListener('click', () => { printTheShotOffset += 1; loadShot(); });
-    nextBtn?.addEventListener('click', () => {
-        if (printTheShotOffset === 0) return;
-        printTheShotOffset -= 1;
-        loadShot();
-    });
-
     (async () => {
-        if (printBtn) { printBtn.disabled = true; printBtn.dataset.pluginMissing = '1'; }
         controlsEl.style.opacity = '0.4';
-        loadShot();
 
         // getPlugins answers null when the request failed and [] when there really
         // are none, so the two must not collapse into "not installed" -- that would
@@ -5805,6 +5733,19 @@ function setupPrintTheShotListeners() {
             else if (value !== undefined && value !== null) el.value = value;
         }
         controlsEl.style.opacity = '1';
+
+        // Plain same-frame link, as on the Plugins page: the tablet's host opens an
+        // OS browser on this navigation, and a _blank would die in the webview.
+        const uiUrl = pluginUiUrl(plugin);
+        const linkEl = document.getElementById('printtheshot-ui-link');
+        if (linkEl && uiUrl) {
+            linkEl.innerHTML = `
+                <div class="flex flex-col gap-[10px] p-[24px] rounded-[14px] bg-[var(--box-color)] border border-[var(--profile-button-outline-color)]">
+                    <p class="text-[22px] font-bold text-[var(--text-primary)]" data-i18n-key="Printing">Printing</p>
+                    <p class="text-[20px] text-[var(--low-contrast-white)] leading-[1.4]" data-i18n-key="Browse shots, print one by hand and watch the upload log on the plugin's own page.">Browse shots, print one by hand and watch the upload log on the plugin's own page.</p>
+                    <a href="${escapeHtml(uiUrl)}" class="text-[20px] text-[#385a92] underline font-mono break-words">${escapeHtml(uiUrl)}</a>
+                </div>`;
+        }
         translatePage();
 
         controlsEl.querySelectorAll('[data-setting-key]').forEach(el => {
@@ -5832,8 +5773,7 @@ function setupPrintTheShotListeners() {
                 this.disabled = true;
                 try {
                     // A setting means nothing while the plugin is unloaded, so
-                    // switching one ON loads it first. Switching off leaves it
-                    // loaded: the manual print button still works.
+                    // switching one ON loads it first.
                     if (value === true && !plugin.loaded) {
                         await enablePlugin(PRINT_THE_SHOT_PLUGIN_ID);
                         plugin.loaded = true;
@@ -5854,30 +5794,6 @@ function setupPrintTheShotListeners() {
                 this.disabled = false;
             });
         });
-
-        if (printBtn) {
-            delete printBtn.dataset.pluginMissing;
-            printBtn.disabled = !printTheShotShot;
-            printBtn.addEventListener('click', async function () {
-                if (!printTheShotShot) return;
-                this.disabled = true;
-                setStatus(`${getTranslation('Printing')}…`);
-                try {
-                    if (!plugin.loaded) { await enablePlugin(PRINT_THE_SHOT_PLUGIN_ID); plugin.loaded = true; }
-                    const result = await callPluginEndpoint(PRINT_THE_SHOT_PLUGIN_ID, 'upload', { shotId: printTheShotShot.id });
-                    // The endpoint answers 200 with ok:false for a shot it declined
-                    // to send (too short, no server configured), which is not a
-                    // transport failure and should not read as one.
-                    setStatus(result?.ok
-                        ? getTranslation('Printed')
-                        : `${getTranslation('Not printed')}: ${result?.error || getTranslation('skipped')}`);
-                } catch (e) {
-                    logger.error('Print The Shot failed', e);
-                    setStatus(`${getTranslation('Print failed')}: ${e.message || e}`);
-                }
-                this.disabled = false;
-            });
-        }
     })();
 }
 
@@ -7378,11 +7294,6 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
     // named "ui" -- Decaid routes /api/v1/plugins/<id>/<endpoint> from that
     // declaration, so anything else 404s. Built off API_BASE_URL, not a literal
     // localhost, so it stays right when the bridge hostname is configured.
-    function pluginUiUrl(plugin) {
-        const endpoints = Array.isArray(plugin?.api) ? plugin.api : [];
-        const hasUi = endpoints.some(e => e?.type === 'http' && e?.id === 'ui');
-        return hasUi ? `${API_BASE_URL}/plugins/${encodeURIComponent(plugin.id)}/ui` : null;
-    }
 
     // Plugin manager
     window.loadPluginList = async function() {

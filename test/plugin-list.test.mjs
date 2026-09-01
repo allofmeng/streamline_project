@@ -9,7 +9,7 @@ import { test } from 'node:test';
 // function is lifted out of the source, as in settings-sync.test.mjs.
 
 const source = readFileSync(new URL('../src/settings/settings.js', import.meta.url), 'utf8');
-const match = source.match(/function pluginUiUrl\(plugin\) \{[\s\S]*?\r?\n {4}\}/);
+const match = source.match(/^function pluginUiUrl\(plugin\) \{[\s\S]*?\r?\n\}/m);
 assert.ok(match, 'pluginUiUrl not found in settings.js');
 const pluginUiUrl = new Function('API_BASE_URL', `${match[0]}\nreturn pluginUiUrl;`)('http://x:8080/api/v1');
 
