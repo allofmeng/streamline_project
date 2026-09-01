@@ -6621,37 +6621,54 @@ export function renderFirmwareUpdateSettings() {
             </div>
 
             <div class="content-stretch flex flex-col gap-[12px] items-start relative w-full">
-                <!-- Hidden while the catalog's Download & Install is running (see
-                     runFirmwareOperation): this card's own Select File/Upload controls
-                     are moot for an update it didn't start. Stays visible when it's
-                     the one running — it's showing that button's own progress. -->
-                <div id="firmware-manual-upload-section" class="content-stretch flex flex-col gap-[12px] items-start relative w-full" style="display:${firmwareUploadInFlight && firmwareOperationSource === 'catalog' ? 'none' : ''}">
-                    <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]" data-i18n-key="DE1 Firmware File">DE1 Firmware File</p>
+                <!-- Folded away behind "Advanced" so the page pushes Download & Install:
+                     that path is the safe one (a validated, model-checked bundled image),
+                     while hand-picking a .bin is the expert escape hatch for a file Decent
+                     support sent you. Native <details> — no JS to open and close it.
+                     (It re-renders closed after leaving the page: this whole subtree is
+                     rebuilt from a template string, so there is no element left to hold
+                     the open state. Folding back to the safe default is the right way
+                     round for this particular control.)
+                     Hidden outright while the catalog's Download & Install is running (see
+                     runFirmwareOperation): this card's own Select File/Upload controls are
+                     moot for an update it didn't start. Kept open when it's the one running,
+                     so a re-render mid-upload doesn't fold its own Upload button away. -->
+                <details id="firmware-manual-upload-section" class="w-full" ${firmwareUploadInFlight && firmwareOperationSource === 'manual' ? 'open' : ''}
+                         style="display:${firmwareUploadInFlight && firmwareOperationSource === 'catalog' ? 'none' : ''}">
+                    <!-- Both marker rules: list-none covers modern browsers, the webkit
+                         pseudo-element covers the older WebKit the tablet webview ships. -->
+                    <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none text-[22px] font-bold text-[var(--text-secondary)] py-[8px]">
+                        <span data-i18n-key="Advanced">Advanced</span> ▾
+                    </summary>
 
-                    <!-- The file and the buttons that act on it live in one card so the
-                         "what did I pick" state reads as a unit with "what happens to it".
-                         Select File and Upload stay paired on the same row/level — they're
-                         the two steps of one action, in reading order. -->
-                    <div class="rounded-[10px] border border-[#c9c9c9] p-4 bg-[var(--box-color)] flex items-center justify-between gap-[20px] flex-wrap w-full">
-                        <div class="min-w-0">
-                            <p id="firmware-filename" class="font-['Inter:Regular',sans-serif] text-[22px] text-[var(--text-primary)] truncate" data-i18n-key="No file selected">No file selected</p>
-                            <!-- Filled by onFirmwareFileSelected: size in KB/MB, plus a plain-
-                                 language flag once it's bigger than any real DE1 image — a toast
-                                 fades, this stays on screen next to the file it's about. -->
-                            <p id="firmware-filename-hint" class="text-[16px] text-[var(--text-secondary)]"></p>
-                        </div>
-                        <div class="flex items-center gap-[16px] flex-shrink-0">
-                            <button class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold"
-                                    onclick="document.getElementById('firmware-file-input').click()">
-                                ${getTranslation('Select')} ${getTranslation('File')}
-                            </button>
-                            <button id="firmware-upload-btn" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                                    disabled onclick="window.uploadFirmware()">
-                                ${getTranslation(firmwareUploadInFlight ? 'Uploading...' : 'Upload')}
-                            </button>
+                    <div class="content-stretch flex flex-col gap-[12px] items-start relative w-full pt-[8px]">
+                        <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]" data-i18n-key="DE1 Firmware File">DE1 Firmware File</p>
+
+                        <!-- The file and the buttons that act on it live in one card so the
+                             "what did I pick" state reads as a unit with "what happens to it".
+                             Select File and Upload stay paired on the same row/level — they're
+                             the two steps of one action, in reading order. -->
+                        <div class="rounded-[10px] border border-[#c9c9c9] p-4 bg-[var(--box-color)] flex items-center justify-between gap-[20px] flex-wrap w-full">
+                            <div class="min-w-0">
+                                <p id="firmware-filename" class="font-['Inter:Regular',sans-serif] text-[22px] text-[var(--text-primary)] truncate" data-i18n-key="No file selected">No file selected</p>
+                                <!-- Filled by onFirmwareFileSelected: size in KB/MB, plus a plain-
+                                     language flag once it's bigger than any real DE1 image — a toast
+                                     fades, this stays on screen next to the file it's about. -->
+                                <p id="firmware-filename-hint" class="text-[16px] text-[var(--text-secondary)]"></p>
+                            </div>
+                            <div class="flex items-center gap-[16px] flex-shrink-0">
+                                <button class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold"
+                                        onclick="document.getElementById('firmware-file-input').click()">
+                                    ${getTranslation('Select')} ${getTranslation('File')}
+                                </button>
+                                <button id="firmware-upload-btn" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[20px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                        disabled onclick="window.uploadFirmware()">
+                                    ${getTranslation(firmwareUploadInFlight ? 'Uploading...' : 'Upload')}
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </details>
 
                 <!-- Filled by window.uploadFirmware from the NDJSON progress stream. Hidden
                      via inline display, not the hidden attribute: the flex utility would override it.
