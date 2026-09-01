@@ -7385,23 +7385,31 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
     // and every ShotRecord embeds a copy of the workflow at pull time. DYE2 cannot
     // clear it on the way out: Decaid bumps the plugin generation *before* calling
     // onUnload, so any fetch from onUnload is rejected as "plugin generation
-    // changed" and never leaves the tablet. Nothing else in the UI writes these
-    // fields either, so a disabled DYE2 would leave the last bean stamping every
+    // changed" and never leaves the tablet. Decaid has no native UI that clears
+    // these fields either (WorkflowContext.clearBeanBatch/clearGrinder have zero
+    // callers), so a disabled DYE2 would leave the last bean stamping every
     // future shot indefinitely. Clear here, where switching the plugin off is the
-    // user's explicit intent -- unlike a reload, upgrade, or failed load, which
-    // also unload the plugin but must keep the selection.
+    // user's explicit intent -- unlike a reload, upgrade, removal, failed load,
+    // or app shutdown, which all also unload plugins but must keep the selection.
     //
-    // Cleared: everything DYE2 alone writes as equipment/bean identity, including
-    // the basket and grinder RPM it stores under extras. Left alone on purpose:
-    // targetDoseWeight/targetYield (core shot params with app defaults) and
-    // extras.note (the user's own tasting prose, not machine metadata).
+    // Cleared: everything DYE2 alone writes as bean/equipment identity, including
+    // the basket, grinder RPM, and auto-favourite note it stores under extras.
+    // extras.note is the auto-favourite's "Note" field, copied forward under the
+    // same copyMask as beans and basket -- recipe payload, not the user's tasting
+    // notes, which live in the shot annotation's espressoNotes and are untouched.
+    //
+    // Left alone on purpose: targetDoseWeight/targetYield, core shot params with
+    // app defaults that other skins rely on and DYE2 does not exclusively own,
+    // and `profile`, which is the espresso profile the machine actually runs
+    // (non-nullable in Decaid's Workflow model, and not stale metadata).
     async function clearDye2WorkflowContext() {
         try {
             await updateWorkflow({
                 context: {
                     beanBatchId: null, coffeeName: null, coffeeRoaster: null,
                     grinderId: null, grinderModel: null, grinderSetting: null,
-                    extras: { basketId: null, basketName: null, rpm: null },
+                    baristaName: null, drinkerName: null,
+                    extras: { basketId: null, basketName: null, rpm: null, note: null },
                 }
             });
         } catch (err) {
