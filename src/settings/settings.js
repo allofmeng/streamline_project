@@ -1,5 +1,5 @@
 import { isEcoSteamEnabled, setEcoSteamEnabled } from '../modules/eco-steam.js';
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, getWebuiServerStatus, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin } from '../modules/api.js';
+import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, getWebuiServerStatus, uploadFirmware, applyFirmware, cancelFirmwareUpdate, getFirmwareCatalog, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, getSensorCalibration, setSensorCalibration, getLastMachineSnapshot, ensureMachineSnapshotSocket, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, approvePluginUpdate, getPlugins, getDecentAccountStatus, getPluginSettings, setPluginSettings, callPluginEndpoint, enablePlugin, getShots } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation } from '../modules/i18n.js';
@@ -692,6 +692,8 @@ export function renderSettingsContent(category) {
             return renderShotUploadSettings();
         case 'dye2':
             return renderDye2Settings();
+        case 'printtheshot':
+            return renderPrintTheShotSettings();
         case 'extensions':
         case 'extention1':
         case 'extention2':
@@ -5255,12 +5257,15 @@ export function pluginSettingLabel(key) {
         .trim();
 }
 
-// One control per manifest setting, for the two types shot-upload declares.
-// A type we have no control for renders nothing and is logged by the caller,
-// which is the signal to add it -- guessing at string/enum/secure widgets before
-// a plugin here asks for one is how this page drifted in the first place.
-export function renderPluginSettingControl(key, schema) {
-    const id = `shotupload-setting-${key}`;
+// One control per manifest setting, for the types the plugins on these pages
+// declare. A type we have no control for renders nothing and is logged by the
+// caller, which is the signal to add it -- guessing at widgets before a plugin
+// here asks for one is how this page drifted in the first place.
+//
+// `idPrefix` exists because more than one page renders a plugin's schema now
+// (Shot Uploader, Print The Shot); the ids have to stay distinct per page.
+export function renderPluginSettingControl(key, schema, idPrefix = 'shotupload') {
+    const id = `${idPrefix}-setting-${key}`;
     const label = escapeHtml(getTranslation(pluginSettingLabel(key)));
     const description = schema?.description
         ? `<p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="${escapeHtml(schema.description)}">${escapeHtml(getTranslation(schema.description))}</p>`
@@ -5288,6 +5293,18 @@ export function renderPluginSettingControl(key, schema) {
                     <label for="${id}" class="text-[var(--text-primary)] text-[24px]">${label}</label>
                     <input type="number" id="${id}" min="0" data-setting-key="${escapeHtml(key)}" data-setting-type="number" class="w-24 p-3 rounded-lg border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[24px] focus:outline-none focus:ring-2 focus:ring-[var(--mimoja-blue)]">
                 </div>
+                ${description}
+            </div>`;
+    }
+
+    // `secure` is the manifest's own flag for a value that should not be read off
+    // the screen (visualizer's Password sets it) -- honour it rather than
+    // rendering every string in the clear.
+    if (schema?.type === 'string') {
+        return `
+            <div class="flex flex-col gap-[8px] w-full">
+                <label for="${id}" class="text-[var(--text-primary)] text-[24px]">${label}</label>
+                <input type="${schema.secure ? 'password' : 'text'}" id="${id}" data-setting-key="${escapeHtml(key)}" data-setting-type="string" class="w-full max-w-[500px] p-3 rounded-lg border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[24px] focus:outline-none focus:ring-2 focus:ring-[var(--mimoja-blue)]">
                 ${description}
             </div>`;
     }
@@ -5449,6 +5466,8 @@ function setupShotUploadListeners() {
                 let value;
                 if (type === 'boolean') {
                     value = this.checked;
+                } else if (type === 'string') {
+                    value = this.value;
                 } else {
                     value = parseFloat(this.value);
                     // Rejected rather than written: a NaN or a negative would be
@@ -5570,6 +5589,289 @@ export function renderExtensionsSettings() {
     setTimeout(setupVisualizerEventListeners, 0);
 
     return template;
+}
+
+// Print The Shot -- settings UI for print-the-shot.reaplugin, which sends a
+// finished shot to a local print server that renders it as a paper receipt.
+//
+// The page owns none of the printing: which server, which path, how long a shot
+// has to be and whether finished shots go out automatically are the plugin's
+// settings, and the plugin subscribes to shot events itself. So this page is the
+// same shape as the Shot Uploader -- controls generated from the manifest schema
+// (see the note above renderShotUploadSettings for why they are not hand-written),
+// plus the one thing the plugin cannot offer on its own: picking which stored
+// shot to print, rather than only the last one.
+const PRINT_THE_SHOT_PLUGIN_ID = 'print-the-shot.reaplugin';
+
+// Which stored shot the browser is sitting on, as an offset back from the most
+// recent. Module-level so returning to the page lands where it was left.
+let printTheShotOffset = 0;
+let printTheShotShot = null;
+
+export function renderPrintTheShotSettings() {
+    setTimeout(setupPrintTheShotListeners, 0);
+
+    return `
+        <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
+            <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
+                <p class="leading-[1.2]" id="printtheshot-title" data-i18n-key="Print The Shot">Print The Shot</p>
+            </div>
+
+            <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+                <p id="printtheshot-description" class="text-[24px] text-[var(--text-primary)] leading-[1.4] opacity-75"></p>
+
+                <!-- Replaced with a notice when the plugin is missing or unreachable. -->
+                <div id="printtheshot-gate" class="w-full">
+                    <div class="flex items-center justify-center w-full py-[20px]">
+                        <span class="loading loading-spinner loading-lg text-[#385a92]"></span>
+                    </div>
+                </div>
+
+                <!-- Filled from the manifest schema by setupPrintTheShotListeners. -->
+                <div id="printtheshot-controls" class="content-stretch flex flex-col gap-[30px] items-start relative w-full"></div>
+
+                <!-- Shot picker. The plugin can only ever print "the last shot";
+                     this is how an older one gets printed. -->
+                <div class="content-stretch flex flex-col gap-[16px] items-start relative w-full">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <button id="printtheshot-prev" class="bg-[#385a92] h-[52px] px-[22px] rounded-[64px] text-white text-[20px] font-bold">&#9664; <span data-i18n-key="Older">Older</span></button>
+                        <div class="flex flex-col items-center gap-[4px] flex-1 text-center px-[16px]">
+                            <p id="printtheshot-shot-title" class="text-[24px] font-bold text-[var(--text-primary)] leading-[1.2]" data-i18n-key="Loading">Loading</p>
+                            <p id="printtheshot-shot-meta" class="text-[20px] text-[var(--low-contrast-white)] leading-[1.3]"></p>
+                        </div>
+                        <button id="printtheshot-next" class="bg-[#385a92] h-[52px] px-[22px] rounded-[64px] text-white text-[20px] font-bold"><span data-i18n-key="Newer">Newer</span> &#9654;</button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-[14px] flex-wrap w-full">
+                    <button id="printtheshot-print" class="bg-[#385a92] h-[56px] px-[28px] rounded-[64px] text-white text-[22px] font-bold" data-i18n-key="Print this shot">Print this shot</button>
+                    <span id="printtheshot-status" class="text-[20px] text-[var(--text-primary)] opacity-60"></span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function setupPrintTheShotListeners() {
+    const gateEl = document.getElementById('printtheshot-gate');
+    const controlsEl = document.getElementById('printtheshot-controls');
+    if (!gateEl || !controlsEl) return;
+
+    const printBtn = document.getElementById('printtheshot-print');
+    const prevBtn = document.getElementById('printtheshot-prev');
+    const nextBtn = document.getElementById('printtheshot-next');
+    const statusEl = document.getElementById('printtheshot-status');
+    const titleTextEl = document.getElementById('printtheshot-shot-title');
+    const metaEl = document.getElementById('printtheshot-shot-meta');
+
+    const notice = (title, body) => `
+        <div class="flex flex-col gap-[24px] p-[36px] rounded-[20px] border-2 border-dashed border-[var(--profile-button-outline-color)] bg-[var(--box-color)] items-center text-center">
+            <div class="flex flex-col gap-[8px]">
+                <p class="text-[26px] font-bold text-[var(--text-primary)]">${title}</p>
+                <p class="text-[22px] text-[var(--low-contrast-white)] max-w-[500px] leading-[1.4]">${body}</p>
+            </div>
+        </div>`;
+
+    const setStatus = (text) => { if (statusEl) statusEl.textContent = text || ''; };
+
+    // The shot browser is the app's own feature, not the plugin's -- it keeps
+    // working (minus the print button) when the plugin is missing, rather than
+    // the whole page going dead.
+    const showShot = (shot) => {
+        if (!titleTextEl || !metaEl) return;
+        if (!shot) {
+            titleTextEl.textContent = getTranslation('No shots yet');
+            titleTextEl.removeAttribute('data-i18n-key');
+            metaEl.textContent = '';
+            return;
+        }
+        const wf = shot.workflow || {};
+        const context = wf.context || {};
+        const when = new Date(shot.timestamp).toLocaleString();
+        const profile = wf.profile?.title || '—';
+        const ann = shot.annotations || {};
+        const bean = context.coffeeName || '';
+        titleTextEl.textContent = `${profile} · ${when}`;
+        titleTextEl.removeAttribute('data-i18n-key');
+        metaEl.textContent = `${getTranslation('in')} ${ann.actualDoseWeight ?? '?'}g · ${getTranslation('out')} ${ann.actualYield ?? '?'}g${bean ? ' · ' + bean : ''}`;
+    };
+
+    // Offsets are clamped against `total` so prev/next can be disabled at the
+    // ends instead of the user finding out by clicking into an empty page.
+    const loadShot = async () => {
+        let page;
+        try {
+            page = await getShots({ limit: 1, offset: printTheShotOffset });
+        } catch (e) {
+            logger.warn('Print The Shot: could not read shot history', e);
+            if (titleTextEl) titleTextEl.textContent = getTranslation('Could not read shot history');
+            return;
+        }
+        if (!document.getElementById('printtheshot-shot-title')) return;
+        const total = page?.total ?? 0;
+        if (printTheShotOffset >= total && total > 0) {
+            printTheShotOffset = total - 1;
+            return loadShot();
+        }
+        printTheShotShot = (page?.items || [])[0] || null;
+        showShot(printTheShotShot);
+        if (prevBtn) prevBtn.disabled = printTheShotOffset >= total - 1;
+        if (nextBtn) nextBtn.disabled = printTheShotOffset <= 0;
+        if (printBtn) printBtn.disabled = !printTheShotShot || printBtn.dataset.pluginMissing === '1';
+    };
+
+    prevBtn?.addEventListener('click', () => { printTheShotOffset += 1; loadShot(); });
+    nextBtn?.addEventListener('click', () => {
+        if (printTheShotOffset === 0) return;
+        printTheShotOffset -= 1;
+        loadShot();
+    });
+
+    (async () => {
+        if (printBtn) { printBtn.disabled = true; printBtn.dataset.pluginMissing = '1'; }
+        controlsEl.style.opacity = '0.4';
+        loadShot();
+
+        // getPlugins answers null when the request failed and [] when there really
+        // are none, so the two must not collapse into "not installed" -- that would
+        // tell a user with a working plugin to go and install it again.
+        const plugins = await getPlugins();
+        if (!document.getElementById('printtheshot-gate')) return;
+        if (!plugins) {
+            gateEl.innerHTML = notice(
+                getTranslation('Could not check'),
+                getTranslation("Couldn't reach the bridge to check the Print The Shot plugin."));
+            return;
+        }
+        const plugin = plugins.find(p => p?.id === PRINT_THE_SHOT_PLUGIN_ID);
+        if (!plugin) {
+            gateEl.innerHTML = notice(
+                getTranslation('Print The Shot plugin not installed'),
+                getTranslation('Decaid has no Print The Shot plugin installed. Install it on Decaid, then come back to set up printing.'));
+            return;
+        }
+
+        // The plugin names and explains itself. Both are optional on the wire, so
+        // the static header stands in if either is missing.
+        const titleEl = document.getElementById('printtheshot-title');
+        if (titleEl && plugin.name) {
+            titleEl.textContent = getTranslation(plugin.name);
+            titleEl.setAttribute('data-i18n-key', plugin.name);
+        }
+        const descriptionEl = document.getElementById('printtheshot-description');
+        if (descriptionEl && plugin.description) {
+            descriptionEl.textContent = getTranslation(plugin.description);
+            descriptionEl.setAttribute('data-i18n-key', plugin.description);
+        }
+
+        let settings;
+        try {
+            // Strict: the lenient default returns {} for a failed read, which would
+            // paint the controls at their defaults while printing is in fact set up.
+            settings = await getPluginSettings(PRINT_THE_SHOT_PLUGIN_ID, { strict: true }) || {};
+        } catch (e) {
+            logger.warn('Print The Shot settings unavailable:', e);
+            gateEl.innerHTML = notice(
+                getTranslation('Could not check'),
+                getTranslation("Couldn't read the Print The Shot settings. Reopen this page to try again."));
+            return;
+        }
+        // The page can be left while those awaits are in flight, which drops the
+        // form -- same hazard loadVisualizerSettings guards against.
+        if (!document.getElementById('printtheshot-controls')) return;
+
+        gateEl.innerHTML = '';
+
+        const schema = plugin.settings && typeof plugin.settings === 'object' ? plugin.settings : {};
+        const keys = Object.keys(schema);
+        controlsEl.innerHTML = keys.map(key => {
+            const html = renderPluginSettingControl(key, schema[key], 'printtheshot');
+            if (!html) logger.warn(`Print The Shot: no control for setting ${key} of type ${schema[key]?.type}`);
+            return html;
+        }).join('');
+
+        for (const key of keys) {
+            const el = document.getElementById(`printtheshot-setting-${key}`);
+            if (!el) continue;
+            const value = settings[key] !== undefined ? settings[key] : schema[key]?.default;
+            if (el.type === 'checkbox') el.checked = value === true;
+            else if (value !== undefined && value !== null) el.value = value;
+        }
+        controlsEl.style.opacity = '1';
+        translatePage();
+
+        controlsEl.querySelectorAll('[data-setting-key]').forEach(el => {
+            el.addEventListener('change', async function () {
+                const key = this.dataset.settingKey;
+                const type = this.dataset.settingType;
+                const previous = settings[key] !== undefined ? settings[key] : schema[key]?.default;
+
+                let value;
+                if (type === 'boolean') {
+                    value = this.checked;
+                } else if (type === 'string') {
+                    value = this.value.trim();
+                } else {
+                    value = parseFloat(this.value);
+                    // Rejected rather than written: a NaN or a negative would be
+                    // persisted and read back as a broken threshold on every later
+                    // load. The schema carries no bounds.
+                    if (!isFinite(value) || value < 0) {
+                        this.value = previous ?? '';
+                        return;
+                    }
+                }
+
+                this.disabled = true;
+                try {
+                    // A setting means nothing while the plugin is unloaded, so
+                    // switching one ON loads it first. Switching off leaves it
+                    // loaded: the manual print button still works.
+                    if (value === true && !plugin.loaded) {
+                        await enablePlugin(PRINT_THE_SHOT_PLUGIN_ID);
+                        plugin.loaded = true;
+                    }
+                    await setPluginSettings(PRINT_THE_SHOT_PLUGIN_ID, { [key]: value });
+                    settings[key] = value;
+                    if (type === 'boolean') {
+                        ui.showToast(
+                            `${getTranslation(pluginSettingLabel(key))}: ${getTranslation(value ? 'On' : 'Off')}`,
+                            2000, 'success');
+                    }
+                } catch (e) {
+                    logger.error(`Failed to change Print The Shot setting ${key}`, e);
+                    ui.showToast(`${getTranslation('Failed')}: ${e.message || e}`, 4000, 'error');
+                    if (type === 'boolean') this.checked = previous === true;
+                    else this.value = previous ?? '';
+                }
+                this.disabled = false;
+            });
+        });
+
+        if (printBtn) {
+            delete printBtn.dataset.pluginMissing;
+            printBtn.disabled = !printTheShotShot;
+            printBtn.addEventListener('click', async function () {
+                if (!printTheShotShot) return;
+                this.disabled = true;
+                setStatus(`${getTranslation('Printing')}…`);
+                try {
+                    if (!plugin.loaded) { await enablePlugin(PRINT_THE_SHOT_PLUGIN_ID); plugin.loaded = true; }
+                    const result = await callPluginEndpoint(PRINT_THE_SHOT_PLUGIN_ID, 'upload', { shotId: printTheShotShot.id });
+                    // The endpoint answers 200 with ok:false for a shot it declined
+                    // to send (too short, no server configured), which is not a
+                    // transport failure and should not read as one.
+                    setStatus(result?.ok
+                        ? getTranslation('Printed')
+                        : `${getTranslation('Not printed')}: ${result?.error || getTranslation('skipped')}`);
+                } catch (e) {
+                    logger.error('Print The Shot failed', e);
+                    setStatus(`${getTranslation('Print failed')}: ${e.message || e}`);
+                }
+                this.disabled = false;
+            });
+        }
+    })();
 }
 
 // Render DYE2 (Describe Your Espresso 2) settings — its own Extensions sub-page.
