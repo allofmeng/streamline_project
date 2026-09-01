@@ -7320,7 +7320,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
                         </div>
                         ${p.description ? `<p class="text-[22px] text-[var(--text-primary)] leading-[1.4] opacity-75">${escapeHtml(p.description)}</p>` : ''}
                         <span class="text-[18px] text-[var(--text-primary)] opacity-40 font-mono">${escapeHtml(p.id)}</span>
-                        ${uiUrl ? `<a href="${escapeHtml(uiUrl)}" class="text-[18px] text-[#385a92] underline font-mono break-words">${escapeHtml(uiUrl)}</a>` : ''}
+                        ${uiUrl ? `<a href="${escapeHtml(uiUrl)}" class="inline-flex items-center self-start bg-[#385a92] h-[56px] px-[36px] rounded-[56px] text-white text-[20px] font-bold no-underline mt-[8px]">Open</a>` : ''}
                     </div>
                     <div class="flex flex-col items-center gap-[6px] flex-shrink-0">
                         <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
