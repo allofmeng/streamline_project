@@ -63,7 +63,7 @@ const shotUpload = (() => {
     const body = [
         lift(/function escapeHtml\(str\) \{[\s\S]*?\r?\n\}/, 'escapeHtml'),
         lift(/export function pluginSettingLabel\(key\) \{[\s\S]*?\r?\n\}/, 'pluginSettingLabel'),
-        lift(/export function renderPluginSettingControl\(key, schema\) \{[\s\S]*?\r?\n\}/, 'renderPluginSettingControl'),
+        lift(/export function renderPluginSettingControl\(key, schema, idPrefix = 'shotupload'\) \{[\s\S]*?\r?\n\}/, 'renderPluginSettingControl'),
     ].join('\n');
     // getTranslation is identity here: untranslated strings fall back to the
     // source string, so the manifest text is what reaches the page.
@@ -127,8 +127,25 @@ test('a type with no widget renders nothing rather than a broken control', () =>
     // The caller logs this, which is the prompt to add the widget. A half-drawn
     // control that silently discards writes would be worse than an absent one.
     assert.equal(shotUpload.renderPluginSettingControl('Roast', { type: 'enum', values: ['Light'] }), '');
-    assert.equal(shotUpload.renderPluginSettingControl('Odd', { type: 'string' }), '');
     assert.equal(shotUpload.renderPluginSettingControl('Missing', undefined), '');
+});
+
+test('a secure string is not rendered in the clear', () => {
+    // `secure` is the manifest's own flag (visualizer's Password sets it). A
+    // plain text input for it would put the value on a shared kitchen screen.
+    const open = shotUpload.renderPluginSettingControl('ServerUrl', { type: 'string' });
+    const secret = shotUpload.renderPluginSettingControl('Password', { type: 'string', secure: true });
+    assert.match(open, /type="text" id="shotupload-setting-ServerUrl"/);
+    assert.match(secret, /type="password" id="shotupload-setting-Password"/);
+});
+
+test('the id prefix keeps two pages rendering the same schema apart', () => {
+    // Shot Uploader and Print The Shot both draw a plugin's schema; colliding
+    // element ids would make each page read the other's control.
+    const shot = shotUpload.renderPluginSettingControl('AutoUpload', shotUploadSchema.AutoUpload);
+    const print = shotUpload.renderPluginSettingControl('AutoUpload', shotUploadSchema.AutoUpload, 'printtheshot');
+    assert.match(shot, /id="shotupload-setting-AutoUpload"/);
+    assert.match(print, /id="printtheshot-setting-AutoUpload"/);
 });
 
 test('manifest text is escaped, not injected', () => {
