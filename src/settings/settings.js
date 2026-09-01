@@ -8,7 +8,7 @@ import { loadPage } from '../modules/router.js'; // Singular and correctly forma
 import { logger } from '../modules/logger.js';
 import { isBengleMachine, setMachineModel } from '../modules/machine.js';
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
-import { summarizeFirmwareCatalog, isFirmwareCancellationError, estimateRemainingSeconds, estimateTotalRemainingSeconds, formatDuration } from '../modules/firmware-progress.js';
+import { summarizeFirmwareCatalog, isFirmwareCancellationError, estimateRemainingSeconds, isUploadComplete, estimateVerifyRemainingSeconds, estimateTotalRemainingSeconds, FIRMWARE_VERIFY_SECONDS, formatDuration } from '../modules/firmware-progress.js';
 import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewComposite } from '../modules/led-color.js';
 import { isCupWarmerOn, readCupWarmerTarget, clampCupWarmerTarget, clampPrewarmMinutes, resolvePrewarm, prewarmWarnings, prewarmShapeSignature, cupWarmerViewMode, formatCurrentMatTemp, getCupWarmerState, setCupWarmerState, patchCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY, PREWARM_MIN_MINUTES, PREWARM_MAX_MINUTES } from '../modules/cup-warmer.js';
@@ -177,6 +177,13 @@ let firmwareUploadStartPercent = 0;
 // between events instead of re-estimating against the clock (see
 // estimateRemainingSeconds).
 let firmwareProgressAt = 0;
+// When the bytes were all sent — i.e. when the silent CRC verification started.
+// It gets its own clock because it is the one phase with a hard, known bound
+// (decaid's 30s firmwareVerificationTimeout); counting it against the
+// whole-operation ballpark instead claimed minutes of "remaining" for a phase
+// that has half a minute at most. Latched by firmwareNoteVerifyStart from the
+// measured rate, NOT from a 100% event — there isn't one; see isUploadComplete.
+let firmwareVerifyStartedAt = 0;
 
 // Enhanced cache for settings data with loading states
 let settingsCache = {
@@ -6447,8 +6454,10 @@ function firmwareProgressLabel(progress) {
     const { phase, percent } = progress;
     const text = {
         erasing: `${getTranslation('Erase')}…`,
-        // 100% here is "bytes sent", not "update applied" — only `done` is that.
-        uploading: percent >= 100
+        // The stream stays on `uploading` right through verification — it never
+        // reports 100% and never says 'verifying' (see isUploadComplete), so the
+        // latch is what moves this on. Neither is "update applied": only `done`.
+        uploading: firmwareVerifyStartedAt
             ? `${getTranslation('Check')}…`
             : `${getTranslation('Uploading...')} ${percent}%`,
         done: getTranslation('Your DE1 firmware has been upgraded. Restart the machine to apply it.'),
@@ -6458,17 +6467,31 @@ function firmwareProgressLabel(progress) {
     return text && phase !== 'done' ? `${text}${firmwareClock(percent)}` : text;
 }
 
-// The clock beside the phase. Counts DOWN through the upload — " — 2:10
-// remaining", from the rate the upload is actually running at (precise: it
-// comes from bytes actually sent). Erase and verification report no
-// percentage, so there is nothing to extrapolate from there — those fall back
-// to a "~m:ss remaining" ballpark against FIRMWARE_ESTIMATED_TOTAL_SECONDS (the
-// same "at least 50 minutes" already promised by FIRMWARE_DURATION_NOTE), so a
-// silent stretch reads as "still within the estimate" instead of a bare
-// climbing elapsed-time clock that never says whether it's normal. Past that
-// estimate, it says so plainly instead of showing a countdown that lied about
-// being done. Returns '' when nothing is running.
+// The clock beside the phase. Three sources, best first, because each phase
+// knows a different amount about how long it has left:
+//
+//  1. Upload — measured. The rate comes from bytes actually sent, and it
+//     already includes the verification still to come, so it counts down to
+//     `done` rather than to 0:00-then-wait.
+//  2. Verification — bounded. No percentages on the wire, but decaid's own
+//     30s timeout (FIRMWARE_VERIFY_SECONDS) is a real ceiling to count against.
+//     Past it, say so: the next thing to happen is that timeout firing.
+//  3. Erase / before the first upload tick — ballpark only. Nothing has been
+//     measured yet, so it counts down against FIRMWARE_ESTIMATED_TOTAL_SECONDS
+//     (the same "at least 50 minutes" FIRMWARE_DURATION_NOTE promises) and the
+//     silence reads as "still within the estimate" rather than as a hang.
+//
+// Returns '' when nothing is running.
 function firmwareClock(percent, now = Date.now()) {
+    // Verification first: the stream sits on `uploading` at 99% for the whole of
+    // it, so an upload-rate estimate is still answerable here and would win the
+    // branch with a projection for bytes that already went out.
+    if (firmwareVerifyStartedAt) {
+        const verifying = estimateVerifyRemainingSeconds(firmwareVerifyStartedAt, now);
+        return verifying !== null
+            ? ` — ${formatDuration(verifying)} ${getTranslation('remaining')}`
+            : ` — ${getTranslation('taking longer than usual')}`;
+    }
     const remaining = estimateRemainingSeconds({
         startedAt: firmwareUploadStartedAt,
         startPercent: firmwareUploadStartPercent,
@@ -6476,7 +6499,9 @@ function firmwareClock(percent, now = Date.now()) {
         updatedAt: firmwareProgressAt,
         now,
     });
-    if (remaining !== null) return ` — ${formatDuration(remaining)} ${getTranslation('remaining')}`;
+    // The verification still to come is part of what's remaining — without it the
+    // countdown reaches 0:00 with up to half a minute of CRC left to sit through.
+    if (remaining !== null) return ` — ${formatDuration(remaining + FIRMWARE_VERIFY_SECONDS)} ${getTranslation('remaining')}`;
     if (!firmwareStartedAt) return '';
     const estimated = estimateTotalRemainingSeconds(firmwareStartedAt, now);
     if (estimated !== null) return ` — ~${formatDuration(estimated)} ${getTranslation('remaining')}`;
@@ -6491,11 +6516,29 @@ function firmwareClock(percent, now = Date.now()) {
 // node rather than looking like Upload is still running at 100%.
 function firmwareStepIndex(progress) {
     if (!progress) return -1;
-    const { phase, percent } = progress;
+    const { phase } = progress;
     if (phase === 'erasing') return 0;
-    if (phase === 'uploading') return (percent ?? 0) >= 100 ? 2 : 1;
+    // Same latch as the label: `uploading` covers verification too on the wire.
+    if (phase === 'uploading') return firmwareVerifyStartedAt ? 2 : 1;
     if (phase === 'done') return 3;
     return -1;
+}
+
+// Latch the start of verification the moment the measured upload projection runs
+// out. Called from every repaint — each stream event AND the 1 Hz tick — because
+// the event that would otherwise mark it never arrives (see isUploadComplete):
+// the last thing the stream says is 99%, and then it is silent to the end.
+function firmwareNoteVerifyStart(now = Date.now()) {
+    if (lastFirmwareProgress?.phase !== 'uploading') return;
+    if (firmwareVerifyStartedAt) return;
+    const complete = isUploadComplete({
+        startedAt: firmwareUploadStartedAt,
+        startPercent: firmwareUploadStartPercent,
+        percent: lastFirmwareProgress.percent,
+        updatedAt: firmwareProgressAt,
+        now,
+    });
+    if (complete) firmwareVerifyStartedAt = now;
 }
 
 // Erase, Upload, Verify, Done: the actual, ordered phases a flash goes through
@@ -6619,9 +6662,10 @@ export function renderFirmwareUpdateSettings() {
                     <p id="firmware-progress-label" class="text-[20px] font-bold text-[var(--text-primary)]">${firmwareProgressLabel(lastFirmwareProgress)}</p>
                     <!-- Only Upload has a real byte-level percentage (see firmwareStepIndex) —
                          showing this bar during the silent erase/verify phases would just be
-                         a second thing sitting still next to the tracker. -->
-                    <div id="firmware-progress-bar-wrap" class="w-full h-[10px] rounded-full bg-[#c9c9c9] overflow-hidden" style="display:${lastFirmwareProgress?.phase === 'uploading' && lastFirmwareProgress?.percent < 100 ? 'block' : 'none'}">
-                        <div id="firmware-progress-bar" class="h-full bg-[#385a92] transition-[width] duration-200" style="width:${lastFirmwareProgress?.phase === 'uploading' && lastFirmwareProgress?.percent < 100 ? lastFirmwareProgress.percent : 0}%"></div>
+                         a second thing sitting still next to the tracker. The verify latch,
+                         not the percentage, is what ends Upload: the stream stops at 99%. -->
+                    <div id="firmware-progress-bar-wrap" class="w-full h-[10px] rounded-full bg-[#c9c9c9] overflow-hidden" style="display:${lastFirmwareProgress?.phase === 'uploading' && !firmwareVerifyStartedAt ? 'block' : 'none'}">
+                        <div id="firmware-progress-bar" class="h-full bg-[#385a92] transition-[width] duration-200" style="width:${lastFirmwareProgress?.phase === 'uploading' && !firmwareVerifyStartedAt ? lastFirmwareProgress.percent : 0}%"></div>
                     </div>
                     <!-- Visibility toggled imperatively by runFirmwareOperation, not re-render:
                          it must appear the instant an update starts and disappear once the
@@ -8118,15 +8162,11 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         // Erase and CRC verification emit no percentages, so the bar sits still at
         // both ends of the upload; the step tracker + label name the phase so a
         // stalled-looking bar reads as "step 1 of 4" rather than as a hang.
-        const showProgress = ({ phase, percent }) => {
-            lastFirmwareProgress = { phase, percent };
-            // First real upload tick starts the countdown's clock; every tick
-            // re-anchors it.
-            firmwareProgressAt = Date.now();
-            if (phase === 'uploading' && !firmwareUploadStartedAt) {
-                firmwareUploadStartedAt = firmwareProgressAt;
-                firmwareUploadStartPercent = percent;
-            }
+        // Paints from module state alone, so the 1 Hz tick can call it too: the
+        // verify latch flips between stream events, not on one, and the tracker
+        // and bar have to follow it without waiting for an event that isn't coming.
+        const paint = () => {
+            firmwareNoteVerifyStart();
             const panel = document.getElementById('firmware-progress');
             const steps = document.getElementById('firmware-steps');
             const label = document.getElementById('firmware-progress-label');
@@ -8136,9 +8176,30 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             if (steps) steps.innerHTML = renderFirmwareSteps(lastFirmwareProgress);
             if (label) label.textContent = firmwareProgressLabel(lastFirmwareProgress);
             // Only Upload has a real byte-level percentage — see firmwareStepIndex.
-            const uploading = phase === 'uploading' && percent < 100;
+            // Once verification is under way the percentage is frozen at 99, so the
+            // bar would be a second thing sitting still next to the tracker.
+            const uploading = lastFirmwareProgress?.phase === 'uploading' && !firmwareVerifyStartedAt;
             if (barWrap) barWrap.style.display = uploading ? 'block' : 'none';
-            if (bar) bar.style.width = `${uploading ? percent : 0}%`;
+            if (bar) bar.style.width = `${uploading ? lastFirmwareProgress.percent : 0}%`;
+        };
+
+        const showProgress = ({ phase, percent }) => {
+            // A tick that actually advances means the upload was not finished after
+            // all — a link that slowed down can expire the projection early. Give
+            // the latch back rather than leaving the label stuck on "Check…".
+            if (phase === 'uploading' && lastFirmwareProgress?.phase === 'uploading'
+                && percent > lastFirmwareProgress.percent) {
+                firmwareVerifyStartedAt = 0;
+            }
+            lastFirmwareProgress = { phase, percent };
+            // First real upload tick starts the countdown's clock; every tick
+            // re-anchors it.
+            firmwareProgressAt = Date.now();
+            if (phase === 'uploading' && !firmwareUploadStartedAt) {
+                firmwareUploadStartedAt = firmwareProgressAt;
+                firmwareUploadStartPercent = percent;
+            }
+            paint();
         };
 
         firmwareUploadInFlight = true;
@@ -8147,13 +8208,15 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         firmwareUploadStartedAt = 0;
         firmwareUploadStartPercent = 0;
         firmwareProgressAt = 0;
-        // Label only — the bar is the stream's to move. Element looked up per
-        // tick for the same reason showProgress does it: the router swaps the
-        // page HTML out from under a running update.
+        firmwareVerifyStartedAt = 0;
+        // A full repaint, not just the label: the hand-off from Upload to Verify
+        // happens on this tick (nothing arrives on the wire to announce it), and
+        // it moves the tracker node and hides the bar as well as the clock.
+        // Elements are looked up per tick for the reason paint() does it: the
+        // router swaps the page HTML out from under a running update.
         clearInterval(firmwareElapsedTimer);
         firmwareElapsedTimer = setInterval(() => {
-            const label = document.getElementById('firmware-progress-label');
-            if (label && lastFirmwareProgress) label.textContent = firmwareProgressLabel(lastFirmwareProgress);
+            if (lastFirmwareProgress) paint();
         }, 1000);
         const cancelBtn = document.getElementById('firmware-cancel-btn');
         if (cancelBtn) { cancelBtn.style.display = 'inline-flex'; cancelBtn.disabled = false; cancelBtn.textContent = getTranslation('Cancel'); }
@@ -8227,6 +8290,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             firmwareUploadStartedAt = 0;
             firmwareUploadStartPercent = 0;
             firmwareProgressAt = 0;
+            firmwareVerifyStartedAt = 0;
             setScreensaverSuppressed(false);
             setFirmwareFlashInFlight(false);
             // The dim we suppressed was the idle->sleeping TRANSITION, and the

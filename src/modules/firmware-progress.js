@@ -95,9 +95,24 @@ export function advanceFirmwareState(state, event) {
 /** Starting state for advanceFirmwareState. */
 export const initialFirmwareState = { phase: null, percent: 0, error: null };
 
-// Below this the extrapolation swings wildly from one event to the next — a
-// countdown that jumps by minutes is worse than no countdown.
-const MIN_ETA_PERCENT = 5;
+// Below a 1-point span, or on a sample shorter than this, the extrapolation
+// swings wildly from one event to the next — a countdown that jumps by minutes
+// is worse than no countdown. Past that the rate is stable enough to trust
+// immediately: every chunk is the same 16 bytes written with the same
+// write-with-response cadence and the same pacing pause
+// (_uploadFirmwareBytes in unified_de1.firmware.dart), so the average over the
+// upload so far is a projection, not a guess — and the sooner it replaces the
+// fixed FIRMWARE_ESTIMATED_TOTAL_SECONDS ballpark the sooner the label reflects
+// THIS machine's link speed (serial is minutes faster than BLE).
+const MIN_ETA_SPAN_PERCENT = 1;
+const MIN_ETA_SAMPLE_SECONDS = 15;
+
+// decaid's own ceiling on the silent CRC phase that runs after the last byte is
+// sent: firmwareVerificationTimeout in unified_de1.dart, 30 s. The stream emits
+// nothing between the final `uploading` and `done`, so this bound is the only
+// thing there is to count down against — and it is a real bound, not a guess:
+// past it decaid throws 'Timed out waiting for firmware verification'.
+export const FIRMWARE_VERIFY_SECONDS = 30;
 
 /**
  * Seconds left in the upload, extrapolated from the rate the bytes sent so far
@@ -114,13 +129,18 @@ const MIN_ETA_PERCENT = 5;
  * subtracted, so the number falls every second the label repaints. Recomputing
  * the rate against `now` instead would make it CLIMB between events (same
  * percent, more elapsed time) and only drop when the next event landed, which is
- * the opposite of a countdown. It floors at 0:00: the percentage next to it is
- * what says whether a stalled clock means "nearly there" or "something is wrong".
+ * the opposite of a countdown.
  *
- * Returns null when there is nothing to extrapolate from — before the upload
- * starts, in the first few percent, and once the bytes are all sent and the
- * machine is verifying. The caller shows a plain elapsed clock in those
- * stretches; a made-up countdown there would just be a lie with a colon in it.
+ * This covers the UPLOAD only — the caller adds FIRMWARE_VERIFY_SECONDS for the
+ * CRC phase that still follows the last byte, so the label counts down to
+ * `done` rather than to "bytes sent" and then sitting on 0:00.
+ *
+ * Reaching 0 is a result, not a floor artefact: it is the projected instant the
+ * last chunk goes out. See isUploadComplete — with no 100% event on the wire,
+ * that projection is what marks the start of verification.
+ *
+ * Returns null when there is nothing to extrapolate from: before the upload
+ * starts, and on too short a first sample.
  *
  * @param {{startedAt: number, startPercent?: number, percent: number|null,
  *          updatedAt?: number, now?: number}} args
@@ -128,13 +148,54 @@ const MIN_ETA_PERCENT = 5;
  */
 export function estimateRemainingSeconds({ startedAt, startPercent = 0, percent, updatedAt, now = Date.now() }) {
     if (!startedAt || typeof percent !== 'number') return null;
-    if (percent < MIN_ETA_PERCENT || percent >= 100) return null;
+    if (percent >= 100) return 0;
     const measuredAt = updatedAt || now;
     const done = percent - startPercent;
     const elapsed = (measuredAt - startedAt) / 1000;
-    if (done <= 0 || elapsed <= 0) return null;
+    if (done < MIN_ETA_SPAN_PERCENT || elapsed < MIN_ETA_SAMPLE_SECONDS) return null;
     const projected = (elapsed / done) * (100 - percent);
     return Math.max(0, Math.round(projected - (now - measuredAt) / 1000));
+}
+
+/**
+ * Are the bytes all sent — i.e. has the silent CRC verification started?
+ *
+ * It cannot be read off the stream, because the stream never says 100%. decaid
+ * drops any tick within 1% of the last one it emitted (`progress - lastProgress
+ * < 0.01` in firmware_handler.dart), and the bundled image is 463872 bytes =
+ * exactly 28992 16-byte chunks: ticks land on chunks 1, 291, 581 … 28711 (99%),
+ * and the final onProgress(1.0) at chunk 28992 is only 281 chunks — 0.97% —
+ * later, so it is swallowed. The last percentage on the wire is 99, and then
+ * everything goes quiet for BOTH the tail of the upload and the verification.
+ *
+ * So the end of the upload is derived from the measured rate instead: the
+ * projection reaching 0 IS the projected last chunk. (An image whose chunk count
+ * does let the final tick through still reports 100, and that counts too.)
+ *
+ * @param {{startedAt: number, startPercent?: number, percent: number|null,
+ *          updatedAt?: number, now?: number}} args
+ * @returns {boolean} false while uploading, and while unmeasurable
+ */
+export function isUploadComplete(args) {
+    return estimateRemainingSeconds(args) === 0;
+}
+
+/**
+ * Seconds left in the verification phase — the stretch between the last chunk
+ * and `done`. Counted against decaid's own FIRMWARE_VERIFY_SECONDS bound rather
+ * than against the whole-operation ballpark, which by then is minutes off and
+ * would claim a half-hour of CRC.
+ *
+ * Returns null once the bound is spent: past that decaid is about to time the
+ * verification out, so the caller says so rather than showing 0:00 forever.
+ *
+ * @param {number} verifyStartedAt epoch ms the bytes finished going out (0 = not yet)
+ * @returns {number|null} whole seconds, or null when past the bound / not verifying
+ */
+export function estimateVerifyRemainingSeconds(verifyStartedAt, now = Date.now()) {
+    if (!verifyStartedAt) return null;
+    const remaining = FIRMWARE_VERIFY_SECONDS - (now - verifyStartedAt) / 1000;
+    return remaining > 0 ? Math.round(remaining) : null;
 }
 
 /** Seconds as m:ss. */

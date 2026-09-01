@@ -8,8 +8,11 @@ import {
     initialFirmwareState,
     summarizeFirmwareCatalog,
     estimateRemainingSeconds,
+    isUploadComplete,
+    estimateVerifyRemainingSeconds,
     estimateTotalRemainingSeconds,
     FIRMWARE_ESTIMATED_TOTAL_SECONDS,
+    FIRMWARE_VERIFY_SECONDS,
     formatDuration,
 } from '../src/modules/firmware-progress.js';
 
@@ -168,7 +171,8 @@ test('an empty catalog does not throw', () => {
 const T0 = 1_700_000_000_000;
 
 test('remaining is extrapolated from the observed upload rate', () => {
-    // 20% took 60s => 3s per percent => 80% left = 240s.
+    // 20% took 60s => 3s per percent => 80% left = 240s. Upload only; the caller
+    // adds the CRC allowance (see firmwareClock in settings.js).
     const remaining = estimateRemainingSeconds({
         startedAt: T0, startPercent: 0, percent: 20, updatedAt: T0 + 60_000, now: T0 + 60_000,
     });
@@ -202,15 +206,77 @@ test('a stalled stream floors at zero rather than going negative', () => {
     }), 0);
 });
 
-test('no countdown before the upload, in the first few percent, or while verifying', () => {
+test('the measured countdown takes over as soon as one percent has been timed', () => {
+    // A 1-point span over a long enough sample is already a real measurement:
+    // every chunk is the same size at the same cadence. Holding out for 5%
+    // meant minutes of showing the fixed ballpark instead of this machine's
+    // actual link speed.
+    assert.equal(estimateRemainingSeconds({
+        startedAt: T0, startPercent: 1, percent: 2, updatedAt: T0 + 30_000, now: T0 + 30_000,
+    }), 30 * 98);
+});
+
+test('no countdown before the upload or on too short a sample', () => {
     const base = { startedAt: T0, startPercent: 0, updatedAt: T0 + 60_000, now: T0 + 60_000 };
     assert.equal(estimateRemainingSeconds({ ...base, startedAt: 0, percent: 50 }), null,
         'nothing to measure from until the first uploading event');
-    assert.equal(estimateRemainingSeconds({ ...base, percent: 4 }), null,
-        'too noisy to show in the first few percent');
-    assert.equal(estimateRemainingSeconds({ ...base, percent: 100 }), null,
-        'the bytes are sent; verification carries no percentage to project');
+    assert.equal(estimateRemainingSeconds({ ...base, startPercent: 4, percent: 4 }), null,
+        'no span timed yet');
+    assert.equal(estimateRemainingSeconds({
+        ...base, percent: 2, updatedAt: T0 + 5_000, now: T0 + 5_000,
+    }), null, 'a five-second sample swings too wildly to show');
     assert.equal(estimateRemainingSeconds({ ...base, percent: null }), null);
+});
+
+// ── End of upload, without an end-of-upload event ───────────────────────────
+// The stream never reports 100%: decaid drops any tick within 1% of the last one
+// (firmware_handler.dart), and the bundled image is 463872 B = exactly 28992
+// 16-byte chunks, so ticks land on chunks 1, 291 ... 28711 (99%) and the final
+// onProgress(1.0) at chunk 28992 is 0.97% later — swallowed. Anything keyed on a
+// 100% event is therefore dead code; the projection running out is the signal.
+test('the bundled image really does stop emitting at 99%', () => {
+    const chunks = 463872 / 16;
+    assert.equal(chunks, 28992, 'a whole number of 16-byte chunks');
+    const step = Math.ceil(0.01 * chunks); // chunks needed for the delta to clear 1%
+    let last = 1;
+    while (last + step <= chunks) last += step;
+    assert.equal(last, 28711);
+    assert.equal(Math.round((last / chunks) * 100), 99, 'last percentage on the wire');
+    assert.ok(chunks - last < 0.01 * chunks, 'the final 1.0 tick is inside the 1% gate');
+});
+
+test('the upload is complete once the measured projection runs out', () => {
+    // Last tick at 99% took 99s for 99 points => 1s/point => ~1s of chunks left.
+    const at = now => isUploadComplete({
+        startedAt: T0, startPercent: 0, percent: 99, updatedAt: T0 + 99_000, now,
+    });
+    assert.equal(at(T0 + 99_000), false, 'bytes still going out');
+    assert.equal(at(T0 + 101_000), true, 'projected last chunk has gone out');
+});
+
+test('a 100% event still counts as complete where one arrives', () => {
+    assert.equal(isUploadComplete({ startedAt: T0, percent: 100, updatedAt: T0 + 60_000, now: T0 + 60_000 }), true);
+    // ...and nothing is claimed complete before there is anything to measure.
+    assert.equal(isUploadComplete({ startedAt: 0, percent: 99, now: T0 }), false);
+    assert.equal(isUploadComplete({
+        startedAt: T0, startPercent: 0, percent: 2, updatedAt: T0 + 5_000, now: T0 + 5_000,
+    }), false, 'unmeasurable is not complete');
+});
+
+// ── Verification countdown ──────────────────────────────────────────────────
+// The stream is silent from the last chunk to `done`, but the phase is bounded
+// by decaid's firmwareVerificationTimeout — a real ceiling, not a guess, so it
+// counts down against that instead of the 50-minute ballpark.
+test('verification counts down against decaid own timeout', () => {
+    assert.equal(estimateVerifyRemainingSeconds(T0, T0), FIRMWARE_VERIFY_SECONDS);
+    assert.equal(estimateVerifyRemainingSeconds(T0, T0 + 10_000), FIRMWARE_VERIFY_SECONDS - 10);
+});
+
+test('verification countdown is null past the bound, not zero forever', () => {
+    // Past here decaid is about to throw 'Timed out waiting for firmware
+    // verification' — the caller says "taking longer than usual", not "0:00".
+    assert.equal(estimateVerifyRemainingSeconds(T0, T0 + (FIRMWARE_VERIFY_SECONDS + 1) * 1000), null);
+    assert.equal(estimateVerifyRemainingSeconds(0, T0), null, 'not verifying yet');
 });
 
 // ── Ballpark countdown (erase / pre-first-tick) ─────────────────────────────
