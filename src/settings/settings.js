@@ -213,8 +213,7 @@ let settingsCache = {
     allSkins: null,
     allSkinsLoading: false,
     allSkinsError: null,
-    appUpdateState: null,
-    appUpdateChecked: false
+    appUpdateState: null
 };
 
 // Latest DisplayState from ws/v1/display (REA replays a snapshot on connect via
@@ -901,16 +900,15 @@ export function renderReaSettingsForm(settings) {
                         <p class="text-[24px] font-['Inter:Regular',sans-serif]">${appInfo.version} (${appInfo.buildNumber})</p>
                         <p class="text-[16px] text-[var(--text-secondary)]">${appInfo.fullVersion} &middot; ${formatBuildTimestamp(appInfo.buildTime)}</p>
                     </div>
-                    <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
-                        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Source">Source</p>
-                        <p class="text-[24px] font-['Inter:Regular',sans-serif]">${appInfo.branch}</p>
-                        <p class="text-[16px] text-[var(--text-secondary)]">${appInfo.commitShort} &middot; App Store: ${appInfo.appStore ? 'Yes' : 'No'}</p>
-                    </div>
+                    <div id="app-update-section" class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">${renderAppUpdateBlock(settingsCache.appUpdateState)}</div>
                 </div>
             ` : `
-                <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
-                    <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Update info">Update info</p>
-                    <p class="text-[24px] font-['Inter:Regular',sans-serif]" data-i18n-key="Fetching build metadata...">Fetching build metadata...</p>
+                <div class="grid gap-[12px] sm:grid-cols-2">
+                    <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
+                        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Version">Version</p>
+                        <p class="text-[24px] font-['Inter:Regular',sans-serif]" data-i18n-key="Fetching build metadata...">Fetching build metadata...</p>
+                    </div>
+                    <div id="app-update-section" class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">${renderAppUpdateBlock(settingsCache.appUpdateState)}</div>
                 </div>
             `;
 
@@ -1014,7 +1012,6 @@ export function renderReaSettingsForm(settings) {
             <div class="w-full flex flex-col gap-[12px]">
                 <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]">Decaid <span data-i18n-key="Update info">Update info</span></p>
                 ${appInfoDetails}
-                <div id="app-update-section">${renderAppUpdateBlock(settingsCache.appUpdateState)}</div>
             </div>
 
             ${settings.webUiPath ? `
@@ -5010,29 +5007,36 @@ function skinRepoSlug(s) {
 // Fetch each repo's latest release tag once per settings session (deduped by repo),
 // then re-render. Non-fatal per repo: offline / rate-limited / no releases leaves
 // that skin at "Up to date".
-function maybeCheckLatestReleases() {
+function maybeCheckLatestRelease(slug, categories) {
     const cache = settingsCache.latestReleases || (settingsCache.latestReleases = {});
     const inFlight = settingsCache.releaseInFlight || (settingsCache.releaseInFlight = new Set());
-    const slugs = new Set((settingsCache.allSkins || []).map(skinRepoSlug).filter(Boolean));
-    for (const slug of slugs) {
-        if (slug in cache || inFlight.has(slug)) continue;
-        inFlight.add(slug);
-        fetch(`https://api.github.com/repos/${slug}/releases/latest`, {
-            headers: { Accept: 'application/vnd.github+json' },
-        })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((data) => { cache[slug] = data?.tag_name?.trim() || null; })
-            .catch(() => { cache[slug] = null; })
-            .finally(() => {
-                inFlight.delete(slug);
-                // renderSkinSettings() is reached via either category id — re-render
-                // whichever is active so the freshly-fetched release tag is shown.
-                if (activeSettingsCategory === 'skin' || activeSettingsCategory === 'appearance') {
-                    updateSettingsContentArea(activeSettingsCategory);
-                }
-            });
-    }
+    if (!slug || slug in cache || inFlight.has(slug)) return;
+    inFlight.add(slug);
+    fetch(`https://api.github.com/repos/${slug}/releases/latest`, {
+        headers: { Accept: 'application/vnd.github+json' },
+    })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => { cache[slug] = data?.tag_name?.trim() || null; })
+        .catch(() => { cache[slug] = null; })
+        .finally(() => {
+            inFlight.delete(slug);
+            // A page can be reached under more than one category id — re-render
+            // whichever is active so the freshly-fetched release tag is shown.
+            if (categories.includes(activeSettingsCategory)) {
+                updateSettingsContentArea(activeSettingsCategory);
+            }
+        });
 }
+
+function maybeCheckLatestReleases() {
+    const slugs = new Set((settingsCache.allSkins || []).map(skinRepoSlug).filter(Boolean));
+    for (const slug of slugs) maybeCheckLatestRelease(slug, ['skin', 'appearance']);
+}
+
+// Decaid's own repo. Its release tags ('v0.8.4') are compared against the running
+// build with the same compareVersions used for skins, which strips the leading 'v'.
+const DECAID_REPO = 'decentespresso/decaid';
+const DECAID_RELEASES_URL = 'https://github.com/decentespresso/decaid/releases';
 
 // English gets the shorter, current phrasing directly; every other language
 // still reads from the existing "Check for current skin updates" translation
@@ -6649,139 +6653,90 @@ export function renderFirmwareUpdateSettings() {
 // Render the app-update panel from an AppUpdateState snapshot (ws/v1/update).
 // Re-rendered in place on every state change by initAppUpdateSection().
 function renderAppUpdateBlock(state) {
-    const phase = state?.phase || 'idle';
-    const latest = state?.latestVersion;
+    // The badge answers one question -- is the running build older than the newest
+    // release in Decaid's repo -- and answers it the same way the skin cards do,
+    // with the same compareVersions. Asking GitHub directly is what makes it work
+    // everywhere: Decaid's own check never runs on macOS (UpdateCheckService
+    // returns at its `if (_isMacOS)` guard, Sparkle owns updates there), so a badge
+    // driven off its state machine was blank on exactly the platform being used.
+    maybeCheckLatestRelease(DECAID_REPO, ['rea']);
+
+    const current = settingsCache.appInfo?.version || state?.currentVersion || '';
+    const latest = (settingsCache.latestReleases || {})[DECAID_REPO];
+    // No tag yet (still fetching, offline, or rate-limited) is not "up to date" --
+    // say nothing rather than guess.
+    const known = !!latest && !!current;
+    const needsUpdate = known && compareVersions(current, latest) < 0;
+    const latestPlain = String(latest || '').replace(/^v/i, '');
+
+    const base = 'text-[16px] font-semibold px-[8px] py-[2px] rounded-full';
+    const badge = !known ? ''
+        : needsUpdate
+            ? `<span class="${base} bg-[#da515e]/15 text-[#da515e]" data-i18n-key="Update available">Update available</span>`
+            : `<span class="${base} bg-[#0ca581]/15 text-[#0ca581]" data-i18n-key="Up to date">Up to date</span>`;
+
+    const phase = state?.phase;
+    const busy = phase === 'downloading' || phase === 'installing';
     const pct = Math.round((state?.progress || 0) * 100);
+    const btn = 'inline-flex items-center justify-center h-[40px] px-[20px] rounded-[40px] text-[16px] font-bold';
 
-    // After a check, the backend returns idle + latestVersion:null when up to date —
-    // indistinguishable from the never-checked idle state, so gate "up to date" on
-    // having actually run a check this session.
-    const checked = settingsCache.appUpdateChecked;
-    const current = state?.currentVersion;
-
-    // Same pill style as Theme & Updates skin cards.
-    const hasUpdate = phase === 'available';
-    const isLatest = !hasUpdate && phase === 'idle' && checked && !state?.error
-        && (!latest || (current && latest === current));
-    const pill = hasUpdate
-        ? `<span class="text-[16px] font-semibold px-[8px] py-[2px] rounded-full bg-[#da515e]/15 text-[#da515e]" data-i18n-key="Update available">Update available</span>`
-        : isLatest
-            ? `<span class="text-[16px] font-semibold px-[8px] py-[2px] rounded-full bg-[#0ca581]/15 text-[#0ca581]" data-i18n-key="Up to date">Up to date</span>`
-            : '';
-
-    // Right-hand action depends on phase. Default: Check button.
-    let action = `<button onclick="window.checkAppUpdate()" class="bg-[#385a92] h-[60px] px-[40px] rounded-[60px] text-white text-[22px] font-bold" data-i18n-key="Check for Updates">Check for Updates</button>`;
-    if (phase === 'checking') {
-        action = `<button disabled class="bg-[#385a92] opacity-50 h-[60px] px-[40px] rounded-[60px] text-white text-[22px] font-bold">${getTranslation('Check')}…</button>`;
-    } else if (phase === 'available') {
-        action = state?.installable
-            ? `<button onclick="window.installAppUpdate()" class="bg-[#2e7d32] h-[60px] px-[40px] rounded-[60px] text-white text-[22px] font-bold">${getTranslation('Update App')}${latest ? ' v' + latest : ''}</button>`
-            : `<a href="${state?.releaseUrl || '#'}" class="bg-[#385a92] h-[60px] px-[40px] rounded-[60px] text-white text-[22px] font-bold flex items-center">View Release</a>`;
-    } else if (phase === 'downloading' || phase === 'installing') {
-        action = `<button disabled class="bg-[#385a92] opacity-50 h-[60px] px-[40px] rounded-[60px] text-white text-[22px] font-bold">${getTranslation('Updating')}…</button>`;
-    } else if (isLatest) {
-        // A check already ran — connectUpdateWebSocket fires one on open — and it came
-        // back clean, so the button would only re-answer a question already answered.
-        // The "Up to date" pill is the whole result. Errors keep their Check button:
-        // there, retrying is the point.
-        action = '';
+    // In-app install is Android-only (AppUpdateState.installable is `_isAndroid &&
+    // hasUpdate`). Everywhere else the release page is the only way through, so
+    // that is what the button offers. Plain same-frame navigation: the tablet
+    // webview has no second window to open, and the host hands the URL to the OS
+    // browser itself.
+    let action = '';
+    if (busy) {
+        action = `<button disabled class="${btn} bg-[#385a92] opacity-50 text-white">${getTranslation('Updating')}…</button>`;
+    } else if (needsUpdate && state?.installable) {
+        action = `<button onclick="window.installAppUpdate()" class="${btn} bg-[#2e7d32] text-white">${getTranslation('Update App')}</button>`;
+    } else if (needsUpdate) {
+        action = `<a href="${DECAID_RELEASES_URL}" class="${btn} bg-[#385a92] text-white no-underline">${getTranslation('Download')}</a>`;
     }
 
-    // Status line beneath the header.
-    const statusByPhase = {
-        idle:        isLatest ? `${getTranslation('Up to date')}${current ? ` (v${current})` : ''}` : getTranslation('Check for application updates'),
-        checking:    `${getTranslation('Check for Updates')}…`,
-        available:   `${getTranslation('Update available')}${latest ? `: v${latest}` : ''}`,
-        downloading: `${getTranslation('Updating')}… ${pct}%`,
-        installing:  `${getTranslation('Updating')}…`,
-        error:       state?.error ? `${getTranslation('Update failed')}: ${state.error}` : getTranslation('Update failed'),
-    };
-    const status = statusByPhase[phase] || '';
-    const statusColor = phase === 'error' ? 'text-[#da515e]'
-        : phase === 'available' ? 'text-[#2e7d32]'
-        : 'text-[var(--text-primary)]';
-
     const progressBar = phase === 'downloading'
-        ? `<div class="w-full h-[10px] rounded-full bg-[#c9c9c9] overflow-hidden mt-1"><div class="h-full bg-[#385a92] transition-[width] duration-200" style="width:${pct}%"></div></div>`
+        ? `<div class="w-full h-[10px] rounded-full bg-[#c9c9c9] overflow-hidden mt-2"><div class="h-full bg-[#385a92] transition-[width] duration-200" style="width:${pct}%"></div></div>`
         : '';
 
-    const notes = (phase === 'available' && state?.releaseNotes)
-        ? `<p class="text-[18px] text-[var(--text-secondary)] whitespace-pre-line leading-[1.4] mt-1">${state.releaseNotes}</p>`
-        : '';
-
+    // Card *contents* only -- this renders into #app-update-section, which carries
+    // the same box classes as the Version card it sits beside.
     return `
-        <div class="rounded-[10px] border border-[#c9c9c9] p-4 bg-[var(--box-color)] flex flex-col gap-3">
-            <div class="flex items-center justify-between gap-4">
-                <div class="flex flex-col gap-1 min-w-0">
-                    <div class="flex items-center gap-[10px]">
-                        <p class="text-[24px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Update App">Update App</p>
-                        ${pill}
-                    </div>
-                    <p class="text-[20px] ${statusColor}">${status}</p>
-                </div>
-                ${action}
-            </div>
-            ${progressBar}
-            ${notes}
+        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Update">Update</p>
+        <div class="flex items-center gap-[10px] flex-wrap">
+            ${badge}
+            ${needsUpdate ? `<span class="text-[24px] font-['Inter:Regular',sans-serif]">${latestPlain}</span>` : ''}
+            ${action}
         </div>
+        ${progressBar}
     `;
 }
 
 // Connect ws/v1/update and keep #app-update-section in sync with AppUpdateState.
-// Exposes window.checkAppUpdate / window.installAppUpdate for the buttons.
-// How long a 'check' has to produce any frame before we tell the user it went
-// unanswered. Generous: this is only a fallback for a backend that never replies.
-const APP_UPDATE_CHECK_TIMEOUT_MS = 8000;
-let appUpdateCheckTimer = null;
-
+// The badge no longer comes from here -- it compares the running build against
+// Decaid's newest GitHub release (renderAppUpdateBlock) -- so this exists only for
+// the Android in-app install: `installable`, and the download/install progress.
+// The check on open is what populates `installable` there; it is deliberately
+// silent, since on macOS Decaid answers it with nothing at all.
 function initAppUpdateSection() {
     const send = (command) => {
         try {
             sendUpdateCommand({ command });
-            return true;
         } catch (error) {
             ui.showToast(error.message, 5000, 'error');
-            return false;
         }
-    };
-    window.checkAppUpdate = () => {
-        // A command that never left is not a check, so don't wait on an answer to it.
-        if (!send('check')) return;
-        // decaid does not always answer. On macOS, UpdateCheckService.checkForUpdate()
-        // returns at its `if (_isMacOS)` guard -- before any _emit -- because Sparkle
-        // owns app updates there, so the command produces no frame at all and the
-        // panel would sit on whatever it last showed. Say so rather than leave a dead
-        // button. Cleared by the first frame in, below.
-        clearTimeout(appUpdateCheckTimer);
-        appUpdateCheckTimer = setTimeout(() => {
-            appUpdateCheckTimer = null;
-            ui.showToast(getTranslation('Update check got no response'), 5000, 'warning');
-        }, APP_UPDATE_CHECK_TIMEOUT_MS);
     };
     window.installAppUpdate = () => send('install');
 
     connectUpdateWebSocket((data) => {
         // Command-level errors arrive as a direct {error[, url]} reply.
         if (data && data.error && !data.phase) {
-            clearTimeout(appUpdateCheckTimer);
-            appUpdateCheckTimer = null;
             ui.showToast(data.url ? `${data.error} — ${data.url}` : data.error, 5000, 'error');
             return;
-        }
-        // Only decaid saying 'checking' proves a check actually ran: that frame is
-        // emitted at the top of checkForUpdate(), on every path that gets past the
-        // macOS guard. Setting this when the command *left* instead was the bug --
-        // on macOS nothing is emitted, yet the panel claimed "Up to date", hid its
-        // own Check button and reported a stale version as current.
-        if (data?.phase === 'checking') settingsCache.appUpdateChecked = true;
-        if (data?.phase) {
-            clearTimeout(appUpdateCheckTimer);
-            appUpdateCheckTimer = null;
         }
         settingsCache.appUpdateState = data;
         const section = document.getElementById('app-update-section');
         if (section) section.innerHTML = renderAppUpdateBlock(data);
-    }, window.checkAppUpdate);
+    }, () => send('check'));
 }
 
 // Render updates settings

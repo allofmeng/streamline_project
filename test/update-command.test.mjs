@@ -57,16 +57,14 @@ test('update commands reject an unavailable socket', () => {
 });
 
 const settingsSource = readFileSync(new URL('../src/settings/settings.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-// Start at the watchdog constant, not at the function: initAppUpdateSection()
-// closes over it and over appUpdateCheckTimer.
-const settingsStart = settingsSource.indexOf("// How long a 'check' has to produce any frame");
+const settingsStart = settingsSource.indexOf('function initAppUpdateSection() {');
 const settingsEnd = settingsSource.indexOf('\n\n// Render updates settings', settingsStart);
 assert.notEqual(settingsStart, -1);
 assert.notEqual(settingsEnd, -1);
 const initSource = settingsSource.slice(settingsStart, settingsEnd);
 
 const loadInit = () => {
-    const settingsCache = { appUpdateChecked: false, appUpdateState: null };
+    const settingsCache = { appUpdateState: null };
     const commands = [];
     const toasts = [];
     const window = {};
@@ -81,112 +79,145 @@ const loadInit = () => {
     };
     new Function(
         'window', 'settingsCache', 'sendUpdateCommand', 'connectUpdateWebSocket',
-        'ui', 'document', 'renderAppUpdateBlock', 'getTranslation',
+        'ui', 'document', 'renderAppUpdateBlock',
         `${initSource}\ninitAppUpdateSection();`,
     )(
         window, settingsCache, sendUpdateCommand, connectUpdateWebSocket,
         { showToast: (...args) => toasts.push(args) },
         { getElementById: () => null },
         () => '',
-        (key) => key,
     );
     return { settingsCache, commands, toasts, window, state };
 };
 
-// Decaid emits 'checking' at the top of UpdateCheckService.checkForUpdate(), on
-// every path that gets past the macOS guard -- so that frame, not the outgoing
-// command, is what proves a check ran.
-test('a check counts only once Decaid reports it started one', () => {
+// The socket exists for the Android in-app install and its progress; the check on
+// open is what populates `installable` there. It is silent by design -- on macOS
+// Decaid answers it with nothing at all.
+test('the socket opens with a silent check and tracks state frames', () => {
     const { settingsCache, commands, state } = loadInit();
 
     assert.deepEqual(commands, []);
-    assert.equal(settingsCache.appUpdateChecked, false);
-
     state.onOpen();
     assert.deepEqual(commands, [{ command: 'check' }]);
-    // The command is out, but nothing has come back yet.
-    assert.equal(settingsCache.appUpdateChecked, false);
 
-    state.onData({ phase: 'checking' });
-    assert.equal(settingsCache.appUpdateChecked, true);
-
-    state.onData({ phase: 'available' });
-    assert.equal(settingsCache.appUpdateChecked, true);
-    assert.deepEqual(settingsCache.appUpdateState, { phase: 'available' });
+    state.onData({ phase: 'available', installable: true });
+    assert.deepEqual(settingsCache.appUpdateState, { phase: 'available', installable: true });
 });
 
-// macOS returns at `if (_isMacOS)` before emitting anything, so the command is
-// answered with silence. Claiming a check ran on that is what put a green
-// "Up to date" over a stale version.
-test('silence from Decaid never counts as a completed check', () => {
-    const { settingsCache, window, state } = loadInit();
-    state.onOpen();
-    window.checkAppUpdate();
-    assert.equal(settingsCache.appUpdateChecked, false);
-    // Let the watchdog say so rather than leaving a dead button.
-    state.onData({ phase: 'idle' });
-});
-
-test('a send that never left claims nothing and reports the error', () => {
-    const { settingsCache, toasts, window, state } = loadInit();
+test('install reports a socket that is not there', () => {
+    const { toasts, window, state } = loadInit();
     state.failSend = true;
-
-    window.checkAppUpdate();
-    assert.equal(settingsCache.appUpdateChecked, false);
-    assert.deepEqual(toasts, [['Update WebSocket is not connected', 5000, 'error']]);
-
-    toasts.length = 0;
     window.installAppUpdate();
     assert.deepEqual(toasts, [['Update WebSocket is not connected', 5000, 'error']]);
 });
 
-// ─── "Up to date" badge ──────────────────────────────────────────────────────
-// The pill claims a check ran and came back clean, so it must not appear until
-// decaid says it actually ran one. It used to be armed by the outgoing 'check'
-// command, which is not evidence: on macOS UpdateCheckService.checkForUpdate()
-// returns at its `if (_isMacOS)` guard before emitting anything (Sparkle owns
-// app updates there), so nothing ever comes back and the panel still showed a
-// green "Up to date" over a stale version, with its own Check button hidden.
+test('a command-level error reply is surfaced with its url', () => {
+    const { toasts, state } = loadInit();
+    state.onData({ error: 'In-app install is not supported on this platform', url: 'https://example/releases' });
+    assert.equal(toasts.length, 1);
+    assert.match(toasts[0][0], /not supported on this platform — https:\/\/example\/releases/);
+});
+
+// ─── Decaid update badge ─────────────────────────────────────────────────────
+// Same badge as the skin cards, same comparison: the running build against the
+// newest release tag in Decaid's repo. Driving it off Decaid's own state machine
+// left it blank on macOS, where UpdateCheckService returns at its `if (_isMacOS)`
+// guard and never looks.
 
 const blockStart = settingsSource.indexOf('function renderAppUpdateBlock(state) {');
 assert.notEqual(blockStart, -1, 'renderAppUpdateBlock not found in settings.js');
-const blockEnd = settingsSource.indexOf('\n}', blockStart) + 2;
-const renderBlockSource = settingsSource.slice(blockStart, blockEnd);
+const blockEnd = settingsSource.indexOf('\n}\n', blockStart) + 3;
 
-const renderAppUpdateBlock = (state, { appUpdateChecked = false } = {}) => new Function(
-    'settingsCache',
-    'getTranslation',
-    `${renderBlockSource}\n    return renderAppUpdateBlock;`,
-)({ appUpdateChecked }, (key) => key)(state);
+const cmpStart = settingsSource.indexOf('function compareVersions(a, b) {');
+assert.notEqual(cmpStart, -1, 'compareVersions not found in settings.js');
+const compareVersionsSource = settingsSource.slice(cmpStart, settingsSource.indexOf('\n}\n', cmpStart) + 3);
 
-const idle = { phase: 'idle', currentVersion: '0.8.3', latestVersion: null };
+const RELEASES_URL = 'https://github.com/decentespresso/decaid/releases';
+const renderBadge = ({ current, latest, state = {} }) => new Function(
+    'settingsCache', 'getTranslation', 'maybeCheckLatestRelease', 'DECAID_REPO', 'DECAID_RELEASES_URL',
+    `${compareVersionsSource}\n${settingsSource.slice(blockStart, blockEnd)}\n    return renderAppUpdateBlock;`,
+)(
+    { appInfo: current ? { version: current } : null, latestReleases: { 'decentespresso/decaid': latest } },
+    (key) => key,
+    () => {},
+    'decentespresso/decaid',
+    RELEASES_URL,
+)(state);
 
-test('no "Up to date" pill until decaid reports it ran a check', () => {
-    const html = renderAppUpdateBlock(idle, { appUpdateChecked: false });
-    assert.ok(!html.includes('Up to date'));
-    // ...and the way to run one stays on screen.
-    assert.ok(html.includes('window.checkAppUpdate()'));
-});
-
-test('"Up to date" pill once a check has been reported', () => {
-    const html = renderAppUpdateBlock(idle, { appUpdateChecked: true });
-    assert.ok(html.includes('Up to date'));
-});
-
-test('an available update is reported whether or not a check was seen', () => {
-    const html = renderAppUpdateBlock(
-        { phase: 'available', currentVersion: '0.8.3', latestVersion: '0.8.4' },
-        { appUpdateChecked: false },
-    );
+test('an older build than the newest release shows "Update available"', () => {
+    const html = renderBadge({ current: '0.8.3', latest: 'v0.8.4' });
     assert.ok(html.includes('Update available'));
     assert.ok(!html.includes('Up to date'));
 });
 
-test('the checked flag is armed by the checking frame, not by sending the command', () => {
-    const initStart = settingsSource.indexOf('function initAppUpdateSection() {');
-    assert.notEqual(initStart, -1);
-    const init = settingsSource.slice(initStart, settingsSource.indexOf('\n}', initStart));
-    assert.match(init, /phase === 'checking'\) settingsCache\.appUpdateChecked = true/);
-    // The old bug: armed inside send(), off the command name.
-    assert.ok(!/command === 'check'\) settingsCache\.appUpdateChecked = true/.test(init));
+test('the offered version is shown next to the badge, without its tag prefix', () => {
+    const html = renderBadge({ current: '0.8.3', latest: 'v0.8.4' });
+    assert.ok(html.includes('>0.8.4<'));
+    assert.ok(!html.includes('>v0.8.4<'));
+});
+
+test('matching the newest release shows "Up to date"', () => {
+    const html = renderBadge({ current: '0.8.4', latest: 'v0.8.4' });
+    assert.ok(html.includes('Up to date'));
+    assert.ok(!html.includes('Update available'));
+});
+
+test('a build newer than the newest release is not an update', () => {
+    const html = renderBadge({ current: '0.9.0', latest: 'v0.8.4' });
+    assert.ok(html.includes('Up to date'));
+});
+
+test('no badge at all until the release tag is known', () => {
+    // Still fetching, offline, or rate-limited: saying "Up to date" there would be
+    // the guess this replaced.
+    for (const latest of [null, undefined, '']) {
+        const html = renderBadge({ current: '0.8.3', latest });
+        assert.ok(!html.includes('Up to date'), `latest=${latest}`);
+        assert.ok(!html.includes('Update available'), `latest=${latest}`);
+    }
+    assert.ok(!renderBadge({ current: '', latest: 'v0.8.4' }).includes('Up to date'));
+});
+
+test('the install button appears only when Decaid says it can install', () => {
+    const outdated = { current: '0.8.3', latest: 'v0.8.4' };
+    assert.ok(!renderBadge({ ...outdated, state: { installable: false } }).includes('installAppUpdate'));
+    assert.ok(renderBadge({ ...outdated, state: { installable: true } }).includes('installAppUpdate'));
+    // Nothing to install when already current.
+    assert.ok(!renderBadge({ current: '0.8.4', latest: 'v0.8.4', state: { installable: true } }).includes('installAppUpdate'));
+});
+
+test('a download in progress replaces the button with its progress', () => {
+    const html = renderBadge({
+        current: '0.8.3', latest: 'v0.8.4',
+        state: { phase: 'downloading', progress: 0.42, installable: true },
+    });
+    assert.ok(html.includes('Updating'));
+    assert.ok(html.includes('width:42%'));
+});
+
+// Only Android can install in place; everywhere else the release page is the way
+// through, so that is what the button offers.
+test('off Android an available update links to the release page', () => {
+    const html = renderBadge({ current: '0.8.3', latest: 'v0.8.4', state: { installable: false } });
+    assert.ok(html.includes(`href="${RELEASES_URL}"`));
+    assert.ok(!html.includes('installAppUpdate'));
+});
+
+test('Android keeps the in-app install instead of the link', () => {
+    const html = renderBadge({ current: '0.8.3', latest: 'v0.8.4', state: { installable: true } });
+    assert.ok(html.includes('installAppUpdate'));
+    assert.ok(!html.includes(`href="${RELEASES_URL}"`));
+});
+
+test('being current offers no action at all', () => {
+    const html = renderBadge({ current: '0.8.4', latest: 'v0.8.4', state: { installable: false } });
+    assert.ok(!html.includes(`href="${RELEASES_URL}"`));
+    assert.ok(!html.includes('installAppUpdate'));
+});
+
+// The card renders into #app-update-section, which already carries the box
+// styling of the Version card beside it -- a second border would double it up.
+test('the block renders card contents, not its own card', () => {
+    const html = renderBadge({ current: '0.8.3', latest: 'v0.8.4' });
+    assert.ok(!html.trimStart().startsWith('<div class="rounded-'));
 });
