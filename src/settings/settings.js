@@ -453,8 +453,11 @@ function updateSettingsContentArea(category) {
             setTimeout(() => window.updateTalkToDecentUI?.(), 0);
         }
         if (category === 'firmware' || category === 'firmwareupdate') {
-            setTimeout(initAppUpdateSection, 0);
             setTimeout(initFirmwareCheck, 0);
+        }
+        // #app-update-section lives on the Decaid page now, not the firmware one.
+        if (category === 'rea') {
+            setTimeout(initAppUpdateSection, 0);
         }
         if (category === 'quickstart') {
             setTimeout(initQuickstartGuideSettings, 0);
@@ -886,6 +889,31 @@ export function renderReaSettingsForm(settings) {
         `;
     }
 
+    // Decaid's own build info and update control. It used to sit at the bottom of
+    // the Firmware Update page, under the DE1 firmware controls it has nothing to do
+    // with -- one page updating two different things. This is the Decaid page, and
+    // Automatic Update Checks right above already governs the check this card runs.
+    const appInfo = settingsCache.appInfo;
+    const appInfoDetails = appInfo ? `
+                <div class="grid gap-[12px] sm:grid-cols-2">
+                    <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
+                        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Version">Version</p>
+                        <p class="text-[24px] font-['Inter:Regular',sans-serif]">${appInfo.version} (${appInfo.buildNumber})</p>
+                        <p class="text-[16px] text-[var(--text-secondary)]">${appInfo.fullVersion} &middot; ${formatBuildTimestamp(appInfo.buildTime)}</p>
+                    </div>
+                    <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
+                        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Source">Source</p>
+                        <p class="text-[24px] font-['Inter:Regular',sans-serif]">${appInfo.branch}</p>
+                        <p class="text-[16px] text-[var(--text-secondary)]">${appInfo.commitShort} &middot; App Store: ${appInfo.appStore ? 'Yes' : 'No'}</p>
+                    </div>
+                </div>
+            ` : `
+                <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
+                    <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Update info">Update info</p>
+                    <p class="text-[24px] font-['Inter:Regular',sans-serif]" data-i18n-key="Fetching build metadata...">Fetching build metadata...</p>
+                </div>
+            `;
+
     return `
         <div class="flex flex-col gap-[60px] items-start relative w-full max-w-full overflow-x-hidden">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] not-italic relative text-[var(--text-primary)] text-[36px] text-center w-full">
@@ -979,6 +1007,14 @@ export function renderReaSettingsForm(settings) {
                         Check for app updates every 12 hours automatically
                     </p>
                 </div>
+            </div>
+
+            <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
+
+            <div class="w-full flex flex-col gap-[12px]">
+                <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]">Decaid <span data-i18n-key="Update info">Update info</span></p>
+                ${appInfoDetails}
+                <div id="app-update-section">${renderAppUpdateBlock(settingsCache.appUpdateState)}</div>
             </div>
 
             ${settings.webUiPath ? `
@@ -6500,31 +6536,11 @@ function renderFirmwareSteps(progress, { failed = false, cancelled = false } = {
 }
 
 export function renderFirmwareUpdateSettings() {
-    const appInfo = settingsCache.appInfo;
     // Currently installed DE1 firmware, so the version you're about to overwrite is
     // on the same page as the Upload button (Machine Info also shows it, :5167).
     // Read from the cache only — no fetch: this page isn't gated on machineInfo
     // loading, so it can render before the info lands, hence the em dash fallback.
     const de1Version = settingsCache.machineInfo?.version;
-    const appInfoDetails = appInfo ? `
-                <div class="grid gap-[12px] sm:grid-cols-2">
-                    <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
-                        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Version">Version</p>
-                        <p class="text-[24px] font-['Inter:Regular',sans-serif]">${appInfo.version} (${appInfo.buildNumber})</p>
-                        <p class="text-[16px] text-[var(--text-secondary)]">${appInfo.fullVersion} &middot; ${formatBuildTimestamp(appInfo.buildTime)}</p>
-                    </div>
-                    <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
-                        <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Source">Source</p>
-                        <p class="text-[24px] font-['Inter:Regular',sans-serif]">${appInfo.branch}</p>
-                        <p class="text-[16px] text-[var(--text-secondary)]">${appInfo.commitShort} &middot; App Store: ${appInfo.appStore ? 'Yes' : 'No'}</p>
-                    </div>
-                </div>
-            ` : `
-                <div class="rounded-[10px] border border-[#c9c9c9] px-4 py-3 bg-[var(--box-color)]">
-                    <p class="text-[20px] font-['Inter:Bold',sans-serif] font-bold text-[#385a92]" data-i18n-key="Update info">Update info</p>
-                    <p class="text-[24px] font-['Inter:Regular',sans-serif]" data-i18n-key="Fetching build metadata...">Fetching build metadata...</p>
-                </div>
-            `;
 
     return `
         <div class="content-stretch flex flex-col gap-[22px] items-start relative w-full">
@@ -6626,14 +6642,6 @@ export function renderFirmwareUpdateSettings() {
                  image; the endpoint is the backstop (400 on empty, error event on bad CRC). -->
             <input type="file" id="firmware-file-input" class="hidden"
                    onchange="window.onFirmwareFileSelected(this)">
-
-            <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
-
-            <div class="w-full flex flex-col gap-[12px]">
-                <p class="font-['Inter:Bold',sans-serif] font-bold text-[#385a92] text-[30px] leading-[1.2]">Decaid <span data-i18n-key="Update info">Update info</span></p>
-                ${appInfoDetails}
-                <div id="app-update-section">${renderAppUpdateBlock(settingsCache.appUpdateState)}</div>
-            </div>
         </div>
     `;
 }
