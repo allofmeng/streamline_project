@@ -91,6 +91,16 @@ function getChartElement() {
     }
     return mainPage?.querySelector('#plotly-chart') ?? null;
 }
+
+// profile_selector.html (and other subpages) carry their own #plotly-chart
+// with the same id, so it stays visible (has an offsetParent) even while the
+// main page's own chart is hidden behind it. Anything that repaints from the
+// shared chartTraces/layout globals -- which only ever hold the main page's
+// shot data -- must check THIS, not element.offsetParent, before repainting,
+// or it clobbers whatever the subpage (e.g. a profile preview) just drew.
+function isMainChartActive() {
+    return document.getElementById('main-page')?.style.display !== 'none';
+}
 let currentSubstate = 'idle';
 let previousSubstateForShape = 'idle'; // To track step changes for vertical lines
 let lastWeight = 0;
@@ -433,11 +443,14 @@ export function finalizeLiveChart() {
 export function refreshLabelMargin() {
     const element = getChartElement();
     if (!element || !hasChart(element)) return;
-    // Hidden behind another page (e.g. settings, profile selector) -- skip the
-    // A hidden layout refresh is non-cheap and has zero
-    // visible effect while hidden, and every streamline:languagechange fires
-    // this unconditionally regardless of which page is actually showing.
-    if (element.offsetParent === null && !expandedOpen) return;
+    // Hidden behind another page (e.g. settings, profile selector) -- skip.
+    // offsetParent alone doesn't catch this: a subpage's own #plotly-chart is
+    // visible too, so it'd pass that check and get clobbered with the main
+    // page's stale chartTraces/layout. A hidden/foreign-page layout refresh
+    // is non-cheap and has zero visible effect there, and every
+    // streamline:languagechange fires this unconditionally regardless of
+    // which page is actually showing.
+    if ((element.offsetParent === null || !isMainChartActive()) && !expandedOpen) return;
 
     const theme = currentTheme;
     const layout = theme === 'dark' ? darkLayout : lightLayout;
@@ -518,6 +531,11 @@ function flushChart() {
 function hasVisibleChart() {
     if (document.visibilityState === 'hidden') return false;
     if (expandedOpen) return true;
+    // Same trap as refreshLabelMargin: a subpage (profile selector, etc.) has
+    // its own visible #plotly-chart, so offsetParent alone can't tell it's
+    // not the main page's live chart -- without this, a live shot update
+    // would paint over whatever that subpage is currently showing.
+    if (!isMainChartActive()) return false;
     const element = getChartElement();
     return Boolean(element && element.offsetParent !== null);
 }
