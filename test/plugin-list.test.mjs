@@ -157,3 +157,35 @@ test('manifest text is escaped, not injected', () => {
     assert.ok(!html.includes('<img'));
     assert.ok(html.includes('&lt;img'));
 });
+
+// Plugin authors append their own ui URL to the description (decent-profile and
+// settings both do). The list renders that endpoint as an Open button next to
+// the plugin name, so printing the URL again in the body text is a duplicate of
+// a link nobody can usefully read.
+const descMatch = source.match(/^function pluginDescription\(plugin\) \{[\s\S]*?\r?\n\}/m);
+assert.ok(descMatch, 'pluginDescription not found in settings.js');
+const pluginDescription = new Function(`${descMatch[0]}\nreturn pluginDescription;`)();
+
+test('a bridge ui URL is dropped from the end of a description', () => {
+    assert.equal(
+        pluginDescription({ description: 'Shows settings in a page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui' }),
+        'Shows settings in a page.',
+    );
+});
+
+test('a description with no URL is untouched', () => {
+    const text = 'Bean and shot workflow for Decent Espresso.';
+    assert.equal(pluginDescription({ description: text }), text);
+});
+
+test('a link to somewhere other than the bridge survives', () => {
+    // Only the endpoint the Open button already covers is redundant; a plugin
+    // pointing at its own docs is telling the reader something new.
+    const text = 'See https://github.com/decentespresso/decaid for setup.';
+    assert.equal(pluginDescription({ description: text }), text);
+});
+
+test('a missing description reads as empty, not "undefined"', () => {
+    assert.equal(pluginDescription({}), '');
+    assert.equal(pluginDescription(null), '');
+});

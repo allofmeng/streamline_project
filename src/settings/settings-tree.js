@@ -53,7 +53,7 @@ export const SETTINGS_TREE = {
         name: 'Skin',
         subcategories: [
             { id: 'theme', name: 'Theme', settingsCategory: 'theme', i18nKey: 'Theme' },
-            { id: 'skin1', name: 'Skin Settings', settingsCategory: 'appearance', i18nKey: 'Skin Settings' }
+            { id: 'skin1', name: 'Active Skin', settingsCategory: 'appearance', i18nKey: 'Active Skin' }
         ]
     },
     'language': {

@@ -5062,13 +5062,10 @@ export function renderSkinSettings() {
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Skin Settings">Skin Settings</p>
+                <p class="leading-[1.2]" data-i18n-key="Active Skin">Active Skin</p>
             </div>
 
             <div class="content-stretch flex flex-col gap-[24px] items-start relative w-full">
-                <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                    <p class="leading-[1.2]" data-i18n-key="Active Skin">Active Skin</p>
-                </div>
                 <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[22px] w-full" data-i18n-key="Tap a skin to make it active.">
                     Tap a skin to make it active.
                 </p>
@@ -5606,6 +5603,17 @@ function pluginUiUrl(plugin) {
     const endpoints = Array.isArray(plugin?.api) ? plugin.api : [];
     const hasUi = endpoints.some(e => e?.type === 'http' && e?.id === 'ui');
     return hasUi ? `${API_BASE_URL}/plugins/${encodeURIComponent(plugin.id)}/ui` : null;
+}
+
+// Some plugins append their own ui URL to the end of their description
+// (decent-profile, settings). The list renders that endpoint as an Open button,
+// so the raw URL is a second copy of the same link -- and being the bridge's own
+// address it is useless as reading matter. Manifest text is third-party, so this
+// only strips, never rewrites.
+function pluginDescription(plugin) {
+    return String(plugin?.description || '')
+        .replace(/\s*https?:\/\/\S*\/api\/v1\/plugins\/\S*/g, '')
+        .trim();
 }
 
 // Print The Shot -- the settings half of print-the-shot.reaplugin, which sends a
@@ -7310,17 +7318,17 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
             // GitHub repos -- so every field is escaped before it reaches innerHTML.
             container.innerHTML = plugins.map((p, i) => {
                 const uiUrl = pluginUiUrl(p);
+                const description = pluginDescription(p);
                 return `
                 ${i > 0 ? '<div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>' : ''}
                 <div class="flex items-center justify-between w-full py-[30px] gap-[24px]">
                     <div class="flex flex-col gap-[8px] flex-1 min-w-0">
-                        <div class="flex items-center gap-[12px]">
+                        <div class="flex items-center gap-[12px] flex-wrap">
                             <span class="font-bold text-[#385a92] text-[28px] leading-tight">${escapeHtml(p.name || p.id)}</span>
                             <span class="text-[20px] text-[var(--text-primary)] opacity-50">v${escapeHtml(p.version || '?')}</span>
+                            ${uiUrl ? `<a href="${escapeHtml(uiUrl)}" class="bg-[#385a92] h-[54px] px-[40px] rounded-[54px] text-white text-[22px] font-bold flex items-center justify-center" data-i18n-key="Open">Open</a>` : ''}
                         </div>
-                        ${p.description ? `<p class="text-[22px] text-[var(--text-primary)] leading-[1.4] opacity-75">${escapeHtml(p.description)}</p>` : ''}
-                        <span class="text-[18px] text-[var(--text-primary)] opacity-40 font-mono">${escapeHtml(p.id)}</span>
-                        ${uiUrl ? `<a href="${escapeHtml(uiUrl)}" class="text-[18px] text-[#385a92] underline font-mono break-words">${escapeHtml(uiUrl)}</a>` : ''}
+                        ${description ? `<p class="text-[22px] text-[var(--text-primary)] leading-[1.4] opacity-75">${escapeHtml(description)}</p>` : ''}
                     </div>
                     <div class="flex flex-col items-center gap-[6px] flex-shrink-0">
                         <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
