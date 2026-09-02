@@ -366,7 +366,7 @@ function roundTo(value, step) {
 // ─── Spinner Factory ────────────────────────────────────────────────────────
 
 function createSpinner(initialValue, step, unit, onChange, opts = {}) {
-    const { min, max } = opts;
+    const { min, max, disabled } = opts;
     let value = typeof initialValue === 'number' ? initialValue : parseFloat(initialValue) || 0;
     let debounceTimer = null;
 
@@ -441,11 +441,47 @@ function createSpinner(initialValue, step, unit, onChange, opts = {}) {
     wrapper.appendChild(display);
     wrapper.appendChild(plusBtn);
 
+    // A disabled spinner still shows its value -- it reads as "nothing set"
+    // rather than vanishing -- but nothing about it is live. pointer-events
+    // covers the +, the - and the tap-to-type on the display in one go.
+    if (disabled) {
+        wrapper.className += ' opacity-40 pointer-events-none';
+        wrapper.setAttribute('aria-disabled', 'true');
+    }
+
     // Expose a way to get or set the current value externally
     wrapper._getValue = () => value;
     wrapper._setValue = (v) => { value = v; updateDisplay(); };
 
     return wrapper;
+}
+
+// ─── Limiter tolerance ──────────────────────────────────────────────────────
+// `range` is the softness of a limiter: 0 clamps hard at the limit, larger
+// values taper into it (decaid's _applyLimiter). It is a per-step field the
+// editor presents profile-wide, one control per pump type, so the read has to
+// pick a step that actually carries a limiter -- profiles routinely limit only
+// their last step, and the earlier steps' dead `value: 0` limiters keep a stale
+// range. Live limiters agree within a profile, so the first live one wins.
+const DEFAULT_LIMITER_RANGE = 0.6;
+
+function limitedSteps(pump) {
+    return (editorState.profile?.steps || []).filter(s => s.pump === pump && s.limiter);
+}
+
+function limiterRangeOf(pump, fallback) {
+    const limited = limitedSteps(pump);
+    const step = limited.find(s => parseFloat(s.limiter.value) > 0) || limited[0];
+    const range = parseFloat(step?.limiter?.range);
+    return Number.isFinite(range) ? range : fallback;
+}
+
+// What a limiter created from a step card gets. It inherits the profile's
+// existing tolerance so adding one doesn't quietly introduce a second range;
+// with no limiter anywhere it takes the DE1's conventional band, NOT the 0 the
+// tolerance spinner shows for "none" -- that would hard-clamp the new limiter.
+function newLimiterRange(pump) {
+    return limiterRangeOf(pump, DEFAULT_LIMITER_RANGE);
 }
 
 // ─── Grid Stepper ───────────────────────────────────────────────────────────
@@ -823,7 +859,7 @@ function renderStepCards() {
 
             function writeLim(val) {
                 const s = editorState.profile.steps[index];
-                if (!s.limiter) s.limiter = { value: val, range: 0.6 };
+                if (!s.limiter) s.limiter = { value: val, range: newLimiterRange(s.pump) };
                 else s.limiter.value = val;
                 renderReviewGraph();
             }
@@ -1084,35 +1120,28 @@ function renderSettingsTab() {
         profile.tank_temperature || 0, 1, '\u00b0c', (val) => { editorState.profile.tank_temperature = val; }, { min: 0, max: 110 }
     ));
 
-    // Limiter Tolerance — separate controls for bar (flow-pump steps) and mL/s (pressure-pump steps)
+    // Limiter Tolerance — separate controls for bar (flow-pump steps) and mL/s
+    // (pressure-pump steps). A flow-pump step's limiter caps pressure, so it is
+    // the bar control; a pressure-pump step's caps flow, so it is the mL/s one.
     {
-        const steps = profile.steps || [];
-        const flowPumpStep = steps.find(s => s.pump === 'flow');
-        const pressurePumpStep = steps.find(s => s.pump === 'pressure');
+        // No limiter on this pump type means no tolerance: show 0, not the 0.6
+        // default, which reads as a setting someone chose. The control is dead
+        // too -- there is no step to write a range to, and decaid drops the
+        // field entirely for a limiter-less step (unified_de1.profile.dart).
+        const toleranceField = (pump, label, unit) => {
+            const hasLimiter = limitedSteps(pump).length > 0;
+            addFieldTo(leftCol, getTranslation(label), createSpinner(
+                limiterRangeOf(pump, 0), 0.1, unit,
+                // Writes reach only the steps that already have a limiter.
+                // Creating one on every step of the pump type would flatten a
+                // profile that deliberately limits a single step.
+                (val) => limitedSteps(pump).forEach(step => { step.limiter.range = val; }),
+                { min: 0, max: 5, disabled: !hasLimiter }
+            ));
+        };
 
-        const barRange = parseFloat(flowPumpStep?.limiter?.range ?? 0.6);
-        addFieldTo(leftCol, getTranslation('Limiter Tolerance (bar)'), createSpinner(
-            barRange, 0.1, 'bar', (val) => {
-                (editorState.profile.steps || []).forEach(step => {
-                    if (step.pump === 'flow') {
-                        if (!step.limiter) step.limiter = { value: 0, range: val };
-                        else step.limiter.range = val;
-                    }
-                });
-            }, { min: 0, max: 5 }
-        ));
-
-        const mlsRange = parseFloat(pressurePumpStep?.limiter?.range ?? 0.6);
-        addFieldTo(leftCol, getTranslation('Limiter Tolerance (mL/s)'), createSpinner(
-            mlsRange, 0.1, 'mL/s', (val) => {
-                (editorState.profile.steps || []).forEach(step => {
-                    if (step.pump === 'pressure') {
-                        if (!step.limiter) step.limiter = { value: 0, range: val };
-                        else step.limiter.range = val;
-                    }
-                });
-            }, { min: 0, max: 5 }
-        ));
+        toleranceField('flow', 'Limiter Tolerance (bar)', 'bar');
+        toleranceField('pressure', 'Limiter Tolerance (mL/s)', 'mL/s');
     }
 
     // Beverage Type (select)
@@ -1519,7 +1548,7 @@ function describeStep(step, index) {
             limValue, limLim, limUnit,
             (val) => {
                 const s = editorState.profile.steps[index];
-                if (!s.limiter) s.limiter = { value: val, range: 0.6 };
+                if (!s.limiter) s.limiter = { value: val, range: newLimiterRange(s.pump) };
                 else s.limiter.value = val;
                 renderReviewGraph();
             },

@@ -129,3 +129,109 @@ test('a real exit still survives the same round trip', () => {
     const reloaded = normalizeLegacySteps(JSON.parse(JSON.stringify(sanitizeProfileForRea(edited))));
     assert.deepEqual(readExitDef(reloaded.steps[0]), { type: 'flow', condition: 'under', value: 2 });
 });
+
+// ── Limiter Tolerance ────────────────────────────────────────────────────────
+// Two profile-wide spinners, one per pump type, over a field that lives on each
+// step. Three things have to hold: the number shown belongs to a step that
+// really carries a limiter; editing it never creates one on a step that had
+// none; and a limiter added from a step card inherits the profile's tolerance
+// instead of a hardcoded 0.6.
+const limiterMatch = source.match(/const DEFAULT_LIMITER_RANGE[\s\S]*?\nfunction newLimiterRange\(pump\) \{[\s\S]*?\r?\n\}/);
+const toleranceMatch = source.match(/const toleranceField = \(pump, label, unit\) => \{[\s\S]*?\r?\n        \};/);
+assert.ok(limiterMatch && toleranceMatch, 'limiter tolerance source not found in profile_editor.js');
+
+// The tab builds the field through addFieldTo/createSpinner; stub both to
+// capture what a real render would have shown.
+function limiterEditor(steps) {
+    const editorState = { profile: { steps } };
+    const fields = {};
+    const createSpinner = (value, _step, unit, onChange, opts) => ({ value, unit, onChange, ...opts });
+    const addFieldTo = (_col, label, spinner) => { fields[label] = spinner; };
+    const api = new Function(
+        'editorState', 'addFieldTo', 'createSpinner', 'getTranslation', 'leftCol',
+        `${limiterMatch[0]}\n${toleranceMatch[0]}\nreturn { toleranceField, newLimiterRange, limiterRangeOf };`
+    )(editorState, addFieldTo, createSpinner, (x) => x, null);
+    api.toleranceField('flow', 'bar-field', 'bar');
+    api.toleranceField('pressure', 'mls-field', 'mL/s');
+    return { steps, fields, newLimiterRange: api.newLimiterRange };
+}
+
+// Live from the shipped library: only step 3 limits, and it holds range 3.0.
+const extractamundo = () => [
+    { name: 'preinfusion start', pump: 'pressure', limiter: { value: 0.0, range: 1.0 } },
+    { name: 'preinfusion',       pump: 'pressure', limiter: { value: 0.0, range: 1.0 } },
+    { name: 'dynamic bloom',     pump: 'flow',     limiter: { value: 0.0, range: 1.0 } },
+    { name: '6 bar',             pump: 'pressure', limiter: { value: 1.0, range: 3.0 } },
+];
+
+test('the tolerance shows the live limiter, not the first step of the pump type', () => {
+    const { fields } = limiterEditor(extractamundo());
+    assert.equal(fields['mls-field'].value, 3.0);  // was 1.0, step 0's dead limiter
+    assert.equal(fields['bar-field'].value, 1.0);
+});
+
+test('a profile whose first steps carry no limiter still shows the real one', () => {
+    const { fields } = limiterEditor([
+        { pump: 'flow', limiter: null },
+        { pump: 'pressure', limiter: null },
+        { pump: 'pressure', limiter: { value: 4.0, range: 1.0 } },
+    ]);
+    assert.equal(fields['mls-field'].value, 1.0);  // was the fabricated 0.6
+    assert.equal(fields['mls-field'].disabled, false);
+});
+
+test('no limiter on a pump type shows 0, disabled — not a 0.6 nobody chose', () => {
+    const { fields } = limiterEditor([{ pump: 'flow' }, { pump: 'pressure' }]);
+    for (const key of ['bar-field', 'mls-field']) {
+        assert.equal(fields[key].value, 0);
+        assert.equal(fields[key].disabled, true);
+    }
+});
+
+test('one pump type can be live while the other is dead', () => {
+    const { fields } = limiterEditor([
+        { pump: 'flow', limiter: { value: 6.0, range: 0.9 } },
+        { pump: 'pressure', limiter: null },
+    ]);
+    assert.equal(fields['bar-field'].disabled, false);
+    assert.equal(fields['bar-field'].value, 0.9);
+    assert.equal(fields['mls-field'].disabled, true);
+    assert.equal(fields['mls-field'].value, 0);
+});
+
+test('editing the tolerance never creates a limiter on a step that had none', () => {
+    const steps = [
+        { pump: 'pressure', limiter: null },
+        { pump: 'pressure', limiter: { value: 4.0, range: 1.0 } },
+    ];
+    limiterEditor(steps).fields['mls-field'].onChange(2.5);
+    assert.equal(steps[0].limiter, null);
+    assert.equal(steps[1].limiter.range, 2.5);
+    assert.equal(steps[1].limiter.value, 4.0);
+});
+
+test('editing one tolerance leaves the other pump and every limiter value alone', () => {
+    const steps = extractamundo();
+    limiterEditor(steps).fields['mls-field'].onChange(2.0);
+    assert.deepEqual(steps.map(s => s.limiter.range), [2.0, 2.0, 1.0, 2.0]);
+    assert.deepEqual(steps.map(s => s.limiter.value), [0.0, 0.0, 0.0, 1.0]);
+    assert.equal(limiterEditor(steps).fields['mls-field'].value, 2.0);
+});
+
+test('a limiter added from a step card inherits the profile tolerance', () => {
+    // Gentle and sweet: pressure steps limit at range 1.0. A limiter added to
+    // step 0 used to arrive at 0.6, leaving the profile with two ranges.
+    const { newLimiterRange } = limiterEditor([
+        { pump: 'pressure', limiter: null },
+        { pump: 'pressure', limiter: { value: 4.0, range: 1.0 } },
+    ]);
+    assert.equal(newLimiterRange('pressure'), 1.0);
+});
+
+test('with nothing to inherit a new limiter takes the DE1 band, not the 0 on screen', () => {
+    // 0 is a real setting — decaid hard-clamps on range <= 0 — so the "none"
+    // placeholder must not become the default for a freshly added limiter.
+    const { fields, newLimiterRange } = limiterEditor([{ pump: 'flow' }, { pump: 'pressure' }]);
+    assert.equal(fields['bar-field'].value, 0);
+    assert.equal(newLimiterRange('flow'), 0.6);
+});
