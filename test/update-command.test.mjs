@@ -57,65 +57,136 @@ test('update commands reject an unavailable socket', () => {
 });
 
 const settingsSource = readFileSync(new URL('../src/settings/settings.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const settingsStart = settingsSource.indexOf('function initAppUpdateSection');
+// Start at the watchdog constant, not at the function: initAppUpdateSection()
+// closes over it and over appUpdateCheckTimer.
+const settingsStart = settingsSource.indexOf("// How long a 'check' has to produce any frame");
 const settingsEnd = settingsSource.indexOf('\n\n// Render updates settings', settingsStart);
 assert.notEqual(settingsStart, -1);
 assert.notEqual(settingsEnd, -1);
 const initSource = settingsSource.slice(settingsStart, settingsEnd);
 
-test('update status flips when the check command goes out, not on a frame Decaid may skip', () => {
+const loadInit = () => {
     const settingsCache = { appUpdateChecked: false, appUpdateState: null };
     const commands = [];
     const toasts = [];
     const window = {};
-    let failSend = false;
-    let onData;
-    let onOpen;
+    const state = { failSend: false, onData: null, onOpen: null };
     const connectUpdateWebSocket = (dataHandler, openHandler) => {
-        onData = dataHandler;
-        onOpen = openHandler;
+        state.onData = dataHandler;
+        state.onOpen = openHandler;
     };
     const sendUpdateCommand = (command) => {
-        if (failSend) throw new Error('Update WebSocket is not connected');
+        if (state.failSend) throw new Error('Update WebSocket is not connected');
         commands.push(command);
     };
-    const ui = { showToast: (...args) => toasts.push(args) };
-    const document = { getElementById: () => null };
-    const renderAppUpdateBlock = () => '';
-
     new Function(
-        'window',
-        'settingsCache',
-        'sendUpdateCommand',
-        'connectUpdateWebSocket',
-        'ui',
-        'document',
-        'renderAppUpdateBlock',
+        'window', 'settingsCache', 'sendUpdateCommand', 'connectUpdateWebSocket',
+        'ui', 'document', 'renderAppUpdateBlock', 'getTranslation',
         `${initSource}\ninitAppUpdateSection();`,
-    )(window, settingsCache, sendUpdateCommand, connectUpdateWebSocket, ui, document, renderAppUpdateBlock);
+    )(
+        window, settingsCache, sendUpdateCommand, connectUpdateWebSocket,
+        { showToast: (...args) => toasts.push(args) },
+        { getElementById: () => null },
+        () => '',
+        (key) => key,
+    );
+    return { settingsCache, commands, toasts, window, state };
+};
+
+// Decaid emits 'checking' at the top of UpdateCheckService.checkForUpdate(), on
+// every path that gets past the macOS guard -- so that frame, not the outgoing
+// command, is what proves a check ran.
+test('a check counts only once Decaid reports it started one', () => {
+    const { settingsCache, commands, state } = loadInit();
 
     assert.deepEqual(commands, []);
     assert.equal(settingsCache.appUpdateChecked, false);
 
-    onOpen();
+    state.onOpen();
     assert.deepEqual(commands, [{ command: 'check' }]);
+    // The command is out, but nothing has come back yet.
+    assert.equal(settingsCache.appUpdateChecked, false);
+
+    state.onData({ phase: 'checking' });
     assert.equal(settingsCache.appUpdateChecked, true);
 
-    // 'checking' is transient and a fast check can skip it entirely, going straight to a
-    // terminal phase. The flag must already be set by then or the "Up to date" pill,
-    // which is gated on it, would never render.
-    onData({ phase: 'available' });
+    state.onData({ phase: 'available' });
     assert.equal(settingsCache.appUpdateChecked, true);
     assert.deepEqual(settingsCache.appUpdateState, { phase: 'available' });
+});
 
-    // A send that never left must not claim a check happened.
-    settingsCache.appUpdateChecked = false;
-    failSend = true;
+// macOS returns at `if (_isMacOS)` before emitting anything, so the command is
+// answered with silence. Claiming a check ran on that is what put a green
+// "Up to date" over a stale version.
+test('silence from Decaid never counts as a completed check', () => {
+    const { settingsCache, window, state } = loadInit();
+    state.onOpen();
     window.checkAppUpdate();
     assert.equal(settingsCache.appUpdateChecked, false);
+    // Let the watchdog say so rather than leaving a dead button.
+    state.onData({ phase: 'idle' });
+});
+
+test('a send that never left claims nothing and reports the error', () => {
+    const { settingsCache, toasts, window, state } = loadInit();
+    state.failSend = true;
+
+    window.checkAppUpdate();
+    assert.equal(settingsCache.appUpdateChecked, false);
+    assert.deepEqual(toasts, [['Update WebSocket is not connected', 5000, 'error']]);
+
     toasts.length = 0;
-
-
     window.installAppUpdate();
     assert.deepEqual(toasts, [['Update WebSocket is not connected', 5000, 'error']]);
+});
+
+// ─── "Up to date" badge ──────────────────────────────────────────────────────
+// The pill claims a check ran and came back clean, so it must not appear until
+// decaid says it actually ran one. It used to be armed by the outgoing 'check'
+// command, which is not evidence: on macOS UpdateCheckService.checkForUpdate()
+// returns at its `if (_isMacOS)` guard before emitting anything (Sparkle owns
+// app updates there), so nothing ever comes back and the panel still showed a
+// green "Up to date" over a stale version, with its own Check button hidden.
+
+const blockStart = settingsSource.indexOf('function renderAppUpdateBlock(state) {');
+assert.notEqual(blockStart, -1, 'renderAppUpdateBlock not found in settings.js');
+const blockEnd = settingsSource.indexOf('\n}', blockStart) + 2;
+const renderBlockSource = settingsSource.slice(blockStart, blockEnd);
+
+const renderAppUpdateBlock = (state, { appUpdateChecked = false } = {}) => new Function(
+    'settingsCache',
+    'getTranslation',
+    `${renderBlockSource}\n    return renderAppUpdateBlock;`,
+)({ appUpdateChecked }, (key) => key)(state);
+
+const idle = { phase: 'idle', currentVersion: '0.8.3', latestVersion: null };
+
+test('no "Up to date" pill until decaid reports it ran a check', () => {
+    const html = renderAppUpdateBlock(idle, { appUpdateChecked: false });
+    assert.ok(!html.includes('Up to date'));
+    // ...and the way to run one stays on screen.
+    assert.ok(html.includes('window.checkAppUpdate()'));
+});
+
+test('"Up to date" pill once a check has been reported', () => {
+    const html = renderAppUpdateBlock(idle, { appUpdateChecked: true });
+    assert.ok(html.includes('Up to date'));
+});
+
+test('an available update is reported whether or not a check was seen', () => {
+    const html = renderAppUpdateBlock(
+        { phase: 'available', currentVersion: '0.8.3', latestVersion: '0.8.4' },
+        { appUpdateChecked: false },
+    );
+    assert.ok(html.includes('Update available'));
+    assert.ok(!html.includes('Up to date'));
+});
+
+test('the checked flag is armed by the checking frame, not by sending the command', () => {
+    const initStart = settingsSource.indexOf('function initAppUpdateSection() {');
+    assert.notEqual(initStart, -1);
+    const init = settingsSource.slice(initStart, settingsSource.indexOf('\n}', initStart));
+    assert.match(init, /phase === 'checking'\) settingsCache\.appUpdateChecked = true/);
+    // The old bug: armed inside send(), off the command name.
+    assert.ok(!/command === 'check'\) settingsCache\.appUpdateChecked = true/.test(init));
 });

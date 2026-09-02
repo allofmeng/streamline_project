@@ -6729,26 +6729,54 @@ function renderAppUpdateBlock(state) {
 
 // Connect ws/v1/update and keep #app-update-section in sync with AppUpdateState.
 // Exposes window.checkAppUpdate / window.installAppUpdate for the buttons.
+// How long a 'check' has to produce any frame before we tell the user it went
+// unanswered. Generous: this is only a fallback for a backend that never replies.
+const APP_UPDATE_CHECK_TIMEOUT_MS = 8000;
+let appUpdateCheckTimer = null;
+
 function initAppUpdateSection() {
     const send = (command) => {
         try {
             sendUpdateCommand({ command });
-            // The command leaving is what proves a check happened. Keying this off the
-            // 'checking' frame instead would strand the "Up to date" pill forever
-            // whenever the server goes straight to a terminal phase.
-            if (command === 'check') settingsCache.appUpdateChecked = true;
+            return true;
         } catch (error) {
             ui.showToast(error.message, 5000, 'error');
+            return false;
         }
     };
-    window.checkAppUpdate = () => send('check');
+    window.checkAppUpdate = () => {
+        // A command that never left is not a check, so don't wait on an answer to it.
+        if (!send('check')) return;
+        // decaid does not always answer. On macOS, UpdateCheckService.checkForUpdate()
+        // returns at its `if (_isMacOS)` guard -- before any _emit -- because Sparkle
+        // owns app updates there, so the command produces no frame at all and the
+        // panel would sit on whatever it last showed. Say so rather than leave a dead
+        // button. Cleared by the first frame in, below.
+        clearTimeout(appUpdateCheckTimer);
+        appUpdateCheckTimer = setTimeout(() => {
+            appUpdateCheckTimer = null;
+            ui.showToast(getTranslation('Update check got no response'), 5000, 'warning');
+        }, APP_UPDATE_CHECK_TIMEOUT_MS);
+    };
     window.installAppUpdate = () => send('install');
 
     connectUpdateWebSocket((data) => {
         // Command-level errors arrive as a direct {error[, url]} reply.
         if (data && data.error && !data.phase) {
+            clearTimeout(appUpdateCheckTimer);
+            appUpdateCheckTimer = null;
             ui.showToast(data.url ? `${data.error} — ${data.url}` : data.error, 5000, 'error');
             return;
+        }
+        // Only decaid saying 'checking' proves a check actually ran: that frame is
+        // emitted at the top of checkForUpdate(), on every path that gets past the
+        // macOS guard. Setting this when the command *left* instead was the bug --
+        // on macOS nothing is emitted, yet the panel claimed "Up to date", hid its
+        // own Check button and reported a stale version as current.
+        if (data?.phase === 'checking') settingsCache.appUpdateChecked = true;
+        if (data?.phase) {
+            clearTimeout(appUpdateCheckTimer);
+            appUpdateCheckTimer = null;
         }
         settingsCache.appUpdateState = data;
         const section = document.getElementById('app-update-section');
