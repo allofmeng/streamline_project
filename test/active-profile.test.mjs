@@ -32,3 +32,29 @@ test('unknown / empty titles resolve to nothing rather than a wrong profile', ()
         assert.equal(resolveProfileKeyByTitle(profiles, bad), null);
     }
 });
+
+// ── The profile selector must not preview the wrong profile ─────────────────
+//
+// findActiveProfileKey() only answers once the main page has bound the active
+// profile, and that runs off loadInitialData, which waits on the DE1
+// connecting. Tapping the profile name inside that window left the selector on
+// its first row: the preview graph drew a profile the machine wasn't running,
+// and CONFIRM would have sent it. The page now falls back to the workflow's own
+// title. The source is checked rather than imported because profile_selector.js
+// needs browser globals, as in plugin-list.test.mjs.
+
+test('the selector re-resolves a fallback selection from the workflow', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(new URL('../src/modules/profile_selector.js', import.meta.url), 'utf8');
+
+    // The fallback (first row) is what marks the selection as untrustworthy.
+    assert.match(source, /selectionIsFallback = !initialItem;/);
+
+    const correction = source.match(/if \(selectionIsFallback\) \{[\s\S]*?\n    \}/);
+    assert.ok(correction, 'no workflow correction after the profiles land');
+    assert.match(correction[0], /await getWorkflow\(\)/);
+    assert.match(correction[0], /resolveProfileKeyByTitle\(availableProfiles, workflow\?\.profile\?\.title/);
+    // Re-selection goes through renderProfiles so the row highlight, the notes
+    // and plotProfile() all move together.
+    assert.match(correction[0], /selectedProfileKey = null;\s*\n\s*renderProfiles\(\);/);
+});

@@ -1,4 +1,5 @@
 import { init as initProfileManager, unhideProfile,availableProfiles, assignProfile, setActiveProfile, getActiveProfileId, translateProfileTitle, deleteOrHideProfile, loadAssignments, handleProfileUpload , verifyProfileChange, renameProfile, applyWorkflowToMainPageUI, withSavedBrewTemp } from './profileManager.js';
+import { resolveProfileKeyByTitle } from './active-profile.js';
 import { openDB } from './idb.js';
 import { logger } from './logger.js';
 import { initResizablePanels, showToast, initFullscreenHandler, updateProfileName, setupPressAndHold } from './ui.js';
@@ -11,6 +12,9 @@ import { openContextMenu, closeContextMenu } from './context-menu.js';
 // Visualizer credentials storage
 let cachedVisualizerCredentials = null;
 const initializedProfileRoots = new WeakSet();
+// True when the pre-selected profile is just "the first row" rather than the
+// profile the machine actually has loaded -- see initializeProfileSelector.
+let selectionIsFallback = false;
 let profilesUpdatedListenerInstalled = false;
 
 function handleProfilesUpdated() {
@@ -813,6 +817,7 @@ function renderProfiles() {
                 const activeKey = findActiveProfileKey();
                 if (activeKey) initialItem = container.querySelector(`[data-profile-key="${CSS.escape(activeKey)}"]`);
             }
+            selectionIsFallback = !initialItem;
             if (!initialItem) initialItem = container.querySelector('[data-profile-key]');
             if (initialItem) {
                 initialItem.classList.add('bg-[#385a92]', 'text-white', 'rounded-[8px]');
@@ -1356,6 +1361,7 @@ export async function initializeProfileSelector() {
 
     // Reset the selected profile key to ensure first profile gets selected on page load
     selectedProfileKey = null;
+    selectionIsFallback = false;
 
     translatePage();
     console.log('initializeProfileSelector: i18n translated');
@@ -1404,6 +1410,26 @@ export async function initializeProfileSelector() {
 
     console.log('initializeProfileSelector: Rendering profiles...');
     renderProfiles();
+
+    // findActiveProfileKey only answers once the main page has bound the active
+    // profile, and that runs off loadInitialData, which waits on the DE1
+    // connecting. Tap the profile name inside that window and the list falls
+    // back to its first row: the preview graph draws a profile the machine
+    // isn't running, and CONFIRM would send it. The workflow knows what is
+    // loaded, so ask it and redo the selection through the normal path.
+    if (selectionIsFallback) {
+        try {
+            const workflow = await getWorkflow();
+            const key = resolveProfileKeyByTitle(availableProfiles, workflow?.profile?.title, translateProfileTitle);
+            if (key && key !== selectedProfileKey) {
+                setActiveProfile(key);
+                selectedProfileKey = null;
+                renderProfiles();
+            }
+        } catch (e) {
+            logger.warn('Could not resolve the loaded profile from the workflow:', e.message);
+        }
+    }
 
     // Clear cached credentials so we always get fresh data
     cachedVisualizerCredentials = null;
