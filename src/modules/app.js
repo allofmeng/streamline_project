@@ -27,6 +27,7 @@ import { initEcoSteam, noteEcoSteamActivity } from './eco-steam.js';
 import { loadStyle } from './vendor-loader.js';
 import { loadECharts } from './echarts-loader.js';
 import { initHelpLauncher } from './help-launcher.js';
+import { isVisualizerEnabled, isAutoUploadEnabled } from './visualizer.js';
 
 window.app = { api, ui, chart };
 
@@ -483,11 +484,11 @@ function isHeatingState(state, substate) {
 }
 
 async function pollForUploadConfirmation(shotId, timeout = 30000) {
-    // Check if visualizer is enabled before attempting upload
-    const isVisualizerEnabled = localStorage.getItem('visualizerEnabled') === 'true';
-    
-    if (!isVisualizerEnabled) {
-        logger.info('Visualizer is disabled. Skipping upload confirmation for shot ID:', shotId);
+    // Only wait on a confirmation the plugin is actually going to produce: with
+    // auto-upload off, nothing uploads by itself and the poll would end in a
+    // "Upload to Visualizer Failed." toast after every shot.
+    if (!isAutoUploadEnabled()) {
+        logger.info('Visualizer auto-upload is off. Skipping upload confirmation for shot ID:', shotId);
         return Promise.resolve(false); // Return resolved promise with false to indicate no upload happened
     }
     
@@ -1808,10 +1809,7 @@ async function initializeDe1Connection() {
 }
 
 async function initVisualizer() {
-    // Check if visualizer is enabled before initializing
-    const isVisualizerEnabled = localStorage.getItem('visualizerEnabled') === 'true';
-    
-    if (!isVisualizerEnabled) {
+    if (!isVisualizerEnabled()) {
         logger.info('Visualizer is disabled. Skipping initialization.');
         return;
     }

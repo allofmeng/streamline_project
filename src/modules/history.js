@@ -9,6 +9,7 @@ import { translateProfileTitle } from './profileManager.js';
 import { generateShotSummary } from './shotSummary.js';
 import { openContextMenu } from './context-menu.js';
 import { showToast, setupPressAndHold } from './ui.js';
+import { isVisualizerEnabled, uploadShotToVisualizer } from './visualizer.js';
 
 const DEREK_URL = 'https://derek.decentespresso.com/';
 
@@ -314,11 +315,38 @@ function setupHistoryLongPress() {
     setupPressAndHold(panel, () => {}, async () => {
         const md = await buildCurrentShotSummary();
         if (md == null) return;
-        openContextMenu(panel, [
+        const items = [
             { label: getTranslation('Discuss with Derek'), href: DEREK_URL, onSelect: () => copyMd(md) },
             { label: getTranslation('Copy Shot Summary'), onSelect: () => copyMd(md) },
-        ]);
+        ];
+        // Manual upload: the one on screen, whichever the user has paged to.
+        // Offered whenever Visualizer is switched on — with auto-upload off this
+        // is the only way up, and with it on it re-sends a shot that was missed.
+        if (isVisualizerEnabled()) {
+            items.push({
+                label: getTranslation('Upload to Visualizer'),
+                onSelect: () => uploadCurrentShotToVisualizer(),
+            });
+        }
+        openContextMenu(panel, items);
     });
+}
+
+// Upload the shot on screen. The plugin fetches it from Decaid by id, so the
+// measurements do not have to be loaded here.
+async function uploadCurrentShotToVisualizer() {
+    const shot = shots[currentShotIndex];
+    if (!shot?.id) { showToast(getTranslation('No shot selected'), 2400, 'warning'); return; }
+    showToast(getTranslation('Uploading to Visualizer…'), 2000, 'info');
+    try {
+        await uploadShotToVisualizer(shot.id);
+        showToast(getTranslation('Shot uploaded to Visualizer'), 2400, 'success');
+    } catch (error) {
+        logger.warn('Manual Visualizer upload failed:', error);
+        // The plugin's own reason is the useful part: too short, bad credentials,
+        // offline. It arrives inside the api.js wrapper's message.
+        showToast(`${getTranslation('Upload to Visualizer failed')}: ${error.message}`, 4000, 'error');
+    }
 }
 
 export async function initHistory() {

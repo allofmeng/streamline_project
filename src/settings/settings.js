@@ -5600,9 +5600,16 @@ export function renderExtensionsSettings() {
                                         <label for="visualizer-password" class="text-[var(--text-primary)] text-[24px]" data-i18n-key="Password:">Password:</label>
                                         <input type="password" id="visualizer-password" class="w-full max-w-[500px] p-3 rounded-lg border border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--text-primary)] text-[24px] focus:outline-none focus:ring-2 focus:ring-[var(--mimoja-blue)]" placeholder="Enter your Visualizer password">
                                     </div>
-                                    <div class="flex items-center gap-4">
-                                        <label for="visualizer-auto-upload" class="text-[var(--text-primary)] text-[24px]" data-i18n-key="Auto-upload shots to Visualizer">Auto-upload shots to Visualizer</label>
-                                        <input type="checkbox" id="visualizer-auto-upload" class="w-8 h-8">
+                                    <div class="flex items-center justify-between gap-4 max-w-[500px]">
+                                        <div class="flex flex-col">
+                                            <label for="visualizer-auto-upload" class="text-[var(--text-primary)] text-[24px]" data-i18n-key="Auto-upload shots to Visualizer">Auto-upload shots to Visualizer</label>
+                                            <p class="text-[var(--text-primary)] text-[20px]" data-i18n-key="Off: long-press the shot history panel to upload a shot yourself.">Off: long-press the shot history panel to upload a shot yourself.</p>
+                                        </div>
+                                        <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
+                                            <input type="checkbox" id="visualizer-auto-upload" class="sr-only peer">
+                                            <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
+                                            <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
+                                        </label>
                                     </div>
                                     <div class="flex items-center gap-4">
                                         <label for="visualizer-min-duration" class="text-[var(--text-primary)] text-[24px]" data-i18n-key="Minimum Shot Duration (seconds):">Minimum Shot Duration (seconds):</label>
@@ -6061,33 +6068,22 @@ function setupVisualizerEventListeners() {
     // Load existing settings when the form loads
     loadVisualizerSettings();
 
-    // Initially hide the form if auto-upload is disabled
-    if (autoUploadCheckbox && formContainer) {
-        if (!autoUploadCheckbox.checked) {
-            formContainer.style.display = 'none';
-        }
+    // Initially hide the form if the Visualizer integration is off
+    if (enabledToggle && formContainer && !enabledToggle.checked) {
+        formContainer.style.display = 'none';
     }
 
-    // Sync the enabled toggle with auto-upload checkbox
-    if (enabledToggle && autoUploadCheckbox) {
-        enabledToggle.checked = autoUploadCheckbox.checked;
-        
+    // Two independent switches over the plugin's one AutoUpload flag: the master
+    // toggle is the integration itself (credentials form, manual upload from the
+    // shot history), the inner one is whether a finished shot goes up by itself.
+    // visualizer.js writes the AND of the two to the plugin.
+    if (enabledToggle) {
         enabledToggle.addEventListener('change', async function() {
             const isEnabled = this.checked;
-            
-            // Sync with auto-upload checkbox
-            autoUploadCheckbox.checked = isEnabled;
-            
-            // Toggle form visibility
-            formContainer.style.display = isEnabled ? 'block' : 'none';
-            
-            // Save the AutoUpload state to plugin
+            if (formContainer) formContainer.style.display = isEnabled ? 'block' : 'none';
             try {
-                const { setPluginSettings } = await import('../modules/api.js');
-                const pluginId = 'visualizer.reaplugin';
-                
-                await setPluginSettings(pluginId, { AutoUpload: isEnabled });
-                localStorage.setItem('visualizerAutoUpload', isEnabled.toString());
+                const { setVisualizerEnabled } = await import('../modules/visualizer.js');
+                await setVisualizerEnabled(isEnabled);
                 ui.showToast(`${getTranslation('Visualizer')} ${isEnabled ? getTranslation('Enabled') : getTranslation('Disabled')}`, 1500, 'success');
             } catch (error) {
                 console.error('Failed to save Visualizer state:', error);
@@ -6096,30 +6092,22 @@ function setupVisualizerEventListeners() {
         });
     }
 
-    // Auto-upload checkbox also controls form visibility and syncs with toggle
     if (autoUploadCheckbox) {
         autoUploadCheckbox.addEventListener('change', async function() {
             const isAutoUpload = this.checked;
-            
-            // Sync with enabled toggle
-            if (enabledToggle) {
-                enabledToggle.checked = isAutoUpload;
-            }
-            
-            // Toggle form visibility
-            if (formContainer) {
-                formContainer.style.display = isAutoUpload ? 'block' : 'none';
-            }
-            
-            // Save the AutoUpload state to plugin
             try {
-                const { setPluginSettings } = await import('../modules/api.js');
-                const pluginId = 'visualizer.reaplugin';
-                
-                await setPluginSettings(pluginId, { AutoUpload: isAutoUpload });
-                localStorage.setItem('visualizerAutoUpload', isAutoUpload.toString());
+                const { setAutoUpload } = await import('../modules/visualizer.js');
+                await setAutoUpload(isAutoUpload);
+                ui.showToast(
+                    isAutoUpload
+                        ? getTranslation('Shots upload automatically')
+                        : getTranslation('Upload shots from the history long-press menu'),
+                    2000,
+                    'success'
+                );
             } catch (error) {
                 console.error('Failed to save Visualizer auto-upload state:', error);
+                ui.showToast('Failed to update auto-upload', 2000, 'error');
             }
         });
     }
@@ -6170,12 +6158,15 @@ function setupVisualizerEventListeners() {
 
         // 2. Prepare and save plugin settings - use correct field names expected by visualizer plugin manifest
         const { setPluginSettings } = await import('../modules/api.js');
+        const { isAutoUploadEnabled } = await import('../modules/visualizer.js');
         const pluginId = 'visualizer.reaplugin';
 
         const settingsPayload = {
             Username: username,
             Password: passwordPayload,
-            AutoUpload: autoUpload,
+            // Both switches gate it — saving credentials must not start uploads
+            // while the integration itself is switched off.
+            AutoUpload: isAutoUploadEnabled(),
             LengthThreshold: minDuration
         };
 
@@ -6226,22 +6217,31 @@ async function loadVisualizerSettings() {
             ? 'Password saved — leave empty to keep'
             : 'Enter your Visualizer password';
 
-        const autoUploadValue = typeof savedSettings.AutoUpload !== 'undefined' ? savedSettings.AutoUpload : true;
-        autoUploadCheckbox.checked = !!autoUploadValue;
-
-        // Sync toggle with auto-upload
-        if (enabledToggle) {
-            enabledToggle.checked = !!autoUploadValue;
+        // The master switch used to be the plugin's AutoUpload flag and nothing
+        // else, so it left no key of its own behind: for an existing install,
+        // "configured" (a username is stored) means the integration is on.
+        if (localStorage.getItem('visualizerEnabled') === null) {
+            localStorage.setItem('visualizerEnabled', String(!!savedSettings?.Username));
         }
+        const isEnabled = localStorage.getItem('visualizerEnabled') === 'true';
+
+        // Auto-upload keeps the user's own choice even while the master switch is
+        // off (the plugin flag is then false, and says nothing about the choice).
+        const storedAutoUpload = localStorage.getItem('visualizerAutoUpload');
+        const autoUploadValue = storedAutoUpload !== null
+            ? storedAutoUpload === 'true'
+            : (typeof savedSettings.AutoUpload !== 'undefined' ? !!savedSettings.AutoUpload : true);
+        autoUploadCheckbox.checked = autoUploadValue;
+        if (enabledToggle) enabledToggle.checked = isEnabled;
 
         // Visualizer plugin uses 'Length' not 'LengthThreshold'
         if (typeof savedSettings.Length !== 'undefined') {
             minDurationInput.value = parseInt(savedSettings.Length, 10) || 5;
         }
 
-        // Set form visibility based on the autoUpload state
+        // Set form visibility based on the master switch
         if (formContainer) {
-            formContainer.style.display = autoUploadValue ? 'block' : 'none';
+            formContainer.style.display = isEnabled ? 'block' : 'none';
         }
     } catch (error) {
         console.error('Failed to load Visualizer settings:', error);
