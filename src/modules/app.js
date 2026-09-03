@@ -39,6 +39,12 @@ window.resetDataTimeout = resetDataTimeout;
 window.onScaleDisconnect = onScaleDisconnect;
 window.onScaleReconnect = onScaleReconnect;
 
+// Array.prototype.at() is missing on the older Android WebViews some DE1
+// tablets ship with, so read the last element by index instead.
+function lastOf(arr) {
+    return arr && arr.length ? arr[arr.length - 1] : undefined;
+}
+
 function initClockTicker() {
     const el = document.getElementById('data-clock');
     if (!el) return;
@@ -998,8 +1004,8 @@ let seqStopToastShown = false; // a stop/abort/terminal toast fired for this sho
 function fallbackStopToast() {
     const finishedShot = shotData.getCurrentShot();
     const totalS = shotData.getTotalTime();
-    const finalWeight = finishedShot.finalWeight ?? finishedShot.weights?.at(-1) ?? latestScaleWeight;
-    const finalVolume = finishedShot.volumes?.at(-1) ?? 0;
+    const finalWeight = finishedShot.finalWeight ?? lastOf(finishedShot.weights) ?? latestScaleWeight;
+    const finalVolume = lastOf(finishedShot.volumes) ?? 0;
     const reason = classifyStopReason({
         totalS, finalWeight, finalVolume, isScaleConnected, ...getActiveShotTargets(),
     });
@@ -1097,7 +1103,7 @@ function shotStateStopMessage(decision, machineHasAutonomousSAW) {
     const { targetWeight, profileSeconds } = getActiveShotTargets();
     const totalS = shotData.getTotalTime();
     const weight = parseFloat(decision.data?.projectedWeight ?? latestScaleWeight);
-    const volume = shotData.getCurrentShot()?.volumes?.at(-1) ?? 0;
+    const volume = lastOf(shotData.getCurrentShot()?.volumes) ?? 0;
 
     // Normalise the one reason whose meaning is hardware-dependent BEFORE
     // rendering, so the same shot reads the same on a Bengle and a plain DE1.

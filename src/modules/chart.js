@@ -410,7 +410,7 @@ function applyFinalXRange(layout) {
     for (const traceName in chartData) {
         if (traceName === 'targetPressure' || traceName === 'targetFlow' || traceName === 'targetTemperature') continue;
         const trace = chartData[traceName];
-        const lastX = trace.x.at(-1);
+        const lastX = trace.x[trace.x.length - 1];
         if (lastX > dataMax) dataMax = lastX;
     }
     if (dataMax === 0) {
@@ -614,7 +614,7 @@ function rebuildExpandedFromChartData(mixSeries = null, mixTargetSeries = null) 
     resetExpandedData();
     for (const value of chartData.groupTemperature.y) includeExpandedTemp(value * 10);
     if (chartData.groupTemperature.y.length) {
-        expandedLastGroupTemp = chartData.groupTemperature.y.at(-1) * 10;
+        expandedLastGroupTemp = chartData.groupTemperature.y[chartData.groupTemperature.y.length - 1] * 10;
     }
     for (const value of chartData.targetTemperature.y) includeExpandedTargetTemp(value * 10);
     if (mixSeries) {
