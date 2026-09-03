@@ -42,6 +42,7 @@ Vanilla JS/HTML/CSS SPA — no framework, no JS bundler. ES modules via native b
 - `echarts-loader.js` — lazy `import()` of the pre-built `echarts-streamline.min.js` bundle (see Chart Build above); caches the loaded module so later calls are a no-op.
 - `history.js` — shot history backed by IndexedDB via `idb.js`, paged through `history-pager.js` (summaries first, full shot fetched on demand — see `getLatestShotSummaries`/`getLatestCachedShotSummaries` in `idb.js`).
 - `profileManager.js` — profile CRUD via the workflow API.
+- `profile-overrides.js` — per-profile tile edits (dose / yield / grind / brew temp) in Decaid's KV store (`streamlineProfileOverrides`, keyed by profile id). `loadAvailableProfiles()` folds them onto each record's `metadata`, so the existing `record.metadata.targetDoseWeight` reads keep working. They used to live only in that server-side metadata, which Decaid replaces when it re-seeds a bundled profile.
 - `router.js` — SPA page loader; swaps in `profile_selector.html` and `settings.html` as sub-pages. Settings routes through `settings-shell.js`, not `settings.js`, directly (see Settings Module Roles below).
 - `reconnecting-websocket.js` — loaded as a classic script (not a module); auto-reconnect wrapper.
 

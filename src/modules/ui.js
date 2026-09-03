@@ -171,6 +171,9 @@ export function updateDoseAndDrinkOutValue(newDoseIn, newDrinkOut) {
 
     updateWorkflow(payload).then(() => {
         logger.debug(`Dose In and Drink Out values updated via workflow: ${newDoseIn}g : ${newDrinkOut}g`);
+        // Same per-profile save the +/- buttons and the numpad do — without it a
+        // ratio preset was the one way to set dose/yield that did not stick.
+        window.app?.saveContextToActiveProfile?.({ targetDoseWeight: newDoseIn, targetYield: newDrinkOut });
     }).catch(error => {
         logger.error(`Failed to update dose in and drink out values via workflow:`, error);
     });
