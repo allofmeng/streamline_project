@@ -48,10 +48,10 @@ const SETTINGS_NUMPAD_CONFIGS = {
     hotWaterVolumeInput:     { title: 'HOT WATER VOLUME',    unit: 'ml',   min: 10,  max: 500,  fieldType: 'settings-hw-volume' },
     hotWaterDurationInput:   { title: 'HOT WATER DURATION',  unit: 'sec',  min: 5,   max: 120,  fieldType: 'settings-hw-duration' },
     hotWaterFlowInput:       { title: 'HOT WATER FLOW',      unit: 'ml/s', min: 0.1, max: 8,    fieldType: 'settings-hw-flow' },
-    heaterPh1FlowInput:      { title: 'HEATER PH1 FLOW',     unit: 'ml/s', min: 0,   max: 10,   fieldType: 'settings-heater-ph1' },
-    heaterPh2FlowInput:      { title: 'HEATER PH2 FLOW',     unit: 'ml/s', min: 0,   max: 10,   fieldType: 'settings-heater-ph2' },
-    heaterIdleTempInput:     { title: 'HEATER IDLE TEMP',    unit: '°C',   min: 0,   max: 95,   fieldType: 'settings-heater-idle-temp' },
-    heaterPh2TimeoutInput:   { title: 'HEATER PH2 TIMEOUT',  unit: 'sec',  min: 0,   max: 60,   fieldType: 'settings-heater-ph2-timeout' },
+    heaterPh1FlowInput:      { title: 'HEATER WARMUP FLOW',  unit: 'ml/s', min: 0,   max: 10,   fieldType: 'settings-heater-ph1' },
+    heaterPh2FlowInput:      { title: 'HEATER TEST FLOW',    unit: 'ml/s', min: 0,   max: 10,   fieldType: 'settings-heater-ph2' },
+    heaterIdleTempInput:     { title: 'IDLE TEMPERATURE',    unit: '°C',   min: 0,   max: 99,   fieldType: 'settings-heater-idle-temp' },
+    heaterPh2TimeoutInput:   { title: 'HEATER TEST TIMEOUT', unit: 'sec',  min: 0,   max: 60,   fieldType: 'settings-heater-ph2-timeout' },
     weightFlowMultiplierInput: { title: 'WEIGHT FLOW MULT',  unit: '',     min: 0,              fieldType: 'settings-weight-mult' },
     volumeFlowMultiplierInput: { title: 'VOLUME FLOW MULT',  unit: '',     min: 0,              fieldType: 'settings-volume-mult' },
     hotWaterFlowMultiplierInput: { title: 'HW FLOW MULT',    unit: 's',    min: 0,              fieldType: 'settings-hw-flow-mult' },
@@ -506,9 +506,18 @@ export function updateDe1Setting(key, value) {
 
 // Update DE1 advanced settings
 export function updateDe1AdvancedSetting(key, value) {
+    updateDe1AdvancedSettings({ [key]: value });
+}
+
+// Stage several DE1 advanced settings at once, repainting the page a single
+// time at the end -- a preset that writes four fields should not rebuild the
+// content area four times.
+export function updateDe1AdvancedSettings(values) {
     if (!settingsCache.de1Advanced) settingsCache.de1Advanced = {};
-    settingsCache.de1Advanced[key] = value;
-    pendingChanges.de1Advanced[key] = value;
+    for (const [key, value] of Object.entries(values)) {
+        settingsCache.de1Advanced[key] = value;
+        pendingChanges.de1Advanced[key] = value;
+    }
     if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
 }
 
@@ -1397,7 +1406,7 @@ export function renderDe1AdvancedSettingsForm(settings) {
         return `
             <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
                 <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                    <p class="leading-[1.2]" data-i18n-key="Machine Advanced Settings">Machine Advanced Settings</p>
+                    <p class="leading-[1.2]" data-i18n-key="Before espresso starts">Before espresso starts</p>
                 </div>
                 <div class="text-red-500 p-4 text-[24px]" data-i18n-key="Failed to load DE1 advanced settings">Failed to load DE1 advanced settings</div>
             </div>
@@ -1405,9 +1414,9 @@ export function renderDe1AdvancedSettingsForm(settings) {
     }
 
     return `
-        <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
+        <div class="content-stretch flex flex-col gap-[40px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Machine Advanced Settings">Machine Advanced Settings</p>
+                <p class="leading-[1.2]" data-i18n-key="Before espresso starts">Before espresso starts</p>
             </div>
 
             <!-- Divider -->
@@ -1419,85 +1428,11 @@ export function renderDe1AdvancedSettingsForm(settings) {
                 <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
                     <div class="content-stretch flex items-center justify-between relative w-full">
                         <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Heater Phase 1 Flow (ml/s)">Heater Phase 1 Flow (ml/s)</p>
-                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">0 – 10 ml/s</span>
+                            <p class="leading-[1.2]" data-i18n-key="Idle temperature">Idle temperature</p>
+                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">${tempInputValue(0)} – ${tempInputValue(99)} ${tempUnitLabel()}</span>
                         </div>
                         <div class="flex gap-[20px] h-[72px] items-center">
-                            <button aria-label="Decrease heater phase 1 flow" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
-                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh1Flow(-0.1);">
-                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                            <div class="flex items-center justify-center" style="width: 130px;">
-                                <input type="text" inputmode="decimal" id="heaterPh1FlowInput" class="text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border-none w-full"
-                                       value="${settings.heaterPh1Flow !== undefined ? settings.heaterPh1Flow : ''}"
-                                       step="0.1" min="0" max="10"
-                                       onchange="window.updateDe1AdvancedSetting('heaterPh1Flow', parseFloat(this.value))">
-                                <span class="ml-1 text-nowrap text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">ml/s</span>
-                            </div>
-                            <button aria-label="Increase heater phase 1 flow" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
-                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh1Flow(0.1);">
-                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Divider -->
-            <div class="h-0 relative w-full">
-                <hr class="border-t border-[#c9c9c9] w-full" />
-            </div>
-
-            <div class="content-stretch flex flex-col items-start relative w-full">
-                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
-                    <div class="content-stretch flex items-center justify-between relative w-full">
-                        <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Heater Phase 2 Flow (ml/s)">Heater Phase 2 Flow (ml/s)</p>
-                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">0 – 10 ml/s</span>
-                        </div>
-                        <div class="flex gap-[20px] h-[72px] items-center">
-                            <button aria-label="Decrease heater phase 2 flow" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
-                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh2Flow(-0.1);">
-                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                            <div class="flex items-center justify-center" style="width: 130px;">
-                                <input type="text" inputmode="decimal" id="heaterPh2FlowInput" class="text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border-none w-full"
-                                       value="${settings.heaterPh2Flow !== undefined ? settings.heaterPh2Flow : ''}"
-                                       step="0.1" min="0" max="10"
-                                       onchange="window.updateDe1AdvancedSetting('heaterPh2Flow', parseFloat(this.value))">
-                                <span class="ml-1 text-nowrap text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">ml/s</span>
-                            </div>
-                            <button aria-label="Increase heater phase 2 flow" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
-                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh2Flow(0.1);">
-                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Divider -->
-            <div class="h-0 relative w-full">
-                <hr class="border-t border-[#c9c9c9] w-full" />
-            </div>
-
-            <div class="content-stretch flex flex-col items-start relative w-full">
-                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
-                    <div class="content-stretch flex items-center justify-between relative w-full">
-                        <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Heater idle temperature">Heater idle temperature</p>
-                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">${tempInputValue(0)} – ${tempInputValue(95)} ${tempUnitLabel()}</span>
-                        </div>
-                        <div class="flex gap-[20px] h-[72px] items-center">
-                            <button aria-label="Decrease heater idle temperature" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                            <button aria-label="Decrease idle temperature" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
                                     onclick="window.flashPlusMinusButton(this); window.adjustHeaterIdleTemp(-1);">
                                 <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1506,11 +1441,11 @@ export function renderDe1AdvancedSettingsForm(settings) {
                             <div class="flex items-center justify-center" style="width: 130px;">
                                 <input type="text" inputmode="numeric" pattern="[0-9]*" id="heaterIdleTempInput" class="text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border-none w-full"
                                        value="${settings.heaterIdleTemp !== undefined ? tempInputValue(settings.heaterIdleTemp) : ''}"
-                                       step="1" min="${tempInputValue(0)}" max="${tempInputValue(95)}"
+                                       step="1" min="${tempInputValue(0)}" max="${tempInputValue(99)}"
                                        onchange="window.updateDe1AdvancedSetting('heaterIdleTemp', window.tempInputToCelsius(this.value))">
                                 <span class="ml-1 text-nowrap text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">${tempUnitLabel()}</span>
                             </div>
-                            <button aria-label="Increase heater idle temperature" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                            <button aria-label="Increase idle temperature" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
                                     onclick="window.flashPlusMinusButton(this); window.adjustHeaterIdleTemp(1);">
                                 <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1530,11 +1465,85 @@ export function renderDe1AdvancedSettingsForm(settings) {
                 <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
                     <div class="content-stretch flex items-center justify-between relative w-full">
                         <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Heater Phase 2 Timeout (sec)">Heater Phase 2 Timeout (sec)</p>
+                            <p class="leading-[1.2]" data-i18n-key="Heater warmup flow rate">Heater warmup flow rate</p>
+                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">0 – 10 ml/s</span>
+                        </div>
+                        <div class="flex gap-[20px] h-[72px] items-center">
+                            <button aria-label="Decrease heater warmup flow rate" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh1Flow(-0.1);">
+                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <div class="flex items-center justify-center" style="width: 130px;">
+                                <input type="text" inputmode="decimal" id="heaterPh1FlowInput" class="text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border-none w-full"
+                                       value="${settings.heaterPh1Flow !== undefined ? settings.heaterPh1Flow : ''}"
+                                       step="0.1" min="0" max="10"
+                                       onchange="window.updateDe1AdvancedSetting('heaterPh1Flow', parseFloat(this.value))">
+                                <span class="ml-1 text-nowrap text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">ml/s</span>
+                            </div>
+                            <button aria-label="Increase heater warmup flow rate" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh1Flow(0.1);">
+                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="h-0 relative w-full">
+                <hr class="border-t border-[#c9c9c9] w-full" />
+            </div>
+
+            <div class="content-stretch flex flex-col items-start relative w-full">
+                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Heater test flow rate">Heater test flow rate</p>
+                            <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">0 – 10 ml/s</span>
+                        </div>
+                        <div class="flex gap-[20px] h-[72px] items-center">
+                            <button aria-label="Decrease heater test flow rate" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh2Flow(-0.1);">
+                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <div class="flex items-center justify-center" style="width: 130px;">
+                                <input type="text" inputmode="decimal" id="heaterPh2FlowInput" class="text-center text-[var(--text-primary)] text-[24px] font-bold bg-transparent border-none w-full"
+                                       value="${settings.heaterPh2Flow !== undefined ? settings.heaterPh2Flow : ''}"
+                                       step="0.1" min="0" max="10"
+                                       onchange="window.updateDe1AdvancedSetting('heaterPh2Flow', parseFloat(this.value))">
+                                <span class="ml-1 text-nowrap text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">ml/s</span>
+                            </div>
+                            <button aria-label="Increase heater test flow rate" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                                    onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh2Flow(0.1);">
+                                <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="h-0 relative w-full">
+                <hr class="border-t border-[#c9c9c9] w-full" />
+            </div>
+
+            <div class="content-stretch flex flex-col items-start relative w-full">
+                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <div class="flex items-baseline gap-[14px] font-['Inter:Bold',sans-serif] font-bold leading-[0] not-italic relative text-[var(--text-primary)] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Heater test time-out">Heater test time-out</p>
                             <span class="text-[20px] font-normal opacity-60 text-[var(--text-primary)] whitespace-nowrap">0 – 60 sec</span>
                         </div>
                         <div class="flex gap-[20px] h-[72px] items-center">
-                            <button aria-label="Decrease heater phase 2 timeout" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                            <button aria-label="Decrease heater test time-out" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
                                     onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh2Timeout(-1);">
                                 <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M10.416 25H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1547,7 +1556,7 @@ export function renderDe1AdvancedSettingsForm(settings) {
                                        onchange="window.updateDe1AdvancedSetting('heaterPh2Timeout', parseInt(this.value, 10))">
                                 <span class="ml-1 text-nowrap text-[var(--text-primary)] text-[24px] font-bold" aria-hidden="true">sec</span>
                             </div>
-                            <button aria-label="Increase heater phase 2 timeout" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
+                            <button aria-label="Increase heater test time-out" class="w-[69px] h-[69px] bg-[var(--button-grey)] rounded-[10px] flex items-center justify-center"
                                     onclick="window.flashPlusMinusButton(this); window.adjustHeaterPh2Timeout(1);">
                                 <svg aria-hidden="true" width="36" height="36" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M24.9993 10.4165V39.5832M10.416 24.9998H39.5827" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1555,6 +1564,28 @@ export function renderDe1AdvancedSettingsForm(settings) {
                             </button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="h-0 relative w-full">
+                <hr class="border-t border-[#c9c9c9] w-full" />
+            </div>
+
+            <div class="content-stretch flex flex-col items-start relative w-full">
+                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Fast Start Defaults">Fast Start Defaults</p>
+                        </div>
+                        <button class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold"
+                                onclick="window.applyFastStartDefaults()" data-i18n-key="Apply">
+                            Apply
+                        </button>
+                    </div>
+                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Sets the four settings above to the cafe preset, for the shortest wait before the first espresso.">
+                        Sets the four settings above to the cafe preset, for the shortest wait before the first espresso.
+                    </p>
                 </div>
             </div>
         </div>
@@ -4447,8 +4478,8 @@ export function renderCalibDefaultLoadSettings() {
                             Reset
                         </button>
                     </div>
-                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Restores fan threshold, heater idle temp, heater phase flows, phase 2 timeout, refill kit mode, flow multiplier, and steam purge to factory defaults.">
-                        Restores fan threshold, heater idle temp, heater phase flows, phase 2 timeout, refill kit mode, flow multiplier, and steam purge to factory defaults.
+                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Restores fan threshold, idle temperature, heater warmup and test flow rates, heater test time-out, refill kit mode, flow multiplier, and steam purge to factory defaults.">
+                        Restores fan threshold, idle temperature, heater warmup and test flow rates, heater test time-out, refill kit mode, flow multiplier, and steam purge to factory defaults.
                     </p>
                 </div>
             </div>
@@ -7046,7 +7077,7 @@ function getCategoryTitle(category) {
         case 'ledstrip': return 'Lighting';
         case 'machineinfo': return 'Machine Info';
         case 'calib_sensors': return 'Sensor Calibration';
-        case 'de1advanced': return 'Machine Advanced Settings';
+        case 'de1advanced': return 'Before espresso starts';
         case 'homeassistant': return 'Home Assistant';
         default: return 'Settings';
     }
@@ -7189,6 +7220,18 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
     window.exitToDecentDashboard = exitToDecentDashboard;
     window.updateDe1Setting = updateDe1Setting;
     window.updateDe1AdvancedSetting = updateDe1AdvancedSetting;
+    // The "Defaults for cafe" preset from insight-js (src/views/settings.js):
+    // idle heater near boiling and the warm-up test cut short, trading standby
+    // power for the shortest wait before the first espresso.
+    window.applyFastStartDefaults = function() {
+        updateDe1AdvancedSettings({
+            heaterIdleTemp: 99,
+            heaterPh1Flow: 2,
+            heaterPh2Flow: 4,
+            heaterPh2Timeout: 1,
+        });
+        ui.showToast(getTranslation('Fast Start Defaults'), 2000, 'success');
+    };
     window.setScreensaverEnabled = function(enabled) {
         localStorage.setItem('screensaverEnabled', enabled ? 'true' : 'false');
         // If turning OFF while currently shown, hide immediately — the gate in
@@ -8533,7 +8576,7 @@ export async function initializeSettings({ initialMainCategory = null, initialCa
         const input = document.getElementById('heaterIdleTempInput');
         if (input) {
             let newValue = parseInt(input.value, 10) + change;
-            newValue = Math.max(tempInputValue(0), Math.min(tempInputValue(95), newValue));
+            newValue = Math.max(tempInputValue(0), Math.min(tempInputValue(99), newValue));
             input.value = newValue;
             input.dispatchEvent(new Event('change'));
         }
