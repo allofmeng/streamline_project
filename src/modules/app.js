@@ -817,9 +817,23 @@ function handleData(data) {
     } else {
         if (shotStartTime) {
             shotEndedAt = Date.now();
-            chart.finalizeLiveChart();
+            // Clear before finalizing, and guard the finalize itself. A throw
+            // in there used to unwind past the reset and strand shotStartTime:
+            // every later idle frame retried the same failing finalize, and --
+            // because the next shot's reset hangs off `if (!shotStartTime)` --
+            // that shot appended to the previous shot's arrays instead of
+            // starting clean. Issue #73, where a 3s flush reported 72995s
+            // because it was still measuring from a shot 20 hours earlier.
+            // The catch also keeps the blame local: uncaught, this surfaced in
+            // the WebView console as "Error parsing WebSocket message", which
+            // points at the JSON parser rather than the chart.
+            shotStartTime = null;
+            try {
+                chart.finalizeLiveChart();
+            } catch (error) {
+                logger.error('finalizeLiveChart failed; shot ended without final labels:', error);
+            }
         }
-        shotStartTime = null;
     }
 }
 
