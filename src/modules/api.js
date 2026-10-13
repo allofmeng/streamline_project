@@ -1,6 +1,7 @@
 import * as ui from './ui.js';
 import { logger ,setDebug} from './logger.js';
 import { createSocketSlot } from './socket-slot.js';
+import { decideResync } from './resync-policy.js';
 import { createScaleSampleBuffer } from './calibrated-steam.js';
 import { clampAutoSteamSettings } from './auto-steam-safety.js';
 import { AUTO_STEAM_SESSION_KEY, readAutoSteamSession } from './auto-steam-session.js';
@@ -1569,68 +1570,84 @@ export async function readSharedValue(key) {
     }
 }
 
-// Resync for a main-page control: make Rea's workflow record agree with what
-// the user last set.
+// Reconcile a main-page control with Rea's workflow record. See resync-policy.js
+// for the rules; in short:
+//   - our own push that has not landed (pending) is retried;
+//   - a field the workflow does not have is filled from the remembered value;
+//   - anything else that differs was written by something other than Streamline
+//     (another skin, a plugin, a script) and is ADOPTED as the new remembered
+//     value instead of being pushed back over;
+//   - a stale echo of our own recent push is ignored (decaid gh-678).
 //
 // NOT about repairing the DE1 -- decaid re-applies the whole workflow (steam,
 // hot water, rinse) to the machine on every connect, so a BLE reconnect does
 // not leave the device holding stale targets (de1_controller.defaults.dart,
-// _setDe1DefaultsFor). What DOES drift is the workflow record itself: a value
-// set from another device, a push that never landed (PUT /workflow can 503,
-// see setTargetSteamDuration), or a workflow replaced wholesale. The KV store
-// is the record of intent that survives all three.
+// _setDe1DefaultsFor). The KV store (not per-device IndexedDB) is the shared
+// record so a phone and a tablet agree on the target; IndexedDB is only
+// consulted if the store can't be reached.
 //
-// Re-pushing unconditionally every boot would work but is wasteful and, if the
-// remembered value were the stale one, would clobber a legitimate reading --
-// so push only on actual disagreement. The KV store (not per-device IndexedDB)
-// is the source of truth so a phone and a tablet agree on the target;
-// IndexedDB is only consulted if the store can't be reached.
+// Returns the value pushed (so the caller can repaint its tile), else null.
+// Adopting returns null: the tile already shows the workflow's value.
 export async function resyncIfDrifted(key, fetchedValue, pushFn) {
     if (isAutoSteamActive() && [STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, MILK_STOP_LAST_VALUE_KEY].includes(key)) return null;
     const remembered = await readSharedValue(key);
+    const pending = await readPendingPush(key);
     // Auto can become active while the shared value is being read. Re-check
     // before an old manual target can be pushed over Auto's owned settings.
     if (isAutoSteamActive() && [STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, MILK_STOP_LAST_VALUE_KEY].includes(key)) return null;
-    // No record of the user ever setting this -> whatever the machine holds
-    // stands. Otherwise the remembered value wins, INCLUDING when the workflow
-    // has no value at all (fetchedValue null/undefined): a missing field is not
-    // a reason to drop what the user asked for, it is the strongest reason to
-    // push it. Milk stop keeps its own extra guard -- see
-    // resyncMilkStopIfDrifted, where 0 is a real choice rather than an absence.
-    if (remembered == null) return null;
-    if (remembered === fetchedValue) return null;
-    await pushFn(remembered);
-    // Returns what was pushed so the caller can repaint its tile. Pushing alone
-    // leaves the display on the value the workflow arrived with -- the machine
-    // takes the remembered number and the tile keeps showing the drifted one.
-    // Hot water and steam duration are echoed back by a shot-settings frame and
-    // self-heal; steam flow, the milk stop and the flush duration are in no
-    // websocket payload, so nothing else ever corrects them.
-    return remembered;
+    const decision = decideResync({
+        remembered, observed: fetchedValue, pending, lastPush: lastOwnPush.get(key), now: Date.now(),
+    });
+    if (decision.action === 'adopt') {
+        await persistSharedValue(key, decision.value);
+        return null;
+    }
+    if (decision.action !== 'push') return null;
+    await pushFn(decision.value);
+    return decision.value;
 }
 
-// KV first, machine second, for the same reason as setTargetSteamDuration: the
-// store is the record of intent, and everything else compares against it.
-//
-// Storing after the PUT resolved (and without awaiting the store write) left a
-// window in which the workflow and the machine already held the NEW value while
-// the store still held the OLD one. Hot water is echoed straight back by a
-// shotSettings frame, so resyncDriftedShotSettings runs inside that window,
-// reads the stale store, and treats the user's own change as drift -- pushing
-// the OLD value back over the machine and the workflow. The tile flashed the
-// new number, the echo of the re-pushed old one repainted it, and the setting
-// was gone. Intermittent rather than constant only because RESYNC_COOLDOWN_MS
-// suppresses the check for 30s after it fires.
+// Our own pushes, so resyncIfDrifted can tell them from outside writes.
+//   lastOwnPush: in-memory, per key -- bounds the stale-echo window.
+//   pending marker: per device (IndexedDB), set before the PUT and cleared once
+//   it lands, so a push that 503s still gets retried after a reload.
+const lastOwnPush = new Map();
+const pendingPushKey = (key) => `pending-${key}`;
+
+async function readPendingPush(key) {
+    try {
+        await openDB();
+        return (await getSetting(pendingPushKey(key))) ?? null;
+    } catch (e) {
+        logger.warn(`readPendingPush failed for ${key}:`, e);
+        return null;
+    }
+}
+
+// Remember `value` as the user's choice, then send it. KV first, machine second:
+// PUT /workflow can sit in Rea's request queue for 30s and come back 503
+// (decaid#634), and the store must still hold what the user asked for. Storing
+// after the PUT resolved left a window in which the workflow already held the
+// NEW value while the store held the OLD one, and the echoing shotSettings frame
+// read it as drift (see the stale-echo note in resync-policy.js).
+async function pushRemembered(key, value, send) {
+    await persistSharedValue(key, value);
+    lastOwnPush.set(key, { value, at: Date.now() });
+    await persistLastValue(pendingPushKey(key), value);
+    const result = await send();
+    lastOwnPush.set(key, { value, at: Date.now() });
+    persistLastValue(pendingPushKey(key), null);
+    return result;
+}
+
 export async function setTargetHotWaterVolume(volume) {
     const value = parseFloat(volume);
-    await persistSharedValue(HOT_WATER_VOLUME_LAST_VALUE_KEY, value);
-    return updateWorkflow({ hotWaterData: { volume: value } });
+    return pushRemembered(HOT_WATER_VOLUME_LAST_VALUE_KEY, value, () => updateWorkflow({ hotWaterData: { volume: value } }));
 }
 
 export async function setTargetHotWaterTemp(temp) {
     const value = parseFloat(temp);
-    await persistSharedValue(HOT_WATER_TEMP_LAST_VALUE_KEY, value);
-    return updateWorkflow({ hotWaterData: { targetTemperature: value } });
+    return pushRemembered(HOT_WATER_TEMP_LAST_VALUE_KEY, value, () => updateWorkflow({ hotWaterData: { targetTemperature: value } }));
 }
 
 export async function setTargetHotWaterDuration(duration) {
@@ -1681,8 +1698,7 @@ async function steamHeaterFor(duration) {
 export async function setTargetSteamDuration(duration) {
     if (isAutoSteamActive()) throw new Error('Use a pitcher preset in Auto mode, or switch to Flow or Time.');
     const value = parseFloat(duration);
-    await persistSharedValue(STEAM_DURATION_LAST_VALUE_KEY, value);
-    return updateWorkflow({ steamSettings: { duration: value, ...(await steamHeaterFor(value)) } });
+    return pushRemembered(STEAM_DURATION_LAST_VALUE_KEY, value, async () => updateWorkflow({ steamSettings: { duration: value, ...(await steamHeaterFor(value)) } }));
 }
 
 export function isAutoSteamActive() {
@@ -1704,8 +1720,7 @@ export async function setSteamHeaterEnabled(enabled) {
 export async function setTargetSteamFlow(flow) {
     if (isAutoSteamActive()) throw new Error('Use a pitcher preset in Auto mode, or switch to Flow or Time.');
     const value = parseFloat(flow);
-    await persistSharedValue(STEAM_FLOW_LAST_VALUE_KEY, value);
-    return updateWorkflow({ steamSettings: { flow: value } });
+    return pushRemembered(STEAM_FLOW_LAST_VALUE_KEY, value, () => updateWorkflow({ steamSettings: { flow: value } }));
 }
 
 // Re-push the remembered steam values wherever Rea's workflow record disagrees
@@ -1739,8 +1754,8 @@ export async function setStopAtTemperature(celsius) {
     // persisting it would erase the temperature they tuned; the armed/off
     // state itself is skin-local (streamline.steamStopMode), not a KV value.
     // KV first, machine second, for the same reason as setTargetSteamDuration.
-    if (value > 0) await persistSharedValue(MILK_STOP_LAST_VALUE_KEY, value);
-    return updateWorkflow({ steamSettings: { stopAtTemperature: value } });
+    const send = () => updateWorkflow({ steamSettings: { stopAtTemperature: value } });
+    return value > 0 ? pushRemembered(MILK_STOP_LAST_VALUE_KEY, value, send) : send();
 }
 
 export async function getReaSettings() {

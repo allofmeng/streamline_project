@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { decideResync } from '../src/modules/resync-policy.js';
 
 // Persistence of the user's main-page settings: the shared KV record that
 // outranks a drifted workflow (milk stop, plus the resync rule every tile value
@@ -20,38 +21,53 @@ function lift(module, patterns) {
     }).join('\n');
 }
 
+// The own-push tracking resyncIfDrifted and the KV-first setters share.
+const TRACKING = [
+    /const lastOwnPush = new Map\(\);/,
+    /const pendingPushKey = .*;/,
+    /async function readPendingPush\(key\) \{[\s\S]*?\r?\n\}/,
+    /async function pushRemembered\(key, value, send\) \{[\s\S]*?\r?\n\}/,
+];
+
 // ── Milk stop + the shared KV resync rule (api.js) ───────────────────────────
 {
     const body = lift('api.js', [
         /export const MILK_STOP_LAST_VALUE_KEY = .*;/,
         /export async function readSharedValue\(key\) \{[\s\S]*?\r?\n\}/,
+        ...TRACKING,
         /export async function resyncIfDrifted\(key, fetchedValue, pushFn\) \{[\s\S]*?\r?\n\}/,
         /export async function resyncMilkStopIfDrifted\(stopAtTemperature\) \{[\s\S]*?\r?\n\}/,
         /export async function setStopAtTemperature\(celsius\) \{[\s\S]*?\r?\n\}/,
     ]);
 
-    const build = (remembered) => {
+    // `pending` is the per-device marker of a push of ours that never landed.
+    const build = (remembered, { pending = null } = {}) => {
         const kvWrites = [];
         const workflowWrites = [];
+        const pendingWrites = [];
         const api = new Function(
-            'logger', 'persistSharedValue', 'updateWorkflow', 'getValueFromStore', 'openDB', 'getSetting',
+            'logger', 'persistSharedValue', 'persistLastValue', 'updateWorkflow', 'getValueFromStore', 'openDB', 'getSetting', 'decideResync',
              `const isAutoSteamActive = () => false; ${body}\nreturn { setStopAtTemperature, resyncMilkStopIfDrifted, resyncIfDrifted };`,
         )(
             { warn() {}, error() {} },
             async (key, value) => { kvWrites.push([key, value]); },
+            async (key, value) => { pendingWrites.push([key, value]); },
             async (patch) => { workflowWrites.push(patch); },
             async () => remembered,
             async () => {},
-            async () => remembered,
+            async (key) => (key.startsWith('pending-') ? pending : remembered),
+            decideResync,
         );
-        return { api, kvWrites, workflowWrites };
+        return { api, kvWrites, workflowWrites, pendingWrites };
     };
 
     test('an armed milk stop is remembered in KV before it reaches the machine', async () => {
-        const { api, kvWrites, workflowWrites } = build(null);
+        const { api, kvWrites, workflowWrites, pendingWrites } = build(null);
         await api.setStopAtTemperature(60);
         assert.deepEqual(kvWrites, [['last-milk-stop', 60]]);
         assert.deepEqual(workflowWrites, [{ steamSettings: { stopAtTemperature: 60 } }]);
+        // Marked pending before the PUT, cleared once it landed.
+        assert.deepEqual(pendingWrites, [['pending-last-milk-stop', 60], ['pending-last-milk-stop', null]]);
     });
 
     test('turning the stop off writes the machine but never the KV record', async () => {
@@ -63,8 +79,15 @@ function lift(module, patterns) {
         assert.deepEqual(workflowWrites, [{ steamSettings: { stopAtTemperature: 0 } }]);
     });
 
-    test('a drifted armed stop is re-pushed from the KV record', async () => {
+    test('an armed stop changed by another writer is adopted, not pushed back (#105)', async () => {
         const { api, kvWrites, workflowWrites } = build(60);
+        assert.equal(await api.resyncMilkStopIfDrifted(55), null);
+        assert.deepEqual(workflowWrites, []);
+        assert.deepEqual(kvWrites, [['last-milk-stop', 55]]);
+    });
+
+    test('an armed stop whose own push never landed is re-pushed', async () => {
+        const { api, kvWrites, workflowWrites } = build(60, { pending: 60 });
         await api.resyncMilkStopIfDrifted(55);
         assert.deepEqual(workflowWrites, [{ steamSettings: { stopAtTemperature: 60 } }]);
         assert.deepEqual(kvWrites, [['last-milk-stop', 60]]);
@@ -86,7 +109,7 @@ function lift(module, patterns) {
     test('a stored value above the API ceiling is clamped on the way out', async () => {
         // rest_v1.yml SteamSettings.stopAtTemperature documents range 0..80; the tile
         // used to allow 85, so an older KV record can still hold one.
-        const { api, kvWrites, workflowWrites } = build(85);
+        const { api, kvWrites, workflowWrites } = build(85, { pending: 85 });
         await api.resyncMilkStopIfDrifted(60);
         assert.deepEqual(workflowWrites, [{ steamSettings: { stopAtTemperature: 80 } }]);
         assert.deepEqual(kvWrites, [['last-milk-stop', 80]]);
@@ -106,7 +129,7 @@ function lift(module, patterns) {
         // Pushing alone leaves the tile on the drifted workflow value. Steam flow,
         // the milk stop and the flush duration are in no websocket payload, so
         // nothing else would ever correct them.
-        const { api } = build(45);
+        const { api } = build(45, { pending: 45 });
         assert.equal(await api.resyncIfDrifted('last-anything', 30, async () => {}), 45);
         assert.equal(await api.resyncMilkStopIfDrifted(55), 45);
     });
@@ -117,6 +140,30 @@ function lift(module, patterns) {
         assert.equal(await api.resyncMilkStopIfDrifted(45), null);
         // A disarmed stop never reaches the comparison at all.
         assert.equal(await api.resyncMilkStopIfDrifted(0), null);
+    });
+
+    test('a value some other writer set is adopted and not repainted or pushed', async () => {
+        const pushed = [];
+        const { api, kvWrites } = build(45);
+        assert.equal(await api.resyncIfDrifted('last-anything', 30, async (v) => { pushed.push(v); }), null);
+        assert.deepEqual(pushed, []);
+        assert.deepEqual(kvWrites, [['last-anything', 30]]);
+    });
+
+    test('a push that fails stays pending so it can be retried after a reload', async () => {
+        const kvWrites = [];
+        const pendingWrites = [];
+        const failing = new Function(
+            'persistSharedValue', 'persistLastValue', 'openDB', 'getSetting', 'logger',
+            `${body}\nreturn pushRemembered;`,
+        )(
+            async (key, value) => { kvWrites.push([key, value]); },
+            async (key, value) => { pendingWrites.push([key, value]); },
+            async () => {}, async () => null, { warn() {} },
+        );
+        await assert.rejects(failing('last-milk-stop', 60, async () => { throw new Error('503'); }));
+        assert.deepEqual(kvWrites, [['last-milk-stop', 60]]);
+        assert.deepEqual(pendingWrites, [['pending-last-milk-stop', 60]]);
     });
 
     test('with nothing remembered the machine value stands', async () => {
@@ -134,6 +181,7 @@ function lift(module, patterns) {
         /export const STEAM_DURATION_LAST_VALUE_KEY = .*;/,
         /export const STEAM_TEMP_LAST_VALUE_KEY = .*;/,
         /export async function readSharedValue\(key\) \{[\s\S]*?\r?\n\}/,
+        ...TRACKING,
         /export async function setTargetSteamTemp\(temp\) \{[\s\S]*?\r?\n\}/,
         /async function steamHeaterFor\(duration\) \{[\s\S]*?\r?\n\}/,
         /export async function setTargetSteamDuration\(duration\) \{[\s\S]*?\r?\n\}/,
@@ -145,11 +193,12 @@ function lift(module, patterns) {
         const kvWrites = [];
         const workflowWrites = [];
         const api = new Function(
-            'logger', 'persistSharedValue', 'updateWorkflow', 'getWorkflow', 'getValueFromStore', 'openDB', 'getSetting',
+            'logger', 'persistSharedValue', 'persistLastValue', 'updateWorkflow', 'getWorkflow', 'getValueFromStore', 'openDB', 'getSetting',
             `const isAutoSteamActive = () => false; ${body}\nreturn { setTargetSteamDuration, setTargetSteamTemp };`,
         )(
             { warn() {}, error() {} },
             async (key, value) => { kvWrites.push([key, value]); },
+            async () => {},
             async (patch) => { workflowWrites.push(patch); },
             async () => ({ steamSettings: { targetTemperature: machineTemp } }),
             async () => remembered,
@@ -206,6 +255,7 @@ function lift(module, patterns) {
     const body = lift('api.js', [
         /export const HOT_WATER_VOLUME_LAST_VALUE_KEY = .*;/,
         /export const HOT_WATER_TEMP_LAST_VALUE_KEY = .*;/,
+        ...TRACKING,
         /export async function setTargetHotWaterVolume\(volume\) \{[\s\S]*?\r?\n\}/,
         /export async function setTargetHotWaterTemp\(temp\) \{[\s\S]*?\r?\n\}/,
     ]);
@@ -214,11 +264,14 @@ function lift(module, patterns) {
     const build = ({ putFails = false } = {}) => {
         const order = [];
         const api = new Function(
-            'logger', 'persistSharedValue', 'updateWorkflow',
+            'logger', 'persistSharedValue', 'persistLastValue', 'openDB', 'getSetting', 'updateWorkflow',
             `${body}\nreturn { setTargetHotWaterVolume, setTargetHotWaterTemp };`,
         )(
             { warn() {}, error() {} },
             async (key, value) => { order.push(['kv', key, value]); },
+            async () => {},
+            async () => {},
+            async () => null,
             async (patch) => {
                 order.push(['workflow', patch]);
                 if (putFails) throw new Error('503 Workflow request queue timed out');
