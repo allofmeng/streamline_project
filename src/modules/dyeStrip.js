@@ -21,6 +21,7 @@
 
 import { API_BASE_URL, getWorkflow, updateWorkflow, getDye2KvArray, setDye2KvArray, getKVValue, DYE2_KV_NAMESPACE, onWorkflowUpdated, getPlugins, installPluginFromRelease, enablePlugin, checkPluginUpdates, approvePluginUpdate, persistSharedValue, FLUSH_DURATION_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, getProfiles } from './api.js';
 import { applyWorkflowToMainPageUI } from './profileManager.js';
+import { profileAtBrewTemp } from './brew-temp.js';
 import { logger } from './logger.js';
 import { fitTextToBox } from './i18n.js';
 import { stripRightInset } from './header-strip-inset.js';
@@ -263,6 +264,13 @@ export async function applyRecipe(recipe) {
     // Steam / hot-water / flush are NOT in the stored workflow — live-merge them.
     const dv = recipe.dashboardVariables || {};
     await mergeRecipeLiveSettings(live, dv);
+    // A recipe's brewC moves the whole curve of whichever profile is now loaded: first
+    // step to brewC, the others by the same amount (brew-temp.js, as the Brew tile does).
+    // It has to run here, after the profile is resolved: applyStoredWorkflow replaces a
+    // stored profile with the tablet's own copy, so a shift DYE2 baked into the stored
+    // body would be lost, and a recipe naming no profile has nothing to bake it into.
+    // Idempotent — a profile already at brewC shifts by zero. See dye2#26.
+    if (dv.brewC != null && live.profile) live.profile = profileAtBrewTemp(live.profile, dv.brewC);
     const seq = ++applySeq;
     await withAutoSaveSuppressed(() => updateWorkflow(live));
     if (seq !== applySeq) return; // a newer tap owns the arming
