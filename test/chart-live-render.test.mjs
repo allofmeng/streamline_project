@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { MIN_CHART_INTERVAL_MS } from '../src/modules/chart-live-policy.js';
 
 test('live chart frames are paint-aligned, deferred while hidden, and expanded in one instance', async t => {
     const options = [];
@@ -128,7 +129,7 @@ test('live chart frames are paint-aligned, deferred while hidden, and expanded i
     });
     chart.updateChart(start, frame(5), 5);
     fastTimer.mock.restore();
-    assert.deepEqual(fastDelays, [99]); // 100 ms floor minus 1 ms since paint.
+    assert.deepEqual(fastDelays, [MIN_CHART_INTERVAL_MS - 1]); // floor minus 1 ms since paint.
     await new Promise(resolve => setTimeout(resolve, 120));
     assert.strictEqual(painted(), projected);
     assert.equal(Object.hasOwn(options.at(-1), 'series'), false);

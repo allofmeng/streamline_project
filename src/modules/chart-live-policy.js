@@ -1,11 +1,16 @@
 // Match the historical 10 Hz gate until a positive frame interval is observed.
 export const DEFAULT_CHART_INTERVAL_MS = 100;
-export const MIN_CHART_INTERVAL_MS = 100;
+// Measured on a Bengle tablet (2026-10-21): the machine snapshot transport runs at
+// 15.2 Hz, gap p50 66.8 ms / p95 89 ms, so a 100 ms floor coalesced about every
+// third delivered frame -- 8.6 flushes/s at 100 ms against 13.2/s at 25 ms, for
+// paint p50 3.9 ms / p95 9.7 ms and no sustained long tasks. MAX stays at the
+// historical gate, so a stall still cannot paint slower than it used to.
+export const MIN_CHART_INTERVAL_MS = 25;
 export const MAX_CHART_INTERVAL_MS = 100;
 
-// Observe accepted updateChart arrivals, not machine timestamps. The floor equals
-// the historical 100 ms gate, so painting is never faster than before until a
-// lower floor is verified on a tablet; the EMA clamp is kept so that can change.
+// Observe accepted updateChart arrivals, not machine timestamps: catch-up frames
+// must not unthrottle painting, and a stall must not slow it below the old gate.
+// The floor only binds when the transport is faster than the historical gate.
 export function createChartCadence() {
     let lastFrameAt = null;
     let estimate = null;

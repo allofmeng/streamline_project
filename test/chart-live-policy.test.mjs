@@ -9,7 +9,7 @@ test('cadence falls back for first, frozen, backwards and non-finite timestamps'
         assert.equal(observe(now), DEFAULT_CHART_INTERVAL_MS);
     }
     assert.equal(observe(2010), MIN_CHART_INTERVAL_MS);
-    assert.equal(MIN_CHART_INTERVAL_MS, 100, 'floor stays at the historical gate until tablet-verified');
+    assert.equal(MIN_CHART_INTERVAL_MS, 25, 'floor lowered after the on-tablet measurement; raise it only with counter-evidence');
     assert.equal(observe(2010), DEFAULT_CHART_INTERVAL_MS);
 });
 
@@ -31,8 +31,10 @@ test('slow cadence and stalls cannot paint slower than the historical gate', () 
 test('cadence smooths normal jitter and a new observer starts with the default', () => {
     const observe = createChartCadence();
     observe(0);
-    assert.equal(observe(50), DEFAULT_CHART_INTERVAL_MS);
-    assert.equal(observe(130), DEFAULT_CHART_INTERVAL_MS);
+    // Express the EMA rather than the post-clamp value: at MIN 100 these read 100
+    // only because the floor equalled MAX and swallowed the smoothed estimate.
+    assert.equal(observe(50), Math.max(MIN_CHART_INTERVAL_MS, 50));
+    assert.equal(observe(130), Math.max(MIN_CHART_INTERVAL_MS, 0.75 * 50 + 0.25 * 80));
     assert.equal(createChartCadence()(130), DEFAULT_CHART_INTERVAL_MS);
 });
 
