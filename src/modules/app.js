@@ -33,7 +33,7 @@ import { loadStyle } from './vendor-loader.js';
 import { loadECharts } from './echarts-loader.js';
 import { initHelpLauncher } from './help-launcher.js';
 import { noteClearContext } from './workflow-note.js';
-import { SLEEP_PROFILE_KEY, sleepProfileMark, shouldApplyWakeProfile } from './wake-profile.js';
+import { sleepProfileMark, shouldApplyWakeProfile, createSleepMarkStore } from './wake-profile.js';
 import { legacyKeysToPurge, LEGACY_VISUALIZER_PURGED_FLAG } from './legacy-credentials-purge.js';
 
 window.app = { api, ui, chart };
@@ -245,6 +245,12 @@ let isScaleScanning = false;
 let isInWakeGracePeriod = false;
 let wakeGraceTimeout = null;
 const WAKE_RECONNECT_GRACE_MS = 4000;
+
+// Which profile the machine was left on when it went to sleep, so a wake can
+// tell a profile chosen during sleep from the one it was sleeping on. Survives
+// a reload (sessionStorage), and is read lazily so a private-mode WebView with
+// no sessionStorage at all cannot break module load.
+const sleepMarks = createSleepMarkStore(() => window.sessionStorage);
 
 // Whether the devices feed currently lists any scale-type entry, connected or
 // not (see handleDeviceWsData). This is what decides whether the not-connected
@@ -849,10 +855,13 @@ function handleData(data) {
     // Remember which profile the machine went to sleep with, so waking can tell a
     // profile chosen during sleep from the one it was left on.
     if (state === MachineState.SLEEPING && previousState.state !== MachineState.SLEEPING) {
-        getWorkflow().then(wf => {
-            const mark = sleepProfileMark(wf);
-            try { if (mark) sessionStorage.setItem(SLEEP_PROFILE_KEY, mark); } catch (e) { /* private mode */ }
-        }).catch(() => {});
+        // commit() publishes THIS sleep's answer. An unreadable workflow commits
+        // null, which clears the key: leaving the previous sleep's mark behind
+        // made the next wake compare against an unrelated profile and skip the
+        // wake profile. A commit that lands after the machine already woke is
+        // dropped by the store's generation token.
+        const commit = sleepMarks.beginSleep();
+        getWorkflow().then(wf => commit(sleepProfileMark(wf))).catch(() => commit(null));
     }
 
     // Reload data when machine wakes from sleep
@@ -861,15 +870,20 @@ function handleData(data) {
         logger.info('Machine woke from sleep. Reloading initial data.');
         loadInitialData();
 
+        // Consume the mark on every wake, feature on or off: one left behind
+        // would be compared against a later, unrelated sleep.
+        const mark = sleepMarks.takeOnWake();
         if (api.isWakeProfileEnabled()) {
             const wakeProfileId = api.getWakeProfileId();
             if (wakeProfileId) {
-                let mark = null;
-                try { mark = sessionStorage.getItem(SLEEP_PROFILE_KEY); sessionStorage.removeItem(SLEEP_PROFILE_KEY); } catch (e) { /* private mode */ }
-                getWorkflow().then(wf => {
+                // The fallback is scoped to the workflow READ (an unreadable live
+                // workflow still wakes onto the profile). Catching the whole chain
+                // instead meant a throw from loadProfileForWake ran it a second
+                // time -- another PUT /workflow and another steam-settings apply.
+                getWorkflow().catch(() => null).then(wf => {
                     if (shouldApplyWakeProfile(mark, wf)) return profileManager.loadProfileForWake(wakeProfileId);
                     logger.info('Wake profile skipped: a different profile was chosen while the machine slept.');
-                }).catch(() => profileManager.loadProfileForWake(wakeProfileId));
+                }).catch(error => logger.warn('Wake profile load failed:', error));
             }
         }
 
