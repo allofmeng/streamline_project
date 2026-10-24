@@ -181,6 +181,15 @@ export async function remapFavorite(oldId, newId) {
     } catch (_) { /* storage unavailable */ }
 }
 
+// A hard-deleted profile cannot be the wake profile. Leaving the id behind left
+// the toggle switched on over a picker showing "Select a profile", and every
+// wake logging "not found -- skipping" with nothing the user could see.
+function forgetWakeProfile(profileId) {
+    try {
+        if (localStorage.getItem('wakeProfileId') === profileId) localStorage.removeItem('wakeProfileId');
+    } catch (_) { /* storage unavailable */ }
+}
+
 export async function loadAvailableProfiles() {
     try {
         // Move legacy KV profiles into /profiles first so getProfiles() returns them.
@@ -1351,6 +1360,7 @@ export async function deleteOrHideProfile(profileId, { forceHide = false } = {})
             await deleteProfile(profileId);
 
             delete availableProfiles[profileId];
+            forgetWakeProfile(profileId);
 
             await setSetting(PROFILES_CACHE_KEY, availableProfiles);
 

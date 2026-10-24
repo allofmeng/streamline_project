@@ -13,6 +13,7 @@ import { brightnessNotices, QUEUED_NOTICE, LOW_BATTERY_NOTICE, GO_TO_SETTING_LAB
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
 import { summarizeFirmwareCatalog, isFirmwareCancellationError, estimateRemainingSeconds, isUploadComplete, estimateVerifyRemainingSeconds, estimateTotalRemainingSeconds, FIRMWARE_VERIFY_SECONDS, formatDuration } from '../modules/firmware-progress.js';
 import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
+import { wakeProfileChoices } from '../modules/wake-profile.js';
 import { SCREENSAVER_CLOCK_FORMATS, SCREENSAVER_CLOCK_POSITIONS, SCREENSAVER_DATE_FORMATS, resolveScreensaverDateFormat, resolveScreensaverClockFormat, resolveScreensaverClockPosition } from '../modules/screensaver-clock.js';
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewPayload } from '../modules/led-color.js';
 import { LED_SEQUENCE_KEY, MIN_STEP_DURATION_MS, MAX_STEP_DURATION_MS, LED_TRIGGER_STATES, parseLedSequence, serializeLedSequence, addStep, removeStep, updateStep, moveStep, toggleTriggerState } from '../modules/led-sequence.js';
@@ -2345,9 +2346,7 @@ export function renderWakeLockSettings() {
         ?? isWakeLockEnabled();
     const wakeProfileEnabled = isWakeProfileEnabled();
     const wakeProfileId = getWakeProfileId();
-    const profileOptions = Object.values(availableProfiles)
-        .map(record => `<option value="${escapeHtml(record.id)}" ${record.id === wakeProfileId ? 'selected' : ''}>${escapeHtml(translateProfileTitle(record.profile?.title) || record.id)}</option>`)
-        .join('');
+    const profileOptions = renderWakeProfileOptions(wakeProfileId);
 
     // Settings can be opened before the main page has ever mounted, in which
     // case profileManager's cache is still empty (it's only populated by
@@ -2425,11 +2424,19 @@ async function loadWakeProfileOptionsAsync() {
     }
     const select = document.getElementById('wake-profile-select');
     if (!select) return; // navigated away before the fetch resolved
-    const wakeProfileId = getWakeProfileId();
-    const options = Object.values(availableProfiles)
+    select.innerHTML = `<option value="" data-i18n-key="Select a profile">Select a profile</option>${renderWakeProfileOptions(getWakeProfileId())}`;
+    // These options land after the settings page's one-shot translation pass,
+    // so the placeholder's data-i18n-key stays English without this.
+    translatePage();
+}
+
+// Shared by the synchronous render and the late fetch above. wakeProfileChoices
+// drops the records an edit retired, which otherwise piled up in the list as
+// duplicate titles, and keeps the chosen one listed even when it is one of them.
+function renderWakeProfileOptions(wakeProfileId) {
+    return wakeProfileChoices(availableProfiles, wakeProfileId, record => translateProfileTitle(record?.profile?.title))
         .map(record => `<option value="${escapeHtml(record.id)}" ${record.id === wakeProfileId ? 'selected' : ''}>${escapeHtml(translateProfileTitle(record.profile?.title) || record.id)}</option>`)
         .join('');
-    select.innerHTML = `<option value="" data-i18n-key="Select a profile">Select a profile</option>${options}`;
 }
 
 // Render Presence Detection settings (async — populates container after fetch)
@@ -9784,7 +9791,7 @@ window.handleWakeProfileToggle = function(enabled) {
     const row = document.getElementById('wake-profile-select-row');
     if (row) row.hidden = !enabled;
     if (enabled && !localStorage.getItem('wakeProfileId')) {
-        ui.showToast('Select a profile to load on wake', 3000, 'info');
+        ui.showToast(getTranslation('Select a profile to load on wake'), 3000, 'info');
     }
 };
 
